@@ -2181,6 +2181,22 @@ class VllmSparseRuntime:
             # block pages present; a mismatch localizes the failure to
             # the kept -> pages expansion / restore, not the ranking).
             _bl = _pg // max(1, int(getattr(self, "block_pages", 1) or 1))
+            # DUAL-COORDINATE readout (design 86): st.logical holds page
+            # IDS in page-id space; the view row addresses pages by RANK.
+            # The old single-coordinate check (page id in logical list)
+            # could not distinguish "page absent" from "coord space
+            # mismatch" - report membership in BOTH spaces plus the row's
+            # physical slots at the needle's rank.
+            _rank_in_row = -1
+            _slot_at_rank = -1
+            _rowv = [int(x) for x in (st.row or ())]
+            _lidx = _lg.index(_pg) if _pg in _lg else -1
+            if _lidx >= 0:
+                _rank_in_row = _lidx
+                if _lidx < len(_rowv):
+                    _slot_at_rank = _rowv[_lidx]
+            _pg_as_rank = _pg if _pg < len(_rowv) else -1
+
             _blk_pages_present = sum(1 for x in _lg
                                      if _bl * int(getattr(self, "block_pages", 1) or 1)
                                      <= x < (_bl + 1) * int(getattr(self, "block_pages", 1) or 1))
@@ -2202,6 +2218,9 @@ class VllmSparseRuntime:
                           "delta": _dd, "row_len": len(_lg),
                           "needle_block": int(_bl),
                           "block_pages_in_view": int(_blk_pages_present),
+                          "rank_of_needle_page": _rank_in_row,
+                          "slot_at_rank": _slot_at_rank,
+                          "row_len": len(_rowv),
                           "seq_len_view": int(st.seq_len)})
         except BaseException as _dexc:
             if self.log is not None:
@@ -4219,6 +4238,74 @@ class VllmSparseRuntime:
                       "seq_len": int(getattr(st, "seq_len", 0))})
         return True
 
+    def _rebuild_view(self, req, st, orch, kept, q, pt, n_pages):
+        """THE knife: pure page rearrange + selection + restore
+        (design 87). Both earlier expansions were crippled variants:
+        remobilize's was resident-only (absent pages silently dropped,
+        and the identity `old_row[p]` convention grabbed the WRONG slot
+        once the row had been compacted), and blockwise's skipped the
+        ENTIRE block when any member page was missing - the mechanical
+        cause of a rank-0 needle block absent from the installed view.
+
+        Correct semantics, three steps:
+          1. every page of every kept block is selected, no exceptions;
+          2. resident pages KEEP their current slot; non-resident pages
+             are handed the slots of the pages THIS knife evicts (rolling
+             reuse - the row never needs new allocations because the
+             view is always within the row width);
+          3. newly-handled slots get the page's canonical bytes copied
+             back from the store (restore = pure copy, no RoPE touches).
+        Returns (phys_pages, logical_pages, to_restore, to_evict),
+        slot-per-page, ready for the existing restore plumbing."""
+        row = [int(x) for x in (st.row or ())]
+        lgv = [int(x) for x in (st.logical or ())]
+        res_slot = {}
+        for i, lp in enumerate(lgv):
+            if i < len(row) and row[i] > 0:
+                res_slot.setdefault(int(lp), int(row[i]))
+        want = []
+        for b in sorted(int(x) for x in kept):
+            if b < 0:
+                continue
+            for o in range(q):
+                pg = b * q + o
+                if pg >= n_pages:
+                    break
+                want.append(int(pg))
+        want.sort()
+        sel = set(want)
+        assign = {}
+        used = set()
+        for pg in want:
+            sl = res_slot.get(pg)
+            if sl is not None and sl not in used:
+                assign[pg] = sl
+                used.add(sl)
+        # slots freed by THIS rearrange = resident pages not selected
+        pool = [sl for pg, sl in res_slot.items()
+                if pg not in sel and sl not in used]
+        seen = set(pool)
+        pool += [sl for sl in row if sl > 0 and sl not in used
+                 and sl not in seen]
+        to_restore = []
+        pi = 0
+        for pg in want:
+            if pg in assign:
+                continue
+            while pi < len(pool) and pool[pi] in used:
+                pi += 1
+            if pi >= len(pool):
+                break                       # row exhausted (shouldn't
+            sl = pool[pi]                   # happen: view <= row width)
+            pi += 1
+            assign[pg] = sl
+            used.add(sl)
+            to_restore.append((pg, sl))
+        to_evict = [pg for pg in res_slot if pg not in sel]
+        ordered = sorted(assign)
+        return ([assign[pg] for pg in ordered], ordered,
+                to_restore, to_evict)
+
     def _reselect_remobilize(self, req, pressure=False):
         """THE FINAL PROTOCOL: a view expressed as PHYSICAL BLOCKS the engine really holds.
 
@@ -4300,15 +4387,22 @@ class VllmSparseRuntime:
         if len(old_row) < q * n_blocks:
             pad = self._page_map.get(req, {})
             old_row = old_row + [int(pad.get(p, 0)) for p in range(len(old_row), q * n_blocks)]
-        phys_pages, logical_pages = [], []
-        for b in kept:
-            for o in range(q):
-                p = b * q + o
-                if p >= n_pages:
-                    break
-                if p < len(old_row) and int(old_row[p]) > 0:
-                    phys_pages.append(int(old_row[p]))
-                    logical_pages.append(int(p))
+        phys_pages, logical_pages, _to_restore, _to_evict = \
+            self._rebuild_view(req, st, orch, kept, q, pt, n_pages)
+        if _to_restore:
+            try:
+                orch.restore_pages_batch(_to_restore)
+                if self.log is not None and \
+                        getattr(self, "_rmb_loud", 0) < 8:
+                    self._rmb_loud = getattr(self, "_rmb_loud", 0) + 1
+                    self.log({"kind": "d_rmb_restore",
+                              "n": len(_to_restore),
+                              "evict": len(_to_evict),
+                              "pages": len(phys_pages)})
+            except Exception as _rex:
+                if self.log is not None:
+                    self.log({"kind": "d_rmb_restore_error",
+                              "err": str(_rex)[:140]})
         if not phys_pages:
             self._last_proposal = None
             return st
@@ -4905,25 +4999,29 @@ class VllmSparseRuntime:
             if nxt >= n_blocks:
                 break
             kept.append(nxt)
-        logical_pages, phys_pages = [], []
-        for b in kept:
-            members = []
-            complete = True
-            for o in range(q):
-                lp = b * q + o
-                if lp >= n_pages:
-                    break                              # the partial tail block is allowed
-                i = pos_of_logical.get(lp)
-                if i is None or int(old_row[i]) <= 0:
-                    complete = False
-                    break
-                members.append((lp, int(old_row[i])))
-            if not complete and b != (n_pages - 1) // q:
-                continue                               # a block with lost pages cannot be
-                                                       # adopted as a whole block - drop it
-            for lp, phys in members:
-                logical_pages.append(lp)
-                phys_pages.append(phys)
+        # THE rearrange path (design 87): selection is COMPLETE - every
+        # page of every kept block enters the view; resident pages keep
+        # their slots; evicted pages are handed the slots this knife
+        # frees and get canonical bytes copied back from the store
+        # (restore = pure copy). The old loop dropped any block with a
+        # missing member page - the mechanical cause of a rank-0 needle
+        # block absent from the installed view.
+        logical_pages, phys_pages, _to_restore2, _to_evict2 = \
+            self._rebuild_view(req, st, orch, kept, q, pt, n_pages)
+        if _to_restore2:
+            try:
+                orch.restore_pages_batch(_to_restore2)
+                if self.log is not None and \
+                        getattr(self, "_blk_loud", 0) < 8:
+                    self._blk_loud = getattr(self, "_blk_loud", 0) + 1
+                    self.log({"kind": "d_blk_restore",
+                              "n": len(_to_restore2),
+                              "evict": len(_to_evict2),
+                              "pages": len(phys_pages)})
+            except BaseException as _r2x:
+                if self.log is not None:
+                    self.log({"kind": "d_blk_restore_error",
+                              "err": str(_r2x)[:140]})
         if not logical_pages:
             self._last_proposal = None
             if self.log is not None:

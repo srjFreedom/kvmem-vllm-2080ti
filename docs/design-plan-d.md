@@ -1030,3 +1030,11 @@ skip=不重放只装视图 - 顺路）。
 - 修复（下轮单发）：final 刀展开改调完整 remobilize 路径（absent 页 → 行内空闲槽分配 + store restore），与 MID 同源。这是协议层最后一块拼图，之后 needle 页必然在场。
 - 流程纠正（用户指出）：**启动等待一律轮询就绪**（curl 直到 200），不再写死 sleep。
 - 预算：本轮 sync 两修 + 电池 1 boot。本地提交（不 push）。
+
+## 87. Round 62：_rebuild_view 三段架构上线，暴露终极病灶=页坐标双系混用
+
+- 本轮实现：共享 helper `_rebuild_view`（三段：完整选择/槽位重排复用/store 纯拷贝 restore + 无记录页不虚构守卫），两刀两处残缺展开全部接入（remobilize 版 + blockwise 版），带 d_blk_restore/d_rmb_restore 出声仪表。离线 4/4 绿。
+- 判决电池（88K×2+152K×1，全 False 但耗时 145-273s - 重排在跑）：`{n:17, evict:1225, pages:360}` + `view_base=0, pos_in_view=-1`。**读数定性**：st.logical 存的是**窗口 position 系 id**（evict 集 0..1665 连续段），而 want 按**全局 page-id 系**算（块25×q）；两系交集残缺 → 选择只装出 360 页（预算 1127）、restore 17 页、视图塌短 → causal validate/D-shrink 拒刀 → view_base=0。耗时翻倍正是每刀大 restore+拒刀重试。
+- **这就是最后一层**：所有刀/账本/store 的页身份必须统一为 `true_position // pt` 全局页 id（窗口 position 只是 rank 的别名）。audit 范围：st.logical 的每个写入方（sync_row_from_engine/install/_rebuild_view/stores），_page_map 键系，store 键系（应已是全局），validate 的 selected 比较。修完后 _rebuild_view 三段自然全对，needle 页必进场。
+- 同 boot 双代际数据（q=49/1264 系 rank0 True vs q=101/632 系 rank51 False）也一并解释：两代的 marker→page 换算撞对与否决定答案 - 统一到全局 id 系后 q 代际不再是判据分裂源。
+- 预算：1 boot + 长静态。本地提交（rbv 架构为正确方向半成品，按纪律**不接生产**——现在只有 D 实验臂走它，生产 spec4/PLAN_D=0 无影响）。
