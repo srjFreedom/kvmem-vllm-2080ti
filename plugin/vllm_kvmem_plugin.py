@@ -1888,7 +1888,8 @@ def register():
             if not physical:
                 raise ValueError("compaction requires physical page slots separately from logical pages")
             adopted = adopt_attention_blocks(scheduler.kv_cache_manager, request_id,
-                                              physical, max(1, int(block_pages or 1)))
+                                              physical, max(1, int(block_pages or 1)),
+                                             d_mode=(os.environ.get("KVMEM_PLAN_D", "") in ("1", "true", "yes", "on")))
             req.num_computed_tokens = max(0, visible)
             req.num_kvmem_offset = int(getattr(req, "num_logical_tokens", 0)) - visible
             _compact_state[request_id] = key
@@ -2762,7 +2763,8 @@ def register():
                         outcome = apply_compaction(
                             request, result,
                             lambda visible, pages, block_pages: adopt_attention_blocks(
-                                manager, request.request_id, pages, block_pages))
+                                manager, request.request_id, pages, block_pages,
+                                d_mode=(os.environ.get("KVMEM_PLAN_D", "") in ("1", "true", "yes", "on"))))
                         _append(log_path, {"kind": "sched_compact_timing", "req": request.request_id,
                                                "epoch": epoch, "rpc_s": _elapsed_rpc,
                                                "validate_apply_s": round(_time.perf_counter() - _t_val, 3)})
