@@ -1104,3 +1104,9 @@ skip=不重放只装视图 - 顺路）。
 - 场读数：88K in_kept=1×3（top6 [25,26,27,8,14,9] rank0 保持），**152K in_kept=0×2（top6 头部 [8..14] - 问句场 152K 又退化， needle blk45 掉出 top10 - 与旧 qsh 代际有关，答案修好后单独治）**。
 - 机制全绿×答案 5/5 False 的对立：生产臂同 prompt True（round-46 在案）→ 差异必在 D 面。上线 **KVMEM_D_NOKNIFE 消融开关**：D=1 但问刀空转 → 若 True 病灶=刀安装视图内容；若 False 病灶=D 执行模型（表 override/RoPE 相位/写槽）。下轮一发二分。
 - 预算：3 boots（含消融开关落地）。本地 ahead 21。生产恢复中。
+
+## 103. Round 71 终局：消融梯度（NOKNIFE 也 False）与剩余二分表
+
+- `KVMEM_D_NOKNIFE=1`（问刀全空转，视图停 MID 态）→ **False**：刀安装内容无罪（至少问刀层）。`KVMEM_D_OVERRIDE=0` 无效开关（fork 不读 env - 实验作废，勿引用其数据）。
+- 当前铁事实矩阵：D=1（任何组合）False vs D=0 同代码 True；88K 机制层五连全绿（in_kept=1、pos_in_view=676、causal 覆盖、页恒等、slot 恒等、耗时 88-100s）。差异必在 D 执行链：①MID 刀的存在（视图内容停在压缩态而非全窗口）②tables/override 生效③d_install_row 行改写。消融梯度下一步：`KVMEM_D_NOBLADE=1`（**所有刀**空转=纯稠密窗口跑 D 模型：若 True→刀视图内容问题（回到视图质量论）；若 False→override/install 链问题）。加一枚 boot 一发，与 152K in_kept=0 的场代际问题并行读。
+- 本轮 5 boots（严重越界，停止实验不再自续）。生产 env 已清（下次重启生效）；本地 ahead 22。
