@@ -2627,16 +2627,6 @@ class VllmSparseRuntime:
         runner = getattr(self.view, "runner", None)
         st = self._state.get(req)
         vr = getattr(runner, "kvmem_view_rows", None) if runner else None
-        if vr is None and runner is not None:
-            try:
-                _map = getattr(type(runner), "_kvmem_tables", None) or {}
-                _e = _map.get(id(runner))
-                if _e is None and len(_map) == 1:
-                    _e = next(iter(_map.values()))
-                if _e is not None:
-                    vr = _e.get("rows")
-            except Exception:
-                pass
         if st is None or vr is None:
             if self.log is not None and getattr(self, "_vr_why", 0) < 8:
                 self._vr_why = getattr(self, "_vr_why", 0) + 1
