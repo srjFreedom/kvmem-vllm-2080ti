@@ -1887,6 +1887,14 @@ def register():
                 return {"ok": True, "truncated": True, "visible": visible}
             if not physical:
                 raise ValueError("compaction requires physical page slots separately from logical pages")
+            try:
+                import json as _jq
+                with open("/tmp/kvmem_adopt_trace.jsonl", "a") as _fq:
+                    _fq.write(_jq.dumps({"site": "channel-1890",
+                        "pid": os.getpid(), "phys_head": [int(x) for x in list(physical)[:6]],
+                        "bp": int(block_pages or 0)}) + "\n")
+            except Exception:
+                pass
             adopted = adopt_attention_blocks(scheduler.kv_cache_manager, request_id,
                                               physical, max(1, int(block_pages or 1)),
                                              d_mode=(os.environ.get("KVMEM_PLAN_D", "") in ("1", "true", "yes", "on")))

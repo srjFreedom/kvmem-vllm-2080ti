@@ -31,8 +31,38 @@ def plan_attention_blocks(kv_cache_manager, request_id, physical_pages, block_pa
     manager = managers[0]
     old = list(manager.req_to_blocks.get(request_id, ()))
     by_id = {int(b.block_id): b for b in old}
-    if any(b not in by_id for b in blocks):
+    _pin = {"site": "plan", "width": int(width), "d_mode": bool(d_mode),
+            "pages_n": len(pages), "pages_head": pages[:6],
+            "blocks": blocks[:8], "owned_head": sorted(by_id)[:8],
+            "missing": [b for b in blocks if b not in by_id][:6]}
+    try:
+        import json as _jp
+        with open("/tmp/kvmem_adopt_trace.jsonl", "a") as _fp:
+            _fp.write(_jp.dumps(_pin) + "\n")
+    except Exception:
+        pass
+    if not d_mode and any(b not in by_id for b in blocks):
         raise ValueError("compaction cannot adopt blocks owned by another request")
+    # D-lane ownership law (design 101): identity proposals address
+    # PAGES (p = block*width+offset), and the engine may have already
+    # recycled page-blocks that no longer sit in req_to_blocks. The
+    # data at those addresses is still this request's canonical bytes
+    # (invariant 1: the stream never rewinds, pages never move), so
+    # the old protocol's "adopt only held blocks" law is a rewind-era
+    # artifact. D instead adopts held blocks and fabricates the
+    # missing ones as block-id placeholders - the engine's table row
+    # is overwritten by the worker's install anyway (d_install_row).
+    if d_mode:
+        # D adopt is a NO-OP (design 101, the clean semantics): block
+        # ownership belongs to the engine's append-only allocator;
+        # identity pages are addressed by true position, so freeing an
+        # "evicted" block would RETURN ITS SLOT TO THE POOL and let the
+        # scheduler overwrite data the store and the view still address
+        # by true position - breaking invariant (1). The knife's only
+        # physical act is d_install_row (rewriting the GPU row); Core's
+        # req_to_blocks stays untouched, and the tables law does the
+        # rest (view_lens overrides causal, delta=0 writes native).
+        return manager, list(old), []
     keep = set(blocks)
     freed = [b for b in old if int(b.block_id) not in keep]
     return manager, [by_id[b] for b in blocks], freed
