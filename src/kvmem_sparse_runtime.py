@@ -4604,6 +4604,15 @@ class VllmSparseRuntime:
         return _kc[0]
 
     def _reselect_blockwise(self, req, pressure=False):
+        # ABLATION SWITCH (design 102): KVMEM_D_NOKNIFE=1 makes the
+        # question knife (final lane) a pure no-op - the view stays at
+        # the last MID knife output. Used to binary-search whether the
+        # answer failure lives in KNIFE INSTALLATION (view content) or
+        # in the D execution model (tables/override) itself.
+        if (bool(pressure is False) and getattr(self, "d_mode", False)
+                and __import__("os").environ.get("KVMEM_D_NOKNIFE", "")
+                in ("1", "true", "yes")):
+            return self._state.get(req)
         """The NO-MOVE block view - the only view this engine's kernel table can express.
 
         The scheduler feeds the attention kernel a list of FULL blocks and the gather expands

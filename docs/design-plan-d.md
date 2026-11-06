@@ -1097,3 +1097,10 @@ skip=不重放只装视图 - 顺路）。
 - **判决读数**：refused **316 → 316 → 316**（恒等/豁免/flag 三轮改动，常数不变）、applied=0、文本仍是 ownership raise、条款文件空（validate 主条款无人生还 raise - raise 发生在 **adopt 阶段**）。常数说明：**当前执行的 refuse 路径还没被这三轮改动覆盖**——三个 adopt 调用点里，真实走的是哪一个尚未钉死（channel 1890？sched 2765 lambda？还是 worker-apply 5371 reply 在 Core 之外的第四处？）。
 - 下轮第一动作（1 boot 判死）：**每个 adopt/apply 调用点加出声针**（d_adopt_trace: site,pages_head,block_pages,d_mode,exc）四枚，一发读数即知真实路径+当时参数（pages 是否 identity、flag 是否真到）。同时保留 refuse 文本对照。
 - 电池：88K 0/2、152K 0/2（107-228s）。预算 3 boots 停止交还。生产恢复中；本地 ahead 18（identity+三豁免+flag 全链，等针判死）。里程碑未到，继续不 push。
+
+## 102. Round 71：adopt no-op 全通（refused 316→0，needle 页首次真实在视图）+ 答案二分消融上线
+
+- D adopt=不动作（块主权归 engine append-only；free 会毁恒等地址）→ **refused 0、d_dvp 史上首次全绿**：`pos_in_view=676, block_pages_in_view=49, slot_at_rank=1264, view_base 28353 < 75375 causal 覆盖`；耗时回到 88-205s（刀序列不再空转重试）。
+- 场读数：88K in_kept=1×3（top6 [25,26,27,8,14,9] rank0 保持），**152K in_kept=0×2（top6 头部 [8..14] - 问句场 152K 又退化， needle blk45 掉出 top10 - 与旧 qsh 代际有关，答案修好后单独治）**。
+- 机制全绿×答案 5/5 False 的对立：生产臂同 prompt True（round-46 在案）→ 差异必在 D 面。上线 **KVMEM_D_NOKNIFE 消融开关**：D=1 但问刀空转 → 若 True 病灶=刀安装视图内容；若 False 病灶=D 执行模型（表 override/RoPE 相位/写槽）。下轮一发二分。
+- 预算：3 boots（含消融开关落地）。本地 ahead 21。生产恢复中。
