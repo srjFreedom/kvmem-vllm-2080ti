@@ -36,6 +36,18 @@ class RunnerView:
         raise NotImplementedError
 
 
+def _dedupe_blocks(pages, pt):
+    """Consecutive page ids of one engine block share ONE row slot
+    (design 118 unit law). The missing definition of this helper was
+    NameError-ing the whole publisher path through a bare except."""
+    out = []
+    for pv in pages:
+        iv = int(pv)
+        if not out or out[-1] != iv:
+            out.append(iv)
+    return out
+
+
 def pool_prefill_high_watermark(ceiling_tokens, page_tokens):
     """First pressure boundary: physical KV ceiling minus one chunk and allocator slack."""
     return max(64, max(0, int(ceiling_tokens) - 4096 - 2048)
