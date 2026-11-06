@@ -1173,3 +1173,13 @@ skip=不重放只装视图 - 顺路）。
 - 唯一剩余假说 R-视野: decode 生成 token 写入 view_base+step 槽 (行尾 883+), 但 causal 长 = view_base (882×32=28224...) +ql 每步只 +1: **写入的页在视图行内但 causal 覆盖它需要 seq_lens 含其页** - vbase=st.seq_len 每步 +1 (面板 28355→+1 ✓ 跟随) ✓✓ 也覆盖... 除非 decode 写入落在 R 区而 R 区页**不在 selected 前 882 页内**: 行 [882..1665] 是旧 native 残页, 写新 token 进 row[882+k] = 覆盖残页 (对); causal 28355+token 数 逐步吃进 R 区 ✓ 也自洽。
 - 判决实验定型 (下轮): 生产 D=0 vs D=1 的**首个分歧 token 对比** (greedy 双链, 相同输入, 生产 True/D False - 分歧点前的 logits 由 (a) 视图内容 (b) 数值归约序 决定; 若分歧发生在 token 1 (思维链第一个词), 则 forward 从一开始就不同 = 纯数值归约差异 (与视图内容无关) -> 归 round-49 蝴蝶族, D 判据改用机制指标+多次计数; 若分歧发生在 decode 中段, 视图/R 假说复活)。一发双请求 (同 boot 双臂不可行, 但可用**同 D=1 臂连发** 对比两次 False 输出分歧点 - 若两次 True/False 混发间在 ~token35 分歧 = 蝴蝶 (已知); 若 D 全部固定同一错法 = 确定性视图问题)。
 - 预算: 4 boots (含重做), 停止交还。env D=1 臂当前, 生产恢复中。
+
+## 113-114. Round 78-终局：duct 退化捕获 + view_base 单位混入实锤 + 三候选清单
+
+- 双消融格炸出决定性症状: NOINSTALL+NOOVERRIDE (行 native+causal 真账本) 输出 **duct 循环** - 该格 attention 读 row[0..28353] 却是 native 头部 (window 起点在 22126!) - 读到的全是错误页 → **证明 read 面必须"行内容×causal 长×窗口起点"三者同源**, 任何两两组合错位都产生可测症状。正常 D 现在也 duct (kb244/245/246 连续) - 症状从"连贯错答"迁移到"循环" = 尾律/面板时代新错位, 不再是旧病。
+- 面板铁读数 (kb245): `vbase=34211 非 32 倍数` - **st.seq_len 被 token 步长 (+1/step) 与页数×pt 两套单位混写** (before_step 加 query 数、sync 刷 st.seq_len、install 写页数×pt - 三个作者一个变量)。`eng_bs=3` (getter 拿到错误对象 - 面板 bug 不致命)。delta=41166=75377-34211 自洽。
+- 三候选定位 (下轮按序判):
+  1. st.seq_len 单一作者化: 只有刀 install 与 after_step 的 R 区推进可写它, 单位统一为页×pt+R 页×pt (禁 +token 混写) - grep 全部 `st.seq_len =/+` 写入点做审计;
+  2. view_base(=st.seq_len) 与行内容对齐验证: install 后立刻断言 row 前缀 == logical 集且 len(row)>=causal 页需求;
+  3. duct 复现测试: NOINSTALL+NOOVERRIDE 格作最小复现台 (行 native+window 起点非 0 时必 duct) - 用它反向验证修复。
+- 已保留代码: d_install_row 推 view+native 尾 (kb244 时代修复, 方向正确), 面板 fail-closed+重排。5 boots 越界, 停止交还。

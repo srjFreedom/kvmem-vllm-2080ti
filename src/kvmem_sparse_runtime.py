@@ -2607,6 +2607,8 @@ class VllmSparseRuntime:
                                             kv_cache_groups if (runner and getattr(runner, "kv_cache_config", None)) else 0)})
                 return False
             import torch
+            _pre_row_tail = [int(x) for x in (st.row or ())][len(phys_pages):]
+            _push_pages = list(phys_pages) + [x for x in _pre_row_tail if x > 0]
             _rowi = int(st.row_index)
             _gids = [gid for gid, spec in enumerate(
                 getattr(tbls, "spec", getattr(tbls, "kv_cache_groups", ())) or ())
@@ -2619,9 +2621,9 @@ class VllmSparseRuntime:
                     if gpu is None or _rowi >= gpu.shape[0]:
                         continue
                     rowv = gpu[_rowi]
-                    n = min(len(phys_pages), rowv.shape[0])
+                    n = min(len(_push_pages), rowv.shape[0])
                     idx = torch.arange(n, device=rowv.device)
-                    vals = torch.tensor([int(x) for x in phys_pages[:n]],
+                    vals = torch.tensor([int(x) for x in _push_pages[:n]],
                                         dtype=rowv.dtype, device=rowv.device)
                     rowv.index_copy_(0, idx, vals)
                     pushed += 1
