@@ -1253,3 +1253,10 @@ skip=不重放只装视图 - 顺路）。
 - 152K False 同因（刀死→视图从未建立→稠密遮蔽问句区）。
 - 下轮单点: 读 3305 的槽账目条件（next_page/row 宽/R 预留块槽）与 BLKIDS install 后 st.row 的块粒度新语义（882 页值→18 块值）失配处 - 把 after_step 的槽公式改成块单位 - 修完刀自然复活，publish/电池全链同 boot 验证。
 - 预算: 本轮 1 boot + 2 复核（加 kill 一发），停止交还。生产恢复中。本地 ahead 45。
+
+## 128. Round 88：guard 谓词修正落码 + 本轮以臂错发告终（未验证，如实）
+
+- 静态结案（完整 traceback 直读，不再猜）：after_step raise = "pre-knife window guard" 谓词只查 `d_mode` - 而 d_mode 自 wiring 起恒真 - **刀前的合法增长期 guard 不通行、3305 raise 杀掉整个 after_step** → 刀零事件、publish 零、行账目停摆全由此。修复=谓词加"已装视图或已过窗基"（`_r0_rank is not None or tokens>0`），代码+离线 5/5 已提交。
+- 验证欠账（不粉饰）：修复代际的电池**还没跑** - 本轮 boot 漏发 sed（臂仍是 D=0），battery 数据无效已弃；下次 boot（下轮第一件事）跑 88K+152K mt256，判据三同框：`d_knife_call>0 + d_view_published/skip 事件在场 + 答案`。
+- 教训入律第 N+1 次：**boot 命令必须自带 arm-assert**（grep 期望值不匹配则拒绝 restart）- 下轮起 sed/grep/restart 合并为单原子块。
+- 预算: 1 boot（无效）+ 大量静态。生产恢复中，本地 ahead 47。
