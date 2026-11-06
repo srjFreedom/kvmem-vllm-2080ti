@@ -2159,6 +2159,15 @@ class VllmSparseRuntime:
         can even address the needle bytes at generation time."""
         if not getattr(self, "d_mode", False) or int(n_new) > 8:
             return
+        # POST-knife only (design 89): the prefill steps all report the
+        # dense pre-knife state (empty logical, window base) and used to
+        # exhaust the throttle before ANY question-knife view existed -
+        # the panel literally never observed the installed view.
+        try:
+            if not bool(getattr(self.state(req), "prefill_done", False)):
+                return
+        except Exception:
+            return
         st = self._state.get(req)
         if st is None:
             return
@@ -2563,7 +2572,8 @@ class VllmSparseRuntime:
                 old_log = list(st.logical or ())
                 if len(old_log) < len(st.row):
                     for rank in range(len(old_log), len(st.row)):
-                        old_log.append(rank + off)
+                    # design 88: tail of a compacted view is not a dense window;
+                        old_log.append(-1)  # design 88: knife-compact views make rank+off a fabrication
                     st.logical = tuple(old_log[:len(st.row)])
             # `seq_len` is the resident length written BEFORE this step; `before_step` adds the
             # current query exactly once. Deriving it here as `tokens + n_tokens` made the two
@@ -4228,7 +4238,7 @@ class VllmSparseRuntime:
             if int(st.tokens) > int(visible):
                 st.off_pages = (int(st.tokens) - int(visible)) // max(1, int(self.page_tokens))
             if len(st.logical or ()) < len(st.row or ()):
-                pad = [(rank + int(st.off_pages)) for rank in range(len(st.logical), len(st.row))]
+                pad = [-1 for rank in range(len(st.logical), len(st.row))]
                 st.logical = tuple(st.logical or ()) + tuple(pad)
         except Exception:
             pass
@@ -4261,7 +4271,7 @@ class VllmSparseRuntime:
         lgv = [int(x) for x in (st.logical or ())]
         res_slot = {}
         for i, lp in enumerate(lgv):
-            if i < len(row) and row[i] > 0:
+            if i < len(row) and row[i] > 0 and int(lp) >= 0:
                 res_slot.setdefault(int(lp), int(row[i]))
         want = []
         for b in sorted(int(x) for x in kept):

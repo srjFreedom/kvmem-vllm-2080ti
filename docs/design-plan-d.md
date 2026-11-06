@@ -1038,3 +1038,10 @@ skip=不重放只装视图 - 顺路）。
 - **这就是最后一层**：所有刀/账本/store 的页身份必须统一为 `true_position // pt` 全局页 id（窗口 position 只是 rank 的别名）。audit 范围：st.logical 的每个写入方（sync_row_from_engine/install/_rebuild_view/stores），_page_map 键系，store 键系（应已是全局），validate 的 selected 比较。修完后 _rebuild_view 三段自然全对，needle 页必进场。
 - 同 boot 双代际数据（q=49/1264 系 rank0 True vs q=101/632 系 rank51 False）也一并解释：两代的 marker→page 换算撞对与否决定答案 - 统一到全局 id 系后 q 代际不再是判据分裂源。
 - 预算：1 boot + 长静态。本地提交（rbv 架构为正确方向半成品，按纪律**不接生产**——现在只有 D 实验臂走它，生产 spec4/PLAN_D=0 无影响）。
+
+## 88-89. Round 63：坐标审计落地（rank+off 伪造改洞）+ 面板盲区修复（刀后才是观测对象）
+
+- 审计结论：pad 的 rank+off 只对稠密窗成立；刀后视图的尾部 rank 伪造 id 会与真实区碰撞（rbv want/res 交集崩、360/1127 页）。三处改：两处 pad 填 -1 洞、res_slot 跳负 id。离线 6/6。
+- 电池（88K×2+152K）仍全 False 但耗时回落（104-228s，拒刀风暴消失）；面板本轮读数**全部 prefill 态**（vb=53248 稠密、logical 未建）- throttle 被刀前步耗尽 = **面板从未观测过已安装视图**（第 N 次观测点缺失教训）。修：prefill_done 后才记账。
+- 下轮一发：boot 后 88K×2+152K×1，读**刀后 decode 态** d_dvp（pos_in_view/block_pages_in_view/restore n）- 若 pages_cover≈49 且 pos≥0 → 坐标审计闭环，答案应进 True 带；若仍 0 → store 键系审计（store_delta/put 调用方的 page 参数坐标）。
+- 预算：1 boot + 1 修面板。本地提交（rbv 系列未达验收，不 push）。
