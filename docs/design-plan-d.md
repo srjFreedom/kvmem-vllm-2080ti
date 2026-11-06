@@ -1190,3 +1190,13 @@ skip=不重放只装视图 - 顺路）。
 - **duct 的几何终解**: kernel 对 token pos 的寻址是 row[pos//1568] + 页内恒等偏移 - 视图行被刀重排后，行尾 causal 覆盖到 `视图长+steps` 时**跨入 row[22..] 之后的槽位 = 重排行里其他 resident 块的页**（不是空槽！）- 模型把已选块的第二副本当新生成上下文反复读 → duct 循环。生产臂同重排但行从不打乱顺序（escape/rewind 语义保持行位置单调）故不触发。
 - **设计裁决（终形）**: 视图页恒对齐块 - seq_lens（override）= selected_pages x pt（恰为 1568 的倍数当 selected 是整块集），**decode 新 token 的可见性不得跨行槽边界猜偏移**：R 区写入必须落进"视图预留块" - install 行时把行尾 N 个块置为"待写"占位（store 无内容但 causal 到得了 - 每步写入 slot=pos-delta 的槽位必须 == 该行尾块的 native id）。修复方案（下轮实现）: `_rebuild_view` 返回尾部追加 `spare_blocks = ceil(R_budget/1568)` 个"引擎原生行尾块 id"（不是 selected 成员、不恢复内容、仅占位），视图 causal 长 = (len(selected)+spare) x pt；d_install_row 推这个扩展行 → 写槽与读槽在行尾块对齐 → 新生成 token 的 K 落在自己块内、下步可读。
 - 本轮 2 boots（getter 修正一发+日志终审零成本）。实验停止。生产恢复中；ahead 34。
+
+## 118-119. Round 80：单位判决往返 - identity 行写入产生 duct 已证；回退实验也失败（applied 0），历史已清理
+
+- 实验一（design 118, resident block ids 重写）：duct 消失但刀链全停 - refuse 文本 `TP reconstruction score availability, shape or request differ` x200 + `workers did not all prepare a checkpoint` x32 - **报错来自 checkpoint/reconstruction 旧机器（v0.5.2 残留触发面）而非刀视图本身**；applied=0 说明该实验未真正测到"块粒度视图是否可读"。
+- 实验二（回退 identity 单独重探）：为分离变量，已把 _rebuild_view 恢复 plain identity（install 仍走 dedupe），duct 现象下次 boot 复现对照（identity+882 值→167 槽行 = duct 机制在 panel 行宽证据下成立；两实验混杂导致本轮无法定论块粒度可读性）。
+- 下轮顺序（先清障碍再测几何）:
+  1. 清除 checkpoint/reconstruction 旧机器触发面（目标明令删除的 v0.5.2 残留 - 它现在正在拒绝所有 D 提案）: grep prepare_a_checkpoint / reconstruction score availability 两条 raise 的调用门，D 臂下直接旁路;
+  2. 之后 resident-block-ids 版重跑（118 的实现保留在 git 历史 50871ae 前一版，可 cherry-pick）;
+  3. duct 与块粒度可读性分离判决。
+- 生产恢复中；本地 ahead 36；本轮 1 boot。
