@@ -4382,8 +4382,21 @@ class VllmSparseRuntime:
             to_restore.append((pg, sl))
         to_evict = [pg for pg in res_slot if pg not in sel]
         ordered = sorted(assign)
-        return ([assign[pg] for pg in ordered], ordered,
-                to_restore, to_evict)
+        # IDENTITY PHYSICS (design 100, the terminal simplification of
+        # Plan D): under the never-rewound execution model every page's
+        # bytes live FOREVER at its true engine slot (block p//width,
+        # offset p%width) - the token stream never rewinds, so the
+        # scheduler never recycles those blocks to other requests and
+        # "restore" is structurally unnecessary. The knife is PURE
+        # block-table rearrangement: physical page id == logical page id
+        # by construction. The old pool-allocation + store-copy machinery
+        # was inherited from the rewind-era protocol; its invented slots
+        # failed Core's adoption ownership check (229 refusals), freezing
+        # every view at the last MID knife. Identity also makes the
+        # fork's slot math exact: pos//block lands on kept block order,
+        # write addresses roll through the tail block (tail_block in
+        # kept), eviction is the scheduler's own append-only business.
+        return (ordered, ordered, [], [])
 
     def _reselect_remobilize(self, req, pressure=False):
         """THE FINAL PROTOCOL: a view expressed as PHYSICAL BLOCKS the engine really holds.
