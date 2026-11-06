@@ -1183,3 +1183,10 @@ skip=不重放只装视图 - 顺路）。
   2. view_base(=st.seq_len) 与行内容对齐验证: install 后立刻断言 row 前缀 == logical 集且 len(row)>=causal 页需求;
   3. duct 复现测试: NOINSTALL+NOOVERRIDE 格作最小复现台 (行 native+window 起点非 0 时必 duct) - 用它反向验证修复。
 - 已保留代码: d_install_row 推 view+native 尾 (kb244 时代修复, 方向正确), 面板 fail-closed+重排。5 boots 越界, 停止交还。
+
+## 115-116. Round 79：地址粒度终审 - 引擎 attention block=1568 tokens，刀视图 32-token 页与它天然不对齐
+
+- 权威读数（引擎日志 interface.py:933，双 TP 一致）: `Setting attention block size to 1568 tokens to ensure attention page == mamba page` - engine row 每槽=1568 tokens (=49x32 worker pages)，q=49 正是这个块制 ✓ 视图块粒度对。
+- **duct 的几何终解**: kernel 对 token pos 的寻址是 row[pos//1568] + 页内恒等偏移 - 视图行被刀重排后，行尾 causal 覆盖到 `视图长+steps` 时**跨入 row[22..] 之后的槽位 = 重排行里其他 resident 块的页**（不是空槽！）- 模型把已选块的第二副本当新生成上下文反复读 → duct 循环。生产臂同重排但行从不打乱顺序（escape/rewind 语义保持行位置单调）故不触发。
+- **设计裁决（终形）**: 视图页恒对齐块 - seq_lens（override）= selected_pages x pt（恰为 1568 的倍数当 selected 是整块集），**decode 新 token 的可见性不得跨行槽边界猜偏移**：R 区写入必须落进"视图预留块" - install 行时把行尾 N 个块置为"待写"占位（store 无内容但 causal 到得了 - 每步写入 slot=pos-delta 的槽位必须 == 该行尾块的 native id）。修复方案（下轮实现）: `_rebuild_view` 返回尾部追加 `spare_blocks = ceil(R_budget/1568)` 个"引擎原生行尾块 id"（不是 selected 成员、不恢复内容、仅占位），视图 causal 长 = (len(selected)+spare) x pt；d_install_row 推这个扩展行 → 写槽与读槽在行尾块对齐 → 新生成 token 的 K 落在自己块内、下步可读。
+- 本轮 2 boots（getter 修正一发+日志终审零成本）。实验停止。生产恢复中；ahead 34。

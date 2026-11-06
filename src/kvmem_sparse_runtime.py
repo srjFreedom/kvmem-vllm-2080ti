@@ -2217,29 +2217,24 @@ class VllmSparseRuntime:
             #          slot value == 2529 (or 1264 at bs32).
             #   write: rank expected = (tokens // pt) as view rank ->
             #          row[rank] is the slot the next token lands in.
+            # AUTHORITATIVE granularity readout (design 115): the
+            # BlockTables object stores exactly what init built -
+            # block_sizes (per kv group, in TOKENS) and
+            # kernel_block_sizes. The previous first getter hit an
+            # unrelated attribute (returned 3 - pure noise). Dump the
+            # full lists so the row-slot granularity debate ends with
+            # data: engine attention block tokens vs worker pt vs q.
             _eng_bs = -1
-            for _getter in (
-                lambda: int(_rn.attn_group_block_sizes[0]),
-                lambda: int(_rn.block_tables.block_sizes[0]),
-                lambda: int(self.view.pages[0].shape[1]) and -2,
-            ):
-                try:
-                    _v = _getter()
-                    if _v > 0:
-                        _eng_bs = _v
-                        break
-                except BaseException:
-                    continue
-            if _eng_bs < 0:
-                try:
-                    _tb = None
-                    for _g in getattr(self.view, "attn_groups", ()) or ():
-                        _tb = _g
-                        break
-                    if _tb is not None:
-                        _eng_bs = int(_tb)
-                except BaseException:
-                    pass
+            _bs_list: list = []
+            _kbs_list: list = []
+            try:
+                _bt = _rn.block_tables
+                _bs_list = [int(x) for x in _bt.block_sizes]
+                _kbs_list = [int(x) for x in getattr(_bt, "kernel_block_sizes", ())]
+                _cand = [x for x in _bs_list + _kbs_list if x > 0]
+                _eng_bs = _cand[0] if _cand else -1
+            except BaseException:
+                pass
             _true_pg = 40471 // max(1, _eng_bs) if _eng_bs > 0 else -1
             _slot_at_true = (_rowv[_true_pg]
                              if _eng_bs > 0 and 0 <= _true_pg < len(_rowv)
@@ -2282,6 +2277,7 @@ class VllmSparseRuntime:
                           "slot_at_rank": _slot_at_rank,
                           "eng_bs": _eng_bs, "true_page": _true_pg,
                           "slot_at_true": _slot_at_true,
+                          "bs_list": _bs_list, "kbs_list": _kbs_list,
                           "row_len": len(_rowv),
                           "seq_len_view": int(st.seq_len)})
         except BaseException as _dexc:
