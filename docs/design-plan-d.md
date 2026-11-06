@@ -1126,3 +1126,10 @@ skip=不重放只装视图 - 顺路）。
 - 反转后的根因再确认（这次是写槽数学）：刀后引擎行被 d_install_row 改写为重排序列（rank != native position），**而 fork 写地址 = table[pos//block]**，pos=true 75375 -> 行 rank 48 = 视图第 48 个选中页 - **每个新 token 的 KV 写进视图自己的页里，逐 token 吃掉视图内容**。生产（D=0）同一公式成立是因为其行从不重排（rank=position 恒等）。
 - 修复定形（下轮）：**视图只存在于 READ 面**：d_install_row 退役，engine 行永 native（写分配安全），attention 的 input_block_tables 在 D 臂 copy 自 worker 视图行（独立发布表 - fork prepare 链一处改动）。这恢复设计的两表本意（写=账本原生 / 读=检索视图）。
 - 同批发货：fork prepare 视图 copy 源 + 去 d_install_row + 一发 88K 判决。
+
+## 106. Round 74：读 fork 源码修正我的写槽冤案 - 单表恒等 + positions-minus-delta 本来就是正确设计
+
+- 冤案：round 73 推理 "install 重排行 -> 写 pos//block 落进视图页被吃掉"。源码判决不成立：fork 写地址 = `positions - deltas`（model_runner 1660），deltas 把写折到视图 R 区，恒等 install 下单表自洽：selected rank=真 slot（读 ✓）、写 = R 区 native 尾（append-only 不与视图冲突 ✓）、行宽 1666 页容纳视图 882+R 156+余量。设计 (2) 由 `positions-delta` + scheduler 原生分配共同兑现，无需第二张表。
+- 因此答案 False 的剩余候选（对照实验排序）：① decode 期 harvest/统计通道与刀视图的锚（fork 注释里 knife 移动 view frame 的滞后类）；② override causal 与 q positions 的真坐标交互（q 真 75374 vs kv 视图长 - mask 语义）；③ MTP/spec0 无关（已排除）；④ GDN 通道外，视图内容本身（needle 页在 decode 中途被滚走？）- decode 期 3 枚面板读数已在 kb228 样本里（pos 676 恒在）。
+- 下轮对照：同 prompt 生产臂（D=0 spec0）一发 - 若 D=0/spec0 也 False，蝴蝶带在 spec0 全局存在，与 D 无关，判据需改用多次计数；若 D=0/spec0 True，差异仍在 D 面（候选 ①②）。顺带把 250K 在新 adopt 链上首测。
+- 预算：0 boot（纯静态读码 + 上轮数据复查）。生产状态未动（spec4/D=0）。
