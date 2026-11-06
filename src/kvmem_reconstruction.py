@@ -108,7 +108,14 @@ def validate_quiescent_compaction(request, records, tp_size, epoch, kv_cache_man
             # out of bounds iff the LAST page starts at or after logical.
             if (page <= 0 or block <= 0 or not selected
                     or selected[-1] >= (logical + page - 1) // page
-                    or tuple(selected) != tuple(sorted(set(int(x) for x in selected)))
+                    or (not d_mode and tuple(selected) !=
+                tuple(sorted(set(int(x) for x in selected))))
+                # D-lane exemption (design 99): under Plan D field 0
+                # carries the worker's installed page order (slot-order
+                # legal); cross-rank agreement is enforced separately on
+                # the LOGICAL PAGE SET at the consensus compare below -
+                # demanding sortedness of the slot sequence killed every
+                # D proposal (197 clause dumps, all sorted_ok=false).
                     # the straddler law, SHARED (design 49): every page
                     # strictly inside the stream must be selected. D
                     # proposals were dying at the "different logical"
