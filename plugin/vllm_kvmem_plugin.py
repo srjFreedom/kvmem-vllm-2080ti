@@ -3288,27 +3288,10 @@ def _install(cls, module_name, probe, smoke, state):
                         # The `rt.runner = self` line is REVERTED: it
                         # aliased the view's runner to the wrapper
                         # object and the next request died with 500.
-                        # CLASS SHARING (design 133, corrected): do NOT
-                        # stamp GPU tensors as class attributes - TP rank1
-                        # would see rank0's cuda:0 tensors and die with
-                        # "indices should be on the same device". Instead
-                        # publish ONE plain python dict on the class,
-                        # keyed by the instance id; every reader looks up
-                        # its OWN instance's entry, so tensors stay
-                        # per-rank and device-correct by construction.
-                        try:
-                            from vllm.v1.worker.gpu import model_runner as _mrx
-                            _tbls = getattr(_mrx.GPUModelRunner,
-                                            "_kvmem_tables", None)
-                            if _tbls is None or not isinstance(_tbls, dict):
-                                _mrx.GPUModelRunner._kvmem_tables = {}
-                            _mrx.GPUModelRunner._kvmem_tables[id(self)] = {
-                                "deltas": self.kvmem_slot_deltas,
-                                "lens": self.kvmem_view_lens,
-                                "rows": getattr(self, "kvmem_view_rows", None),
-                                "active": bool(self.kvmem_view_active)}
-                        except Exception:
-                            pass
+                        # (design 133 lesson: class-level sharing of GPU
+                        # tensors leaks across TP devices - never do it;
+                        # wiring stays per-instance on wrapper-self, and
+                        # wire_probe records the object identity.)
                         # IDENTITY PROBE (design 132): tables-none while
                         # wired fired - log the exact object the tables
                         # were stamped onto plus the allocation outcome,

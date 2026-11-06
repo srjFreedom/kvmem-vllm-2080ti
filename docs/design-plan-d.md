@@ -1269,3 +1269,11 @@ skip=不重放只装视图 - 顺路）。
 - 新裂缝（未修，如实）: `d_sync_exit why=tables-none v=true d=true` - **runner 上 view_lens/slot_deltas 两属性皆 None**：wiring 分配的表未挂到 sync 所读的 runner 对象（或 execute_model 外层 else 把属性置 None - 3281 行 fallback 触发过）。修复方向：wiring 分配与 sync 读取核对同一 runner 引用；确认 `self.kvmem_view_rows` 是否在 wiring 内成功（attrs 显示 view_rows 在、两表 None - 矛盾指向分配块中途异常走 else 置 None）。下轮第一读：wiring 块加逐行出声（每表分配成功/异常都记）。
 - 服务当前代际是实验态（D=1），生产恢复推迟至下轮开头（先修后恢复，避免无意义重启）。
 - 验收距离: 六环（刀触发→merge→rbv→install→publish→adopt→读表答案）通至第五环，第六环差表挂载一步。
+
+## 133. Round 90：class dict 共享的 TP 设备事故与终局架构判决（GPU tensor 只准实例属性）
+
+- wiring 首跑成功（plan_d_wired×2、wire_probe 显示三表全在 wrapper-self）——"tables-none 时代"的分配断点被打通。
+- 两次 500 崩溃（`indices should be on the same device`×两 rank）根因判死：**GPU 表经 class 级共享（属性或 dict 值）必然跨设备泄漏**——TP rank1 的 reader 拿到 rank0 的 cuda:0 tensor。`len(_map)==1 取唯一项` 的兜底在每 worker 一份 map 时无害，但 fork prepare 侧对类属性 getattr 的路径不可控。**终局规则：GPU tensors 只准挂在各自 runner 实例属性上；跨实例需求只传 CPU 元数据（id/dict of ints）。**
+- 回滚三处（wiring class dict 写、sync/install class dict 读、`rt.runner=self` 已在前删）——tables-none 的原始问题回到"同一 runner 实例的分配路径核对"：wire_probe 显示 `rt_has_runner_attr: true`（wrapper-self 就是 view 的 runner），**tables 都在其上**——则 sync 读 None 只能是 **timing**：sync 在 wiring 之前的步骤跑过。修 reader 前必须先确认此点（探针已在：tables-none 次数与 wired 先后序——本代次 tables-none×2 而 publish=0——刀从未跑到，正是死时早于 wiring 完成）。
+- 下一步剧本明确：回滚 class dict → 保留 wire_probe → boot 验证"刀首次跑到 publish"→ 若 tables-none 只在 wiring 前出现（良性），publish 在场即全链通。
+- 预算：本轮 3 boots 停止交还。恢复生产中（回滚后）。
