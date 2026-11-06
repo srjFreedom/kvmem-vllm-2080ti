@@ -3262,14 +3262,11 @@ def _install(cls, module_name, probe, smoke, state):
                         # writes untouched. prepare_attn overwrites the
                         # gathered attention rows from it while a view is
                         # active (see GPUModelRunner.prepare_attn).
-                        try:
-                            _rw = int(self.block_tables.block_tables[
-                                0].gpu.shape[1])
-                            with _td.inference_mode(False):
-                                self.kvmem_view_rows = _td.zeros(
-                                    (_n, _rw), dtype=_td.int32).view(_td.int32)
-                        except Exception:
-                            self.kvmem_view_rows = None
+                        # (design 134) view_rows READ TABLE retired:
+                        # adoption already rewrites the engine row, so
+                        # attention reads the knife order natively. The
+                        # CPU-gather override crashed rank1 (indices on
+                        # cuda vs cpu) and is deleted from the fork.
                         self.kvmem_view_active = False
                         rt = state.get("sparse")
                         if rt is None:

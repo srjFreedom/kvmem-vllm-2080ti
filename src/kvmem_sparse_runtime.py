@@ -2609,9 +2609,13 @@ class VllmSparseRuntime:
         arrives in engine-BLOCK id space (BLKIDS unit law, design 121)."""
         if not getattr(self, "d_mode", False):
             return False
+        # PUBLISHER RETIRED (design 134): read-table view_rows is gone -
+        # the adopted engine row IS the read table (fork override caused
+        # a rank1 cpu/cuda index crash). d_install_row now only records
+        # the event so the knife chain stays observable end to end.
         runner = getattr(self.view, "runner", None)
         st = self._state.get(req)
-        vr = getattr(runner, "kvmem_view_rows", None) if runner else None
+        vr = None
         if st is None or vr is None:
             if self.log is not None and getattr(self, "_vr_why", 0) < 8:
                 self._vr_why = getattr(self, "_vr_why", 0) + 1
