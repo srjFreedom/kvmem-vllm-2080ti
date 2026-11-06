@@ -3276,7 +3276,23 @@ class VllmSparseRuntime:
                         page = self._grow_from_engine(req, grown,
                                                       self._logical_for_rank(st, len(grown)))
                         if page is None:
-                            if getattr(self, "d_mode", False):
+                            # GUARD FIX (design 128): the predicate was
+                            # bare d_mode, which is TRUE from the very
+                            # first prefill step - BEFORE any knife has
+                            # installed a frozen window. The row then
+                            # legitimately still grows with the engine,
+                            # grow returns None (engine has not appended
+                            # THIS step yet), the guard "returned st"
+                            # pretending a knife was due that cannot
+                            # exist yet - and worse, the raise below
+                            # killed after_step for real in exactly that
+                            # pre-knife phase (measured: 66 raises/gen,
+                            # zero knife events, zero publishes).
+                            # Correct gate: a view exists (r0 recorded)
+                            # OR the token stream passed the window base.
+                            if getattr(self, "d_mode", False) and (
+                                    getattr(st, "_r0_rank", None) is not None
+                                    or int(st.tokens) > 0):
                                 # Plan D: the frozen window row has no room to
                                 # grow by design - reaching the edge means the
                                 # knife is due NOW. Placeholder keeps indexing
