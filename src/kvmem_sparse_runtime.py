@@ -2129,21 +2129,6 @@ class VllmSparseRuntime:
         _vlv = getattr(runner, "kvmem_view_lens", None)
         _dlv = getattr(runner, "kvmem_slot_deltas", None)
         if _vlv is None or _dlv is None:
-            # class-dict fallback (design 133): the wiring may have
-            # stamped a DIFFERENT runner instance (editable/site split);
-            # per-instance dict keyed by id keeps tensors on their own
-            # devices - we look up ours, then any single entry.
-            try:
-                _map = getattr(type(runner), "_kvmem_tables", None) or {}
-                _e = _map.get(id(runner))
-                if _e is None and len(_map) == 1:
-                    _e = next(iter(_map.values()))
-                if _e is not None:
-                    _vlv = _vlv if _vlv is not None else _e.get("lens")
-                    _dlv = _dlv if _dlv is not None else _e.get("deltas")
-            except Exception:
-                pass
-        if _vlv is None or _dlv is None:
             if loud:
                 _sy[0] += 1
                 self.log({"kind": "d_sync_exit",
