@@ -2259,7 +2259,7 @@ def register():
                 _append(_channel_state.get("probe_log")
                         or "/tmp/kvmem_sparse.jsonl",
                         {"kind": "rebuild_error", "pid": os.getpid(),
-                         "req": request_id, "error": f"{type(exc).__name__}: {exc}",
+                         "req": request_id, "error": f"{type(exc).__name__}: {exc}"[:400],
                          "tb": traceback.format_exc()[-400:]})
                 return {"ok": False, "error": str(exc)[:200]}
 

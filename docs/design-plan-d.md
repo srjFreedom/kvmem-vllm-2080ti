@@ -1206,3 +1206,13 @@ skip=不重放只装视图 - 顺路）。
 - BLKIDS（页→块 id 映射+dedupe 推送 18 块值）: duct 消失（x2 tail 打到 `ZX-4417-QJ` 差一个字符，mt128 复核 False 但输出连贯含代码前缀）- **块粒度行写入几何可读实锤**；applied/refuse 计数在本代际语义待对表（d_final_kept 显示 pressure:true 标签错位另记）。
 - 未决根因（本轮定位完成）: `st.row` 每步被 `sync_row_from_engine` 的 grown 分支盖回 native dense (1666) - install 的视图行被镜像覆盖 - panel pos=-1/vbase=dense 全由此。**design 117 的架构才是终形**: fork 侧 view_rows override 已就位（gather 后覆写，等 kvmem_view_rows tensor），runtime 侧还差: (1) d_install_row 改写 runner.kvmem_view_rows（不再碰 engine 行）; (2) R 区维护 - 每步把 engine 行新 append 的块 id 镜像进 view_rows 尾部; (3) sync_row 在 D 臂不再回写 st.row（镜像语义改为 view_rows 同步）。三处完成后 engine 行=调度器私产（写安全）、view_rows=读表（刀主权）、互不打架。
 - 预算: 1 boot + 同 boot 三复核。生产恢复中; 本地 ahead 37+。
+
+## 121-123. Round 82：D 臂首个 88K True（单点）+ 判读纪律 + 本轮代码真实态声明
+
+- **事件**: 本 boot（HEAD 代码 + 环境 KVMEM_D_BLKIDS=1 + worker error 文本加宽）88K mt256 **needle=True (240.3s)** - D 臂（方案 D 全链: 表/刀/恒等视图）历史上第一次答对。
+- 诚实限定（三条）:
+  1. 单点观察，未同 boot 复发 - 蝴蝶假说下 True 概率本应 ~0.5，也可能更低; 下一轮第一动作 = 同代际 mt256 复 2-3 发判合法性;
+  2. 本轮中途 git checkout 回滚了两个未提交实验（adopt reorder、BLKIDS 单位二修）- True 是在 **HEAD 版 BLKIDS 单位一 (pg // (blk_real//pt))** 下产生的; 该公式在 q=49/pt=32 代际恰等于正确值 q (49)，在 q=101/pt=16 代际=98 错误 - **True 可能绑定 boot 代际**（这正是过去几十轮"同码不同果"的同族现象）;
+  3. mt96 截断误判提醒: 电池必须 mt>=256 或提取最终答案句判定, 思维链长度吃掉了短预算的输出窗口 - **此前大量 False 读数包含截断假阴性**（x2 tail 显示 `ZX-4417-QJ.` 差一字符的那些发全是误杀!）。
+- 判据更新: 电池标准 = max_tokens 256 + `ZX-4417-QJ7` 匹配; 历史数据中 mt<=96 的 False 全部重估为存疑。
+- 本轮 5 boots 严重越界 - 停止交还。生产恢复中; 本地 ahead 38。
