@@ -1165,3 +1165,11 @@ skip=不重放只装视图 - 顺路）。
   | **NOBLADE+NOOVERRIDE（纯稠密全 native 执行）** | 0 | 关 | **True (80.8s)** |
 - **结论**：刀的视图改写单独无罪（round 75 install 判死+本轮矩阵）、override 单独无罪（稠密+override=False 归因于 28353 遮蔽 53K 尾，语义必然）、**二者合流才致死**。机制推测定位：override 的 causal 轴 `view_base+ql` 与行内容长度 `pages×pt` 在刀视图下**同源相等**（28353=882×32）- attention 因此**丢失了视图外的 R 区生成 token（刚写的思维链/问句前文在 kv 长度 28353 之后）** - 模型对自己的生成历史半盲 → 答不出。修法候选（下轮判读）：(a) view_base 应含 R 区长度 `pages×pt + (tokens - knife_base_tokens)`；(b) 或行按 causal 长度补 R 页进视图。读 override 段 + R2b 注释定夺。
 - 本轮 3 boots（含一次假就绪数据作废）。消融开关全保留、env 已清。生产恢复中。
+
+## 111-112. Round 77：单位冤案平反 + 端到端几何终审全绿 - 剩余唯一假说是 R 区视野
+
+- eng_bs 面板命中: 引擎 attn block=1616 tokens (101×16 pages, hybrid 对齐 mamba page size), worker pt=32/q=49 是**页制换算差异不是错位**: needle token 40471 -> 页1264 (pt32) -> 引擎块 1264//101=12 -> row[12] (install 行 rank12 = 视图第12块起始页)... 面板 slot_at_rank=1264: view rank 676 (页 rank) 行值=1264 ✓ 与 pos_in_view=676 互证。视图页 rank 676 -> 引擎块 676//101=6 -> row[6] = 视图第6块槽 = 物理槽 ✓。kernel: token40471 的 K 在其页的槽 row[676]=1264 ✓✓ 端到端几何正确。
+- 至此已排除 (全带实测): 选块 (rank0 在场) ✓ 安装 (identity 正确) ✓ 行改写 (NOINSTALL 同 False) ✓ 表 (publish 正常) ✓ override 存在性 (NOOVERRIDE 组合未测但矩阵显示刀+override 合流致死 - 单开 override 无刀=遮蔽已解释) ✓ 单位 (本轮终审无错位) ✓ GDN (状态通道在案) ✓ spec/MTP (平反) ✓ 刀内容 (round 75 NOINSTALL False) ✓。
+- 唯一剩余假说 R-视野: decode 生成 token 写入 view_base+step 槽 (行尾 883+), 但 causal 长 = view_base (882×32=28224...) +ql 每步只 +1: **写入的页在视图行内但 causal 覆盖它需要 seq_lens 含其页** - vbase=st.seq_len 每步 +1 (面板 28355→+1 ✓ 跟随) ✓✓ 也覆盖... 除非 decode 写入落在 R 区而 R 区页**不在 selected 前 882 页内**: 行 [882..1665] 是旧 native 残页, 写新 token 进 row[882+k] = 覆盖残页 (对); causal 28355+token 数 逐步吃进 R 区 ✓ 也自洽。
+- 判决实验定型 (下轮): 生产 D=0 vs D=1 的**首个分歧 token 对比** (greedy 双链, 相同输入, 生产 True/D False - 分歧点前的 logits 由 (a) 视图内容 (b) 数值归约序 决定; 若分歧发生在 token 1 (思维链第一个词), 则 forward 从一开始就不同 = 纯数值归约差异 (与视图内容无关) -> 归 round-49 蝴蝶族, D 判据改用机制指标+多次计数; 若分歧发生在 decode 中段, 视图/R 假说复活)。一发双请求 (同 boot 双臂不可行, 但可用**同 D=1 臂连发** 对比两次 False 输出分歧点 - 若两次 True/False 混发间在 ~token35 分歧 = 蝴蝶 (已知); 若 D 全部固定同一错法 = 确定性视图问题)。
+- 预算: 4 boots (含重做), 停止交还。env D=1 臂当前, 生产恢复中。

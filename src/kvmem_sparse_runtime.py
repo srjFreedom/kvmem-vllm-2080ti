@@ -2192,6 +2192,42 @@ class VllmSparseRuntime:
             _pg = _mt // max(1, int(self.page_tokens))
             _lg = [int(x) for x in (st.logical or ())]
             _pos = _lg.index(_pg) if _pg in _lg else -1
+            # ENGINE-MATH cross-check (design 111): compute where the
+            # kernel actually addresses the needle page and where it
+            # writes the newest tokens, using the engine's own
+            # cache_config.block_size (never the worker pt assumption):
+            #   read:  engine block of token 40471 = 2529(bs16)//bs,
+            #          slot row[that idx]; needle correct iff that
+            #          slot value == 2529 (or 1264 at bs32).
+            #   write: rank expected = (tokens // pt) as view rank ->
+            #          row[rank] is the slot the next token lands in.
+            _eng_bs = -1
+            for _getter in (
+                lambda: int(_rn.attn_group_block_sizes[0]),
+                lambda: int(_rn.block_tables.block_sizes[0]),
+                lambda: int(self.view.pages[0].shape[1]) and -2,
+            ):
+                try:
+                    _v = _getter()
+                    if _v > 0:
+                        _eng_bs = _v
+                        break
+                except BaseException:
+                    continue
+            if _eng_bs < 0:
+                try:
+                    _tb = None
+                    for _g in getattr(self.view, "attn_groups", ()) or ():
+                        _tb = _g
+                        break
+                    if _tb is not None:
+                        _eng_bs = int(_tb)
+                except BaseException:
+                    pass
+            _true_pg = 40471 // max(1, _eng_bs) if _eng_bs > 0 else -1
+            _slot_at_true = (_rowv[_true_pg]
+                             if _eng_bs > 0 and 0 <= _true_pg < len(_rowv)
+                             else -3)
             # direct block-coverage readout: which engine block the needle
             # page belongs to, and whether ANY page of that block made it
             # into the installed logical set (selection rank 0 must imply
@@ -2237,6 +2273,8 @@ class VllmSparseRuntime:
                           "block_pages_in_view": int(_blk_pages_present),
                           "rank_of_needle_page": _rank_in_row,
                           "slot_at_rank": _slot_at_rank,
+                          "eng_bs": _eng_bs, "true_page": _true_pg,
+                          "slot_at_true": _slot_at_true,
                           "row_len": len(_rowv),
                           "seq_len_view": int(st.seq_len)})
         except BaseException as _dexc:
