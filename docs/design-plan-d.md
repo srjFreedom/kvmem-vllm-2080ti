@@ -1045,3 +1045,10 @@ skip=不重放只装视图 - 顺路）。
 - 电池（88K×2+152K）仍全 False 但耗时回落（104-228s，拒刀风暴消失）；面板本轮读数**全部 prefill 态**（vb=53248 稠密、logical 未建）- throttle 被刀前步耗尽 = **面板从未观测过已安装视图**（第 N 次观测点缺失教训）。修：prefill_done 后才记账。
 - 下轮一发：boot 后 88K×2+152K×1，读**刀后 decode 态** d_dvp（pos_in_view/block_pages_in_view/restore n）- 若 pages_cover≈49 且 pos≥0 → 坐标审计闭环，答案应进 True 带；若仍 0 → store 键系审计（store_delta/put 调用方的 page 参数坐标）。
 - 预算：1 boot + 1 修面板。本地提交（rbv 系列未达验收，不 push）。
+
+## 90. Round 64：刀后态首读成功 - 注入段从未执行的实锤与三项待办
+
+- 面板 prefill_done 门生效：首次读到**刀后 decode 态** - `vb=53249/seqv=53249, cover 0, pos -1`：**final 刀安装的表与账本没落地**（installed 359页 vis 11488 的账本更新不存在，seq_len 恒稠密窗）。
+- 场读数（仪表单位本无错，前轮 nb2 疑虑撤销）：88K needle **rank0**（真块 25）；152K needle **rank59**（真块 45）- 88K rank0 却没进 kept 且答案 False：**kept 注入段（_seq/order/room 循环，含 d_final_merge 仪表）从未执行**（merge 事件零计数，整窗 grep 无一枚）。MID 时代 98 页视图没执行过 final 段？门在哪个 if？
+- 待办三件（下轮一次做完）：①merge 段入口+出口各一事件钉死未执行原因；②final 账本更新补齐（installed 后 seq_len/off_pages/表 必须重刷 - sync 每步在刷，但 seqv=稠密说明 st.seq_len 本体没动，sync 刷的是 st.seq_len 的值所以照旧）；③注入修复后 152K rank59 vs 预算 7 的分数差距单独治（真检索问题，可能回到 query 窗/场质量）。
+- 电池：88K 0/2 False、152K 0/1 False（104-223s 无拒刀风暴）。预算 1 boot。生产恢复中。本地 ahead 7。
