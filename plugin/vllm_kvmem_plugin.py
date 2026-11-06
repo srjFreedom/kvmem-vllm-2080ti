@@ -3276,7 +3276,54 @@ def _install(cls, module_name, probe, smoke, state):
                             rt = self.kvmem_runtime
                         if rt is not None:
                             rt.d_mode = True
-                            rt.runner = self
+                        # TRIPLE-TABLE RE-STAMP (design 133): the stamp
+                        # onto wrapper-self was NOT visible to code that
+                        # reads through the runner module's own `self`
+                        # (dual-object identity across the editable/
+                        # site tree split - measured: wire probe shows
+                        # all three tables present on wrapper-self while
+                        # the sync side still reads None). Stamp the
+                        # module-level GPUModelRunner class as well;
+                        # class attributes resolve through any instance.
+                        # The `rt.runner = self` line is REVERTED: it
+                        # aliased the view's runner to the wrapper
+                        # object and the next request died with 500.
+                        # CLASS SHARING (design 133, corrected): do NOT
+                        # stamp GPU tensors as class attributes - TP rank1
+                        # would see rank0's cuda:0 tensors and die with
+                        # "indices should be on the same device". Instead
+                        # publish ONE plain python dict on the class,
+                        # keyed by the instance id; every reader looks up
+                        # its OWN instance's entry, so tensors stay
+                        # per-rank and device-correct by construction.
+                        try:
+                            from vllm.v1.worker.gpu import model_runner as _mrx
+                            _tbls = getattr(_mrx.GPUModelRunner,
+                                            "_kvmem_tables", None)
+                            if _tbls is None or not isinstance(_tbls, dict):
+                                _mrx.GPUModelRunner._kvmem_tables = {}
+                            _mrx.GPUModelRunner._kvmem_tables[id(self)] = {
+                                "deltas": self.kvmem_slot_deltas,
+                                "lens": self.kvmem_view_lens,
+                                "rows": getattr(self, "kvmem_view_rows", None),
+                                "active": bool(self.kvmem_view_active)}
+                        except Exception:
+                            pass
+                        # IDENTITY PROBE (design 132): tables-none while
+                        # wired fired - log the exact object the tables
+                        # were stamped onto plus the allocation outcome,
+                        # so the sync side can be compared by id().
+                        try:
+                            _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",
+                                    {"kind": "d_wire_probe",
+                                     "runner_id": id(self),
+                                     "dl_none": self.kvmem_slot_deltas is None,
+                                     "vl_none": getattr(self, "kvmem_view_lens", None) is None,
+                                     "vr_none": getattr(self, "kvmem_view_rows", None) is None,
+                                     "rt_id": id(rt) if rt is not None else -1,
+                                     "rt_has_runner_attr": getattr(rt, "runner", None) is self if rt is not None else False})
+                        except Exception:
+                            pass
                         _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",
                                 {"kind": "plan_d_wired", "pid": os.getpid(),
                                  "reqs": _n})
