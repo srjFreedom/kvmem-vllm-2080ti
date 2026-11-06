@@ -1082,3 +1082,11 @@ skip=不重放只装视图 - 顺路）。
 - 条款值仪表（raise 前逐条真值 jsonl）定死元凶：`in_sel=false` - **straddler 条款用 Core 的 TRUE frontier（1663）要求 worker 的窗口坐标选择集包含它** - D 道里永远不可能 - 每一条 D 提案必死。三修：①D 道 straddler 豁免（尾部覆盖归滚动调度职责）；②sorted 比较取规范形；③`_absorb_engine_row` 压缩态短路（rank≠page 后位置吸收=伪造身份）。离线 6/6，parse 事故（漏括号）当场修复。
 - 电池（88K clause 发 False）发生在三修**之前**的树上；三修后未跑（第 4 boot 越界）。**下一轮第一件事 = 三修后的 88K×2+152K×1 判决电池** - 预期：拒刀数→0、针页 pos_in_view≥0、答案进 True 带；若仍 False，剩余嫌疑=写槽滚动与窗口坐标的因果覆盖（design 91 预告的最后一层）。
 - 预算：3 boots + 1 越界停止。本地 ahead 13。
+
+## 99. Round 69：三修后电池依旧 0 applied - 元凶链完整现形（rbv 物理面根本错误）
+
+- 读数：条款文件 0（validate 主条款全过 - straddler/sorted 豁免生效）但 refused=229、applied=0，错误文本 `compaction cannot adopt blocks owned by another request`（plan_attention_blocks L34）。
+- 机制链：Core 用 request 的 native block 空间（b*49+o 稠密）重建 physical→blocks；rbv 分配的 pool 槽=engine 行里的物理 id（与 native 空间不符/被他请求占用）→ adopt 所有权校验炸 → 提案全灭 → 视图永远冻结。结论：**刀在 worker 侧自行分配物理槽（rbv 的 pool/restore 机制）是根本性错误** - 物理分配主权属于 Core adopt。
+- 修复形态（下轮）：D 臂提案 = logical 页集（native block id 推导）+ Core adopt 重排 kept blocks + worker 按 (logical→native-slot) 拷回 store 页（restore=纯拷贝语义的正确接线）。rbv 的 pool 分配/restore_pages_batch 调用在 D 臂停用（仪表保留）。
+- 诚实记录：kept_n=18/in_kept=1 是 worker 局部读数，从未被 Core 接受 - "kept 突破"当时应标注未验证（协议正确性教训：worker 侧成功不等于达成）。
+- 电池：88K 0/2、152K 0/1（108-230s）。预算 3 boots 触顶，停止交还。生产已恢复（poll ready）。
