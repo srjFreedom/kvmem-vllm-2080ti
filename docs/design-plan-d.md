@@ -1090,3 +1090,10 @@ skip=不重放只装视图 - 顺路）。
 - 修复形态（下轮）：D 臂提案 = logical 页集（native block id 推导）+ Core adopt 重排 kept blocks + worker 按 (logical→native-slot) 拷回 store 页（restore=纯拷贝语义的正确接线）。rbv 的 pool 分配/restore_pages_batch 调用在 D 臂停用（仪表保留）。
 - 诚实记录：kept_n=18/in_kept=1 是 worker 局部读数，从未被 Core 接受 - "kept 突破"当时应标注未验证（协议正确性教训：worker 侧成功不等于达成）。
 - 电池：88K 0/2、152K 0/1（108-230s）。预算 3 boots 触顶，停止交还。生产已恢复（poll ready）。
+
+## 100-101. Round 70：恒等物理面落地 + refuse 常数 316 的调用点地图（改动未达真实路径）
+
+- 恒等物理面（设计 100 终形）落地：`_rebuild_view` 返回 phys=logical（数据恒在真位置，restore/pool 属 rewind 时代过度设计）；plan/adopt/sched-shorten 三处 D 豁免全部接好 d_mode（validate 调用、plugin 1890 channel adopt、plugin 2765 lambda adopt、sched_compact L54 短化法）；离线 4/4。
+- **判决读数**：refused **316 → 316 → 316**（恒等/豁免/flag 三轮改动，常数不变）、applied=0、文本仍是 ownership raise、条款文件空（validate 主条款无人生还 raise - raise 发生在 **adopt 阶段**）。常数说明：**当前执行的 refuse 路径还没被这三轮改动覆盖**——三个 adopt 调用点里，真实走的是哪一个尚未钉死（channel 1890？sched 2765 lambda？还是 worker-apply 5371 reply 在 Core 之外的第四处？）。
+- 下轮第一动作（1 boot 判死）：**每个 adopt/apply 调用点加出声针**（d_adopt_trace: site,pages_head,block_pages,d_mode,exc）四枚，一发读数即知真实路径+当时参数（pages 是否 identity、flag 是否真到）。同时保留 refuse 文本对照。
+- 电池：88K 0/2、152K 0/2（107-228s）。预算 3 boots 停止交还。生产恢复中；本地 ahead 18（identity+三豁免+flag 全链，等针判死）。里程碑未到，继续不 push。
