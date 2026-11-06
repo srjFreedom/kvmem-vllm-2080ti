@@ -1022,3 +1022,11 @@ skip=不重放只装视图 - 顺路）。
 - **sync 哑谜**（d_sync_run 零事件，而同一循环体的 harvest funnel/面板都有事件）：唯一可能是 d_sync_view_tables 本体在仪表之前 return/raise 被 wrapper 的 except-pass 吞（第八次）。下轮第一动作：sync 函数**第一行**放无条件计数事件（早于一切 return），一次定位死前点；随后修表，再看 needle 页是否进场。
 - 仪表学最终定案：**新代码首版必须自带出声仪表，哑的表现代码一律视为未测**。
 - 预算：3 boots，停。生产恢复中；本地提交不 push。
+
+## 85. Round 61：sync 激活闭环 + 最终病灶现形（final 刀用了 resident-only 展开）
+
+- sync 哑谜终解：V2 runner **没有 input_batch 属性**（fork 用 `req_states.req_id_to_index`）- 此前所有经 `runner.input_batch` 取行的代码（旧 advance 块的防御 getattr、sync 首版）**全程静默空转**（第八/九次 except-pass 案）。改读 req_states 后 `d_sync_run rows=1` 在场，表正确重刷（view_base 17358 / delta 58016）- **causal 轴与账本自此一致**。
+- 表修好后面板依旧 `block_pages_in_view=0`：答案链条的最后一环彻底现形 - **final 刀的 kept→pages 展开是 resident-only 变体**（只收 `old_row[p]>0` 的旧行已有页），needle 页被早前 MID 刀逐出后不在旧行 → 静默跳过、从未 restore；而 MID 刀走的是带 `restore_pages_batch` 的完整 remobilize。**两刀两套展开，final 用残缺版** = "rank 第一却不在视图"的完整机制。
+- 修复（下轮单发）：final 刀展开改调完整 remobilize 路径（absent 页 → 行内空闲槽分配 + store restore），与 MID 同源。这是协议层最后一块拼图，之后 needle 页必然在场。
+- 流程纠正（用户指出）：**启动等待一律轮询就绪**（curl 直到 200），不再写死 sleep。
+- 预算：本轮 sync 两修 + 电池 1 boot。本地提交（不 push）。

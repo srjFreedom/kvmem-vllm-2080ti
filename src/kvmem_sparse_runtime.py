@@ -2086,28 +2086,44 @@ class VllmSparseRuntime:
                               "error": __import__("traceback").format_exc()[-260:]})
 
     def d_sync_view_tables(self):
-        """Self-correcting table pass (design 82): the knife published
-        view_lens/delta at st.row_index while the engine's CURRENT row for
-        the request can differ (warmup rows shift the batch index), and a
-        stale table then makes the fork's seq_lens override address the
-        wrong row - decode causals collapse (view_base=1 against a 17358
-        token view) and attention reads garbage past the real content no
-        matter how correct the installed pages are. Every step, re-stamp
-        each ACTIVE D request's tables from the engine's live row:
-            view_lens[row] = current view length (st.seq_len)
-            delta[row]     = true book - view length
-        The knife remains the writer of the VIEW CONTENT; this pass only
-        keeps the address books consistent with it."""
+        """Self-correcting table pass (design 82) with LOUD every-return
+        provenance (design 84): the silent version never logged a single
+        d_sync_run while neighbors in the same loop were alive, so every
+        early return now reports its reason (throttled)."""
+        _sy = getattr(self, "_sync_seen", None)
+        if _sy is None:
+            _sy = self._sync_seen = [0]
+        loud = self.log is not None and _sy[0] < 10
         if not getattr(self, "d_mode", False):
+            if loud:
+                _sy[0] += 1
+                self.log({"kind": "d_sync_exit", "why": "not-d-mode"})
             return
         runner = getattr(self.view, "runner", None)
-        _vlv = getattr(runner, "kvmem_view_lens", None) if runner else None
-        _dlv = getattr(runner, "kvmem_slot_deltas", None) if runner else None
-        if _vlv is None or _dlv is None:
+        if runner is None:
+            if loud:
+                _sy[0] += 1
+                self.log({"kind": "d_sync_exit", "why": "runner-none"})
             return
-        try:
-            ridx = runner.input_batch.req_id_to_index
-        except Exception:
+        _vlv = getattr(runner, "kvmem_view_lens", None)
+        _dlv = getattr(runner, "kvmem_slot_deltas", None)
+        if _vlv is None or _dlv is None:
+            if loud:
+                _sy[0] += 1
+                self.log({"kind": "d_sync_exit",
+                          "why": "tables-none",
+                          "v": _vlv is None, "d": _dlv is None})
+            return
+        # the V2 runner exposes per-request state through req_states
+        # (persistent device tensor + id book), NOT an input_batch
+        # attribute - the previous lookup raised every step and the
+        # tables never got re-stamped (loud exit finally exposed it).
+        _rsy = getattr(runner, "req_states", None)
+        ridx = getattr(_rsy, "req_id_to_index", None) if _rsy else None
+        if ridx is None:
+            if self.log is not None and _sy[0] < 12:
+                _sy[0] += 1
+                self.log({"kind": "d_sync_exit", "why": "no-ridx-book"})
             return
         n = 0
         for req, st in list(self._state.items()):
@@ -2128,10 +2144,9 @@ class VllmSparseRuntime:
                               "seqv": _seqv, "err": str(_sex)[:140]})
         if n and getattr(runner, "kvmem_view_active", False) is False:
             runner.kvmem_view_active = True
-        if self.log is not None and getattr(self, "_sync_log", 0) < 6:
-            self._sync_log = getattr(self, "_sync_log", 0) + 1
+        if self.log is not None and _sy[0] < 12:
+            _sy[0] += 1
             self.log({"kind": "d_sync_run", "rows": n,
-                      "vlv_none": _vlv is None, "dlv_none": _dlv is None,
                       "nstates": len(self._state)})
 
     def d_decode_view_panel(self, req, n_new):
