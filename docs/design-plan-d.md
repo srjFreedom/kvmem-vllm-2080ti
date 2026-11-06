@@ -1133,3 +1133,12 @@ skip=不重放只装视图 - 顺路）。
 - 因此答案 False 的剩余候选（对照实验排序）：① decode 期 harvest/统计通道与刀视图的锚（fork 注释里 knife 移动 view frame 的滞后类）；② override causal 与 q positions 的真坐标交互（q 真 75374 vs kv 视图长 - mask 语义）；③ MTP/spec0 无关（已排除）；④ GDN 通道外，视图内容本身（needle 页在 decode 中途被滚走？）- decode 期 3 枚面板读数已在 kb228 样本里（pos 676 恒在）。
 - 下轮对照：同 prompt 生产臂（D=0 spec0）一发 - 若 D=0/spec0 也 False，蝴蝶带在 spec0 全局存在，与 D 无关，判据需改用多次计数；若 D=0/spec0 True，差异仍在 D 面（候选 ①②）。顺带把 250K 在新 adopt 链上首测。
 - 预算：0 boot（纯静态读码 + 上轮数据复查）。生产状态未动（spec4/D=0）。
+
+## 107. Round 74 终局：D=0/spec0 控制组 True + decode 面板无异常 - 嫌疑收敛到 override 语义或 install 本身
+
+- 控制组：D=0/spec0（v0.5.2 老刀链）88K **True**（116.2s）。对比 D=1/spec0 同期 0/N。spec0 无罪确认，变量只剩 D 面差异。
+- decode 面板复查（adopted 视图代际，84 样本）：pos 676 恒在、vbase=seqv 同步、tokens 步进正常 - 视图侧无退化、无滚走迹象。写槽冲突论已被 round 74 源码判决推翻（positions-deltas 设计本就正确）。
+- 剩余两嫌疑（下一发二分，仍 1 boot）：
+  A) d_install_row 无罪证明：跳过 engine 行改写（视图只在 worker 侧存在）- 若答案翻转，病灶=行改写本身（写/读地址一致性被 engine 侧的行改写破坏，尽管 delta 公式看着自洽 - 例如 gather 的行与 install 写的行不是同一 tensor group 的时序）。
+  B) 若 A 仍 False：override 语义（seq_lens=视图长 vs q 真坐标的 mask/RoPE 交互）- 修法定向：override 后 positions 也需视图坐标化（q pos 75374 对 kv 长 28353 的 kernel 语义可能是 mask 截断到 kv 前段 = 视图头部被复制读到尾部）。
+- 本轮 1 boot（控制组）。面板数据零成本复用到此完成。生产保持 D=0 spec0 一发后恢复 spec4。
