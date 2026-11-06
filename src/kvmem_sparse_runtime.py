@@ -5064,6 +5064,15 @@ class VllmSparseRuntime:
                               "mid_n": len(_mid_kept_blocks or ()),
                               "room": room, "kept_pre": len(kept),
                               "order_head": list(order[:6])})
+                if self.log is not None:
+                    try:
+                        self.log({"kind": "d_fill_enter", "req": str(req)[-6:],
+                                  "pressure": bool(pressure),
+                                  "seq_n": len(_seq), "room": int(room),
+                                  "kept_pre": len(kept),
+                                  "seq_head": [int(x) for x in _seq[:8]]})
+                    except Exception:
+                        pass
                 for b in _seq:
                     if room <= 0:
                         break
