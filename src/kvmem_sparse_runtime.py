@@ -2122,10 +2122,17 @@ class VllmSparseRuntime:
                 _vlv.data[int(row)] = _seqv
                 _dlv.data[int(row)] = max(0, _true - _seqv)
                 n += 1
-            except Exception:
-                pass
+            except BaseException as _sex:
+                if self.log is not None:
+                    self.log({"kind": "d_sync_error", "row": int(row),
+                              "seqv": _seqv, "err": str(_sex)[:140]})
         if n and getattr(runner, "kvmem_view_active", False) is False:
             runner.kvmem_view_active = True
+        if self.log is not None and getattr(self, "_sync_log", 0) < 6:
+            self._sync_log = getattr(self, "_sync_log", 0) + 1
+            self.log({"kind": "d_sync_run", "rows": n,
+                      "vlv_none": _vlv is None, "dlv_none": _dlv is None,
+                      "nstates": len(self._state)})
 
     def d_decode_view_panel(self, req, n_new):
         """Decode-time view coherence panel (design 81): with selection
@@ -4518,16 +4525,19 @@ class VllmSparseRuntime:
                 _res_mid = {int(pg) // max(1, int(q)) for pg in (st.logical or ())}
                 _res_mid = {b for b in _res_mid
                             if sink_blocks <= b < max(0, n_blocks - recent_blocks)}
-                # CAP the inheritance (design 75): unlimited resident picks
-                # filled kept to 11-12 and starved `room` to 6, ejecting
-                # even an improved question field's rank-18 needle block.
-                # Four blocks is enough to keep the statistics continuity
-                # (the knife's own view rolls fast anyway); the rest of the
-                # budget belongs to the CURRENT question ranking, which
-                # with the 24-row window is the most informative field D
-                # has ever produced (88K rank 22->18, 152K 51->44).
-                for _rb in sorted(_res_mid)[:4]:
-                    kept.add(_rb)
+                # CAP RETIRED (design 83): the cap4 cut was based on the
+                # phantom room arithmetic (budget_blocks counts 1616-token
+                # engine blocks; kept 12 + room 6 = 18 = the full budget,
+                # never starved). Worse, sorted()[:4] kept the LOWEST
+                # resident middle blocks and cut the ones around the
+                # needle (MID view holds its own selection neighborhood,
+                # which ranks in the needle region) - precisely the
+                # mechanism that evicted the needle's pages from the
+                # question view while its block ranked #1 in the field.
+                # Full inheritance restored: the question field fills the
+                # remaining slots, statistics continuity keeps the proven
+                # neighborhood in place.
+                kept |= _res_mid
             except BaseException as _pex:
                 if self.log is not None:
                     self.log({"kind": "d_preserve_error", "req": str(req)[-6:],

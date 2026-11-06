@@ -1015,3 +1015,10 @@ skip=不重放只装视图 - 顺路）。
 - **最终断点（block_pages_in_view=0 的真解释）**：expansion 循环只收 `old_row` 里已有物理块的页（`if p < len(old_row) and old_row[p] > 0`）- 选中的新块（不在旧行）的页**从未被分配物理槽、从未 restore** → needle 块 rank0 却页不在视图。修法（下轮，单点）：expansion 对 absent 页走 **alloc(从视图空闲区取页) + store.restore_pages_batch(拷回规范字节)** ——这正是刀设计"页重排+选择"里 absent 分支的本体，当前 expansion 只实现了 resident 分支。
 - 修复后可预期：88K/152K needle 页真在场 + causal 正确 → 答案从蝴蝶带进入确定 True 带（若仍 False 则再查 RoPE 相位/烘焙）。
 - 预算：2 boots 止。本地提交（不 push，里程碑未达）。
+
+## 83. Round 61：cap 错杀平反记录 + sync 哑谜（下轮首要）
+
+- cap4 错杀确认并已撤：round-55 的 `sorted(_res_mid)[:4]` 基于幻影 room 算术，实际切掉的正是 MID 视图保存的 needle 邻域块 - 完整继承已恢复（设计注记含证据）。capfree 电池 88K 0/3 + 152K False：继承恢复后 needle 页仍不在视图（block_pages_in_view=0）- 与 sync 未生效是同一件事的两面（表不刷→causal 轴旧→面板/答案乱）。
+- **sync 哑谜**（d_sync_run 零事件，而同一循环体的 harvest funnel/面板都有事件）：唯一可能是 d_sync_view_tables 本体在仪表之前 return/raise 被 wrapper 的 except-pass 吞（第八次）。下轮第一动作：sync 函数**第一行**放无条件计数事件（早于一切 return），一次定位死前点；随后修表，再看 needle 页是否进场。
+- 仪表学最终定案：**新代码首版必须自带出声仪表，哑的表现代码一律视为未测**。
+- 预算：3 boots，停。生产恢复中；本地提交不 push。
