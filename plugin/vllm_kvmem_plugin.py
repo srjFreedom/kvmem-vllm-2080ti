@@ -2770,7 +2770,7 @@ def register():
                                     # the final reselect (the (b) list would fire
                                     # every step otherwise, refused-storm measured)
                                     request.kvmem_final_reselect = True
-                            _append(log_path, {"kind": "d_compact_applied",
+                            _append(log_path, {"kind": "d_compact_applied", "site": "channel-2773",
                                                "req": request.request_id,
                                                "epoch": epoch,
                                                "vis": _vis, "rec0": _shape[:90],

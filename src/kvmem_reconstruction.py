@@ -88,6 +88,13 @@ def validate_quiescent_compaction(request, records, tp_size, epoch, kv_cache_man
         # ablation (design 104): every knife lane funnels through this
         # validator; refusing here stops Core-side adoption AND apply
         # while the request continues on a purely dense D view.
+        try:
+            import json as _jn, os as _on
+            with open("/tmp/kvmem_suppress_log.jsonl", "a") as _fs:
+                _fs.write(_jn.dumps({"ev": "suppress-refuse",
+                                     "pid": _on.getpid()}) + "\n")
+        except Exception:
+            pass
         raise ValueError("knives suppressed by KVMEM_D_NOBLADE")
     """Validate TP proposals on Core's idle boundary without touching GPU or allocator.
 

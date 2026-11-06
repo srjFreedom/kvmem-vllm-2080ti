@@ -1118,3 +1118,11 @@ skip=不重放只装视图 - 顺路）。
 - 重做形态（下轮 1 boot 多观测点）: 4 个 applied 发射点加 site 标签（channel/mid/final/remobilize 各一），NOBLADE=1 一发读 site 计数把刀道清单钉全；真抑制后再判决。
 - 铁事实新增: 生产臂 88K 累计 5/5 True（bash-870 恰构成生产基线）；D=1 机制全绿视图答案 0/2。
 - 预算 4 boots 越界，实验停止交还。env 清 NOBLADE，生产恢复（poll ready）。
+
+## 105. Round 73：NOBLADE 完整生效但无定罪力 + 写槽冲突再确认（真正根因候选）
+
+- site 标签生效：NOBLADE 一发 applied=0/suppress=0/刀事件=0、耗时 82/181s - 刀道清单**只此一条**（channel-2773，上轮 applied x4 是坏树残留）。抑制彻底。
+- **但此 False 无定罪力**：无刀的 D 稠密臂是**不完整模式** - override 把 causal 截到 seq_len=窗口 53248，而 prompt 尾 22K（含问句本体）落在窗口外被遮蔽 - 模型压根看不到完整问句，False 是必然而非病灶证据。NOBLADE 不能当二分判据，作废该梯度。
+- 反转后的根因再确认（这次是写槽数学）：刀后引擎行被 d_install_row 改写为重排序列（rank != native position），**而 fork 写地址 = table[pos//block]**，pos=true 75375 -> 行 rank 48 = 视图第 48 个选中页 - **每个新 token 的 KV 写进视图自己的页里，逐 token 吃掉视图内容**。生产（D=0）同一公式成立是因为其行从不重排（rank=position 恒等）。
+- 修复定形（下轮）：**视图只存在于 READ 面**：d_install_row 退役，engine 行永 native（写分配安全），attention 的 input_block_tables 在 D 臂 copy 自 worker 视图行（独立发布表 - fork prepare 链一处改动）。这恢复设计的两表本意（写=账本原生 / 读=检索视图）。
+- 同批发货：fork prepare 视图 copy 源 + 去 d_install_row + 一发 88K 判决。
