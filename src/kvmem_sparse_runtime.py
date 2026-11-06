@@ -505,6 +505,14 @@ class VllmSparseRuntime:
     def _absorb_engine_row(self, req):
         """Record which engine page holds each logical page (index = logical page)."""
         st = self._state[req]
+        if bool(getattr(st, "applied_view_coord", False)):
+            # POSITIONAL absorption is only valid in the dense frame.
+            # After a knife installed a selection view, row rank !=
+            # logical page id, and mirroring positions into _page_map
+            # fabricates page identities for the decode tail (design 98
+            # - one source of the window/global coordinate mixing).
+            # Page identity in view coordinates lives in st.logical.
+            return
         try:
             table = self.view.block_table_rows()[0]
             row = table[st.row_index]
@@ -5016,6 +5024,13 @@ class VllmSparseRuntime:
                                   "seq_defined": False})
                     except Exception:
                         pass
+                # BIND BEFORE USE (design 98): every variable this
+                # region reads gets a real default here, so no path
+                # through it can raise NameError again.
+                _mid_blocks_q = None
+                _mid_kept = None
+                _mid_kept_blocks = []
+                _rr_used = 0
                 if self.log is not None and getattr(self, "_mg_loud", 0) < 8:
                     self._mg_loud = getattr(self, "_mg_loud", 0) + 1
                     self.log({"kind": "d_merge_enter", "req": str(req)[-6:],
@@ -5040,8 +5055,13 @@ class VllmSparseRuntime:
                             out.append(c[i])
                         i += 1
                     return out
-                if _mid_kept_blocks is None:
-                    _mid_kept_blocks = []
+                # (the mid vars are bound UNCONDITIONALLY right after
+                # the pre-merge pin below - `x is None` on a never-bound
+                # local raises NameError just like the use did; the
+                # exception escaped this unguarded region, killed the
+                # whole worker-side RPC, and Core's except-pass kept the
+                # stale MID view - the final mechanism behind kept_n=8.
+                # design 98.)
                 if _mid_kept is not None and _mid_kept_blocks is None:
                     _mbset2 = {int(pg) // max(1, int(q))
                                for pg in (_mid_kept or ())}

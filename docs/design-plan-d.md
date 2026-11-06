@@ -1075,3 +1075,10 @@ skip=不重放只装视图 - 顺路）。
 - 修复后读数：pre-merge 钉活（room=10, order_n=49）✓、merge_error=0 ✓、**post-merge 钉仍 0 事件、kept_n=8 依旧** → 跳过区间收窄到 **5016(pre-merge 之后)-5055(_seq=order)** 的函数体直道（`def _rr` 定义、5043 分支、初始化行 - 全部无出口语句、无外层 try - **机制不明**）。
 - 下轮判决法（一次 boot 定死）：该 40 行区间**每 5 行插一枚 d_stage 针**（针表达式保持哑简：只有字符串常量），一次读数即得断线行号。若针全活而 post-merge 死 → 我读错了控制流（_seq=order 行或不在该路径 - 届时打印 traceback 全栈进事件）。
 - 电池：88K False（106s）。累计战果保留：表同步/安装推送/坐标洞/merge 守卫全在树。生产恢复中；ahead 12。
+
+## 98. Round 68：kept 突破（needle 首次进 18 块预算）+ 拒刀条款真身 + 三修落地
+
+- NameError 假设证伪于实测：绑定后 post-merge×42 活、kept_n=18、**in_kept=1 - 问句注入史上第一次把 needle 块装进预算**。但每发仍 71 次 sched_compact_refused（"non-shrinking"）→ 视图冻结在 MID 残留 - 这是 kept_n=8 时代的另一半真相（RPC 被拒，worker 白装）。
+- 条款值仪表（raise 前逐条真值 jsonl）定死元凶：`in_sel=false` - **straddler 条款用 Core 的 TRUE frontier（1663）要求 worker 的窗口坐标选择集包含它** - D 道里永远不可能 - 每一条 D 提案必死。三修：①D 道 straddler 豁免（尾部覆盖归滚动调度职责）；②sorted 比较取规范形；③`_absorb_engine_row` 压缩态短路（rank≠page 后位置吸收=伪造身份）。离线 6/6，parse 事故（漏括号）当场修复。
+- 电池（88K clause 发 False）发生在三修**之前**的树上；三修后未跑（第 4 boot 越界）。**下一轮第一件事 = 三修后的 88K×2+152K×1 判决电池** - 预期：拒刀数→0、针页 pos_in_view≥0、答案进 True 带；若仍 False，剩余嫌疑=写槽滚动与窗口坐标的因果覆盖（design 91 预告的最后一层）。
+- 预算：3 boots + 1 越界停止。本地 ahead 13。

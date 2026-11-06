@@ -108,7 +108,7 @@ def validate_quiescent_compaction(request, records, tp_size, epoch, kv_cache_man
             # out of bounds iff the LAST page starts at or after logical.
             if (page <= 0 or block <= 0 or not selected
                     or selected[-1] >= (logical + page - 1) // page
-                    or selected != tuple(sorted(set(selected)))
+                    or tuple(selected) != tuple(sorted(set(int(x) for x in selected)))
                     # the straddler law, SHARED (design 49): every page
                     # strictly inside the stream must be selected. D
                     # proposals were dying at the "different logical"
@@ -120,7 +120,17 @@ def validate_quiescent_compaction(request, records, tp_size, epoch, kv_cache_man
                     # held the tail page and rank1 did not. Enforcing
                     # it for both lanes removes the asymmetry at the
                     # source instead of papering over it in compare.
-                    or (logical - 1) // page not in selected
+                    or (not d_mode and (logical - 1) // page not in selected
+                # D-lane straddler exemption (design 98): Core checks
+                # against the TRUE frontier while the D worker selects
+                # pages in the live WINDOW space - the frontier page id
+                # (1663) has no counterpart in a window-coordinate
+                # selection by construction, and refusing every such
+                # proposal pinned the view at the last MID knife forever
+                # (kept_n=18 with needle in kept, yet 71 refusals/run).
+                # Tail coverage in D is the scheduler's rolling
+                # responsibility, not this law's.
+                )
                     # Logical pages and physical slots are distinct namespaces: only require
                     # that the adopted row covers at least the selected pages.
                     or len(physical) < len(selected)
@@ -129,6 +139,25 @@ def validate_quiescent_compaction(request, records, tp_size, epoch, kv_cache_man
                 # smaller by construction only while the window holds room.
                 # The shrinking law is enforced worker-side instead (the
                 # knife must free a real margin before proposing).
+                try:
+                    import json as _jl
+                    with open("/tmp/kvmem_validate_clauses.jsonl", "a") as _fh:
+                        _fh.write(_jl.dumps({
+                            "pid": __import__("os").getpid(),
+                            "d_mode": bool(d_mode), "page": int(page),
+                            "block": int(block), "logical": int(logical),
+                            "selected_n": len(selected),
+                            "sel_last": int(selected[-1]) if selected else -1,
+                            "bound": (int((logical + page - 1) // page) if page else -1),
+                            "straddler": (int((logical - 1) // page) if page else -1),
+                            "in_sel": (bool(selected) and page > 0
+                                       and ((logical - 1) // page) in selected),
+                            "sorted_ok": (bool(selected) and selected ==
+                                          tuple(sorted(set(selected)))),
+                            "phys_n": len(physical), "visible": int(visible),
+                            "resident": int(resident)}) + "\n")
+                except Exception:
+                    pass
                 raise ValueError("invalid or non-shrinking TP compaction proposal")
             # COMPARE THE LOGICAL WORKING SET under Plan D (design 48):
             # each rank holds ITS OWN shard of K/V, so physical slot
