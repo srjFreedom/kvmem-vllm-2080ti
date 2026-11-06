@@ -4530,7 +4530,13 @@ class VllmSparseRuntime:
         st.logical = tuple(logical_pages)
         if getattr(self, "d_mode", False):
             try:
-                self.d_install_row(req, phys_pages)
+                if __import__("os").environ.get(
+                        "KVMEM_D_NOINSTALL", "") not in ("1", "true", "yes"):
+                    self.d_install_row(req, phys_pages)
+                elif self.log is not None and getattr(self, "_ni_loud", 0) < 4:
+                    self._ni_loud = getattr(self, "_ni_loud", 0) + 1
+                    self.log({"kind": "d_noinstall_active",
+                              "req": str(req)[-6:]})
             except Exception:
                 pass
         st.seq_len = int(len(phys_pages) * pt)
@@ -5318,7 +5324,13 @@ class VllmSparseRuntime:
         st.logical = tuple(logical_pages)
         if getattr(self, "d_mode", False):
             try:
-                self.d_install_row(req, phys_pages)
+                if __import__("os").environ.get(
+                        "KVMEM_D_NOINSTALL", "") not in ("1", "true", "yes"):
+                    self.d_install_row(req, phys_pages)
+                elif self.log is not None and getattr(self, "_ni_loud", 0) < 4:
+                    self._ni_loud = getattr(self, "_ni_loud", 0) + 1
+                    self.log({"kind": "d_noinstall_active",
+                              "req": str(req)[-6:]})
             except Exception:
                 pass
         # BOOK DROP (design 91): `visible` is Core's proposal book

@@ -1142,3 +1142,13 @@ skip=不重放只装视图 - 顺路）。
   A) d_install_row 无罪证明：跳过 engine 行改写（视图只在 worker 侧存在）- 若答案翻转，病灶=行改写本身（写/读地址一致性被 engine 侧的行改写破坏，尽管 delta 公式看着自洽 - 例如 gather 的行与 install 写的行不是同一 tensor group 的时序）。
   B) 若 A 仍 False：override 语义（seq_lens=视图长 vs q 真坐标的 mask/RoPE 交互）- 修法定向：override 后 positions 也需视图坐标化（q pos 75374 对 kv 长 28353 的 kernel 语义可能是 mask 截断到 kv 前段 = 视图头部被复制读到尾部）。
 - 本轮 1 boot（控制组）。面板数据零成本复用到此完成。生产保持 D=0 spec0 一发后恢复 spec4。
+
+## 108. Round 75：嫌疑 A 判死（engine 行改写无罪）+ 250K 新链首测 False + B 面清单定型
+
+- NOINSTALL 消融（两处 d_install_row 全跳过、仪表确认 8 事件、刀/视图/表照常 applied×27）：88K 0/2。engine 行改写与答案无关 - 嫌疑 A 除名。
+- 250K（v2 配对句请求）在 adopt 全通链上首测：False（417.2s，无拒刀风暴 - 协议层首次跑满 250K 全程）。
+- B 面（override/视图语义）候选清单定型（各带可执行判决）：
+  B1 q 坐标与视图 kv 的 kernel 交互 - 上节推导 mask/RoPE 均自洽，纸面无罪；
+  B2 生成 token 可见性 - 面板 vbase 每步 +1 递增证在跟随，无罪；
+  B3 【唯一未测且最可疑】D 臂的每步额外 machinery（capture 桶/harvest 循环/d_dvp 面板 RPC 时序）改变前向数值归约序 - greedy 下数值差被思维链放大成答案差。这与 round-49 的"GPU 数值蝴蝶"同族，但 B3 是 [系统性] 的（D 臂每次都多跑这些 kernel）。判决实验：D=1 + KVMEM_D_SILENT=1（所有 per-step 附挂全部空转：harvest/面板/统计/bridge 读取，视图仍由刀安装）- 若 True → 病灶=观测 machinery 数值侵入；若 False → override 语义本身（届时做 override 与真账本的对照读）。
+- 本轮 1 boot。250K False 数据点在协议全通意义下保留（机制层首达标）。生产恢复中。
