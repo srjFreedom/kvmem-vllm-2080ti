@@ -2179,6 +2179,12 @@ class VllmSparseRuntime:
         st = self._state.get(req)
         if st is None:
             return
+        # fail-closed panel (design 113): a NameError here would raise
+        # INSIDE the wrapper's per-step try - any exception in that loop
+        # region aborts the remainder of the step loop, which showed up
+        # engine-wide as token-loop degeneration. The panel must never
+        # break the step.
+        _rowv = []
         _seen = getattr(self, "_d_dvp_seen", None)
         if _seen is None:
             _seen = self._d_dvp_seen = {}
@@ -2191,6 +2197,16 @@ class VllmSparseRuntime:
                 71534 if int(st.tokens) <= 150000 else 112590)
             _pg = _mt // max(1, int(self.page_tokens))
             _lg = [int(x) for x in (st.logical or ())]
+            _pos = _lg.index(_pg) if _pg in _lg else -1
+            # DUAL-COORDINATE readout (design 86): st.logical holds page
+            # IDS in page-id space; the view row addresses pages by RANK.
+            # The old single-coordinate check (page id in logical list)
+            # could not distinguish "page absent" from "coord space
+            # mismatch" - report membership in BOTH spaces plus the row's
+            # physical slots at the needle's rank.
+            _rank_in_row = -1
+            _slot_at_rank = -1
+            _rowv = [int(x) for x in (st.row or ())]
             _pos = _lg.index(_pg) if _pg in _lg else -1
             # ENGINE-MATH cross-check (design 111): compute where the
             # kernel actually addresses the needle page and where it
@@ -2234,15 +2250,6 @@ class VllmSparseRuntime:
             # block pages present; a mismatch localizes the failure to
             # the kept -> pages expansion / restore, not the ranking).
             _bl = _pg // max(1, int(getattr(self, "block_pages", 1) or 1))
-            # DUAL-COORDINATE readout (design 86): st.logical holds page
-            # IDS in page-id space; the view row addresses pages by RANK.
-            # The old single-coordinate check (page id in logical list)
-            # could not distinguish "page absent" from "coord space
-            # mismatch" - report membership in BOTH spaces plus the row's
-            # physical slots at the needle's rank.
-            _rank_in_row = -1
-            _slot_at_rank = -1
-            _rowv = [int(x) for x in (st.row or ())]
             _lidx = _lg.index(_pg) if _pg in _lg else -1
             if _lidx >= 0:
                 _rank_in_row = _lidx
@@ -4390,6 +4397,21 @@ class VllmSparseRuntime:
                     break
                 want.append(int(pg))
         want.sort()
+        # ROW TAIL LAW (design 113): the view may only start at block 0.
+        # Pages before the lowest selected block are NOT evicted from
+        # the row - they stay resident at their native ranks (kept as a
+        # contiguous head-run). This keeps len(view)*pt == lowest
+        # selected page, so the row's untouched native segment resumes
+        # exactly where the view ends: causal (view_base+steps) then
+        # addresses REAL resident K instead of stale slots (the `duct`
+        # degeneration of the double-ablation cell proved reading past
+        # a short view with a long causal is fatal), and the rolling
+        # write lands right behind the native run. Mid-knife eviction
+        # of the head region stays available to a future head-remap
+        # version; every current field keeps block 0..N (sink) anyway.
+        if want:
+            _vhead = want[0]
+            want = list(range(_vhead)) + want
         sel = set(want)
         assign = {}
         used = set()
@@ -4564,8 +4586,34 @@ class VllmSparseRuntime:
                         missing += 1
                 except Exception:
                     missing += 1
+        _pre_row0 = [int(x) for x in (st.row or ())]
+        _pre_off0 = int(getattr(st, "off_pages", 0) or 0)
         st.row = tuple(phys_pages)
         st.logical = tuple(logical_pages)
+        if getattr(self, "d_mode", False):
+            # row-tail law at install: keep the engine's native blocks
+            # BEHIND the view (they still hold the newest pages, and
+            # the view length is a block multiple so the seam aligns)
+            try:
+                _row0 = list(_pre_row0)
+                _off0 = int(_pre_off0)
+                if 0 < len(logical_pages) < len(_row0):
+                    _need = len(_row0) - len(logical_pages)
+                    _tailv, _taill = [], []
+                    for _tr in range(_need):
+                        _tpg = len(logical_pages) + _tr
+                        _tv = _row0[len(logical_pages) + _tr] if                             len(logical_pages) + _tr < len(_row0) else 0
+                        if _tv <= 0:
+                            break
+                        _tailv.append(int(_tv))
+                        _taill.append(int(_tpg * 0 + _off0 + _tpg))
+                    if _tailv:
+                        st.row = tuple(phys_pages) + tuple(_tailv)
+                        st.logical = tuple(logical_pages) + tuple(_taill)
+            except BaseException as _tle:
+                if self.log is not None:
+                    self.log({"kind": "d_tail_law_error",
+                              "err": str(_tle)[:140]})
         if getattr(self, "d_mode", False):
             try:
                 if __import__("os").environ.get(
@@ -5358,8 +5406,34 @@ class VllmSparseRuntime:
                     moved += 1
                 except Exception:
                     failed += 1
+        _pre_row0 = [int(x) for x in (st.row or ())]
+        _pre_off0 = int(getattr(st, "off_pages", 0) or 0)
         st.row = tuple(phys_pages)
         st.logical = tuple(logical_pages)
+        if getattr(self, "d_mode", False):
+            # row-tail law at install: keep the engine's native blocks
+            # BEHIND the view (they still hold the newest pages, and
+            # the view length is a block multiple so the seam aligns)
+            try:
+                _row0 = list(_pre_row0)
+                _off0 = int(_pre_off0)
+                if 0 < len(logical_pages) < len(_row0):
+                    _need = len(_row0) - len(logical_pages)
+                    _tailv, _taill = [], []
+                    for _tr in range(_need):
+                        _tpg = len(logical_pages) + _tr
+                        _tv = _row0[len(logical_pages) + _tr] if                             len(logical_pages) + _tr < len(_row0) else 0
+                        if _tv <= 0:
+                            break
+                        _tailv.append(int(_tv))
+                        _taill.append(int(_tpg * 0 + _off0 + _tpg))
+                    if _tailv:
+                        st.row = tuple(phys_pages) + tuple(_tailv)
+                        st.logical = tuple(logical_pages) + tuple(_taill)
+            except BaseException as _tle:
+                if self.log is not None:
+                    self.log({"kind": "d_tail_law_error",
+                              "err": str(_tle)[:140]})
         if getattr(self, "d_mode", False):
             try:
                 if __import__("os").environ.get(
