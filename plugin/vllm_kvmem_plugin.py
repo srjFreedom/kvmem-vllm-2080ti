@@ -3497,6 +3497,12 @@ def _install(cls, module_name, probe, smoke, state):
                             except Exception:
                                 pass
                         try:
+                            # tables self-correct against the engine's
+                            # live row every step (design 82)
+                            runtime.d_sync_view_tables()
+                        except Exception:
+                            pass
+                        try:
                             runtime.d_decode_view_panel(req, int(n_new))
                         except Exception:
                             pass

@@ -2085,6 +2085,48 @@ class VllmSparseRuntime:
                               "req": str(rid)[-8:],
                               "error": __import__("traceback").format_exc()[-260:]})
 
+    def d_sync_view_tables(self):
+        """Self-correcting table pass (design 82): the knife published
+        view_lens/delta at st.row_index while the engine's CURRENT row for
+        the request can differ (warmup rows shift the batch index), and a
+        stale table then makes the fork's seq_lens override address the
+        wrong row - decode causals collapse (view_base=1 against a 17358
+        token view) and attention reads garbage past the real content no
+        matter how correct the installed pages are. Every step, re-stamp
+        each ACTIVE D request's tables from the engine's live row:
+            view_lens[row] = current view length (st.seq_len)
+            delta[row]     = true book - view length
+        The knife remains the writer of the VIEW CONTENT; this pass only
+        keeps the address books consistent with it."""
+        if not getattr(self, "d_mode", False):
+            return
+        runner = getattr(self.view, "runner", None)
+        _vlv = getattr(runner, "kvmem_view_lens", None) if runner else None
+        _dlv = getattr(runner, "kvmem_slot_deltas", None) if runner else None
+        if _vlv is None or _dlv is None:
+            return
+        try:
+            ridx = runner.input_batch.req_id_to_index
+        except Exception:
+            return
+        n = 0
+        for req, st in list(self._state.items()):
+            row = ridx.get(req)
+            if row is None:
+                continue
+            _seqv = int(getattr(st, "seq_len", 0) or 0)
+            if _seqv <= 0:
+                continue
+            _true = int(self._engine_computed.get(req) or st.tokens)
+            try:
+                _vlv.data[int(row)] = _seqv
+                _dlv.data[int(row)] = max(0, _true - _seqv)
+                n += 1
+            except Exception:
+                pass
+        if n and getattr(runner, "kvmem_view_active", False) is False:
+            runner.kvmem_view_active = True
+
     def d_decode_view_panel(self, req, n_new):
         """Decode-time view coherence panel (design 81): with selection
         proven correct (needle block ranked #1/#2), the remaining answer

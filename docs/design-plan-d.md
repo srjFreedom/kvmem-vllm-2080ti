@@ -1008,3 +1008,10 @@ skip=不重放只装视图 - 顺路）。
 - 面板自带两 bug 同轮修掉：①`int(row_index) or -1` 把合法 row 0 报成 -1（view_base/delta 显示 -1 全是假账 - 表其实正常发布，此前一切"表未发布"推论作废）；②新增 needle 块的**页覆盖直读**（block_pages_in_view：该块有几页真在场）- 下轮读数将直接回答"块 25 完全没进视图"还是"部分页被 old_row 条件拒绝"。
 - 下一刀（纯读数，零机制改动）：修正面板跑 88K×2 - 若 block_pages_in_view=0 → 查 kept 展开循环的 q/old_row 条件；若部分在场 → 查 restore 对缺页的处理。这将是"needle 在场却答不出"的最后一段电路。
 - 预算：2 boots（面板首轮），停。commit 本地，里程碑前不 push。
+
+## 82. Round 60：因果轴修复（表自修正 pass）+ 最终断点定位（needle 块页未分配物理槽）
+
+- d_sync_view_tables 每步按 **engine 实时行**重刷 view_lens/delta（消灭 st.row_index 陈旧错位类）；面板 `view_base=1 vs seq_len_view=17358` 的分裂读数即此病的显形（面板用 st.row_index、刀 publish 同用之，engine 实际行是另一个）。fork override 吃 engine 真行 → sync 后 causal 与表一致。**88K x2 一发 True**（sync 生效信号）。
+- **最终断点（block_pages_in_view=0 的真解释）**：expansion 循环只收 `old_row` 里已有物理块的页（`if p < len(old_row) and old_row[p] > 0`）- 选中的新块（不在旧行）的页**从未被分配物理槽、从未 restore** → needle 块 rank0 却页不在视图。修法（下轮，单点）：expansion 对 absent 页走 **alloc(从视图空闲区取页) + store.restore_pages_batch(拷回规范字节)** ——这正是刀设计"页重排+选择"里 absent 分支的本体，当前 expansion 只实现了 resident 分支。
+- 修复后可预期：88K/152K needle 页真在场 + causal 正确 → 答案从蝴蝶带进入确定 True 带（若仍 False 则再查 RoPE 相位/烘焙）。
+- 预算：2 boots 止。本地提交（不 push，里程碑未达）。
