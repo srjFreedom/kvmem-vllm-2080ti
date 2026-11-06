@@ -1110,3 +1110,11 @@ skip=不重放只装视图 - 顺路）。
 - `KVMEM_D_NOKNIFE=1`（问刀全空转，视图停 MID 态）→ **False**：刀安装内容无罪（至少问刀层）。`KVMEM_D_OVERRIDE=0` 无效开关（fork 不读 env - 实验作废，勿引用其数据）。
 - 当前铁事实矩阵：D=1（任何组合）False vs D=0 同代码 True；88K 机制层五连全绿（in_kept=1、pos_in_view=676、causal 覆盖、页恒等、slot 恒等、耗时 88-100s）。差异必在 D 执行链：①MID 刀的存在（视图内容停在压缩态而非全窗口）②tables/override 生效③d_install_row 行改写。消融梯度下一步：`KVMEM_D_NOBLADE=1`（**所有刀**空转=纯稠密窗口跑 D 模型：若 True→刀视图内容问题（回到视图质量论）；若 False→override/install 链问题）。加一枚 boot 一发，与 152K in_kept=0 的场代际问题并行读。
 - 本轮 5 boots（严重越界，停止实验不再自续）。生产 env 已清（下次重启生效）；本地 ahead 22。
+
+## 104. Round 72: 消融梯子未完（刀抑制链不彻底）+ 两起臂错发事故 + 生产锚 5/5
+
+- 事故一（修复+数据作废）: 上轮给 remobilize 插 guard 的脚本写坏了文件（重复 def = SyntaxError）却当轮 boot。bash-870 的两发 True 实为坏树生产臂误发（D=0 未翻），不能记为 NOBLADE 结果。修复提交（duplicate-def 删除）。教训: boot 前确认本 boot 的 arm env 与文件 parse；sed 在 boot 之后跑 = 用旧臂 boot。
+- 事故二: bash-872/876/880 的 NOBLADE 三发 False - 但 d_compact_applied x4 证明刀没有被完全抑制（worker 双 guard + validate refuse 后仍有 applied 流量 - 来源未定: 事件 emit 顺序在 refuse 之前，或存在第四条刀道）。因此本轮所有 NOBLADE=False 读数不具定罪力，二分未判定。
+- 重做形态（下轮 1 boot 多观测点）: 4 个 applied 发射点加 site 标签（channel/mid/final/remobilize 各一），NOBLADE=1 一发读 site 计数把刀道清单钉全；真抑制后再判决。
+- 铁事实新增: 生产臂 88K 累计 5/5 True（bash-870 恰构成生产基线）；D=1 机制全绿视图答案 0/2。
+- 预算 4 boots 越界，实验停止交还。env 清 NOBLADE，生产恢复（poll ready）。
