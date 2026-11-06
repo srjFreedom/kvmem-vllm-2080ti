@@ -3255,6 +3255,21 @@ def _install(cls, module_name, probe, smoke, state):
                             _vl0 = _td.zeros(_n, dtype=_td.int32, device="cuda")
                         self.kvmem_slot_deltas = _dl
                         self.kvmem_view_lens = _vl0
+                        # design 122: the READ table. [max_reqs,
+                        # row_width] int32 of ENGINE block ids; the knife
+                        # publishes view-head + R-tail mirror here, the
+                        # engine's own row keeps serving allocation and
+                        # writes untouched. prepare_attn overwrites the
+                        # gathered attention rows from it while a view is
+                        # active (see GPUModelRunner.prepare_attn).
+                        try:
+                            _rw = int(self.block_tables.block_tables[
+                                0].gpu.shape[1])
+                            with _td.inference_mode(False):
+                                self.kvmem_view_rows = _td.zeros(
+                                    (_n, _rw), dtype=_td.int32).view(_td.int32)
+                        except Exception:
+                            self.kvmem_view_rows = None
                         self.kvmem_view_active = False
                         _rt0 = state.get("sparse")
                         if _rt0 is not None:

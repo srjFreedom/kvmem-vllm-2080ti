@@ -65,11 +65,12 @@ class _ReqState:
                  "row_index", "prefill_done", "query_reselected", "resume", "resumed",
                  "replay_snap", "replay_n", "replay_at", "replay_at_resident", "rebuilt",
                  "compacted_in_prefill", "applied_view_coord", "off_pages", "window_src",
-                 "d_question_cut")
+                 "d_question_cut", "_r0_rank")
 
     def __init__(self):
         self.row = ()
         self.logical = ()
+        self._r0_rank = None
         # logical page = row position + off_pages (set by the last APPLIED boundary compaction).
         self.off_pages = 0
         self.window_src = {}
@@ -2143,6 +2144,12 @@ class VllmSparseRuntime:
                 continue
             _true = int(self._engine_computed.get(req) or st.tokens)
             try:
+                if getattr(st, "_r0_rank", None) is not None:
+                    # live view maintenance: the R tail grew this step;
+                    # re-publish (engine row read is a cheap CPU copy)
+                    self.d_install_row(req, st.row)
+                    n += 1
+                    continue
                 _vlv.data[int(row)] = _seqv
                 _dlv.data[int(row)] = max(0, _true - _seqv)
                 n += 1
@@ -2577,66 +2584,73 @@ class VllmSparseRuntime:
         self._pending_new[req] = int(n_new)
 
     def d_install_row(self, req, phys_pages):
-        """Push the knife's installed row into the ENGINE table (design
-        92): until now the worker kept the selection only in st.row,
-        while the engine row stayed dense - and `sync_row_from_engine`
-        then mirrored the dense row back over st.row every step (the
-        measured row_len 379 -> 1666 reversal). In D the knife owns the
-        row; the engine must read exactly what was selected. Slots at
-        or past the selection keep whatever the engine allocated there
-        (the rolling write region belongs to the scheduler, not us)."""
+        """Publish the READ view (design 122): engine row stays the
+        scheduler's private allocation book (writes land natively there);
+        attention reads `kvmem_view_rows`, which we compose as
+            [ view head: the selected engine-block ids in view order ]
+          + [ R tail:     the engine's blocks appended past the knife
+                          epoch, mirrored live each step ]
+        The attention causal end (view_lens) covers head+tail tokens, so
+        the un-selected middle blocks are excluded - compression is REAL
+        - while the delta-folded write positions land exactly in the
+        mirrored tail (rank math is derived, not assumed). phys_pages
+        arrives in engine-BLOCK id space (BLKIDS unit law, design 121)."""
+        if not getattr(self, "d_mode", False):
+            return False
+        runner = getattr(self.view, "runner", None)
+        st = self._state.get(req)
+        vr = getattr(runner, "kvmem_view_rows", None) if runner else None
+        if st is None or vr is None:
+            return False
         try:
-            st = self._state.get(req)
-            if st is None:
+            _ri = int(getattr(st, "row_index", -1) or -1)
+            if _ri < 0 or _ri >= vr.shape[0]:
                 return False
-            runner = getattr(self.view, "runner", None)
-            tbls = None
-            try:
-                tbls = runner.block_tables
-            except Exception:
-                tbls = None
-            if tbls is None:
-                if self.log is not None:
-                    self.log({"kind": "d_install_row_error",
-                              "why": "no-block-tables",
-                              "groups": len(getattr(runner, "kv_cache_config", None).
-                                            kv_cache_groups if (runner and getattr(runner, "kv_cache_config", None)) else 0)})
+            _eng = [int(x) for x in self.view.block_table_rows()[0][_ri].tolist()]
+            _used = max(1, max((i + 1 for i, v in enumerate(_eng) if v > 0),
+                               default=1))
+            if getattr(st, "_r0_rank", None) is None:
+                st._r0_rank = _used
+            _r0 = int(st._r0_rank)
+            _head = []
+            for pv in phys_pages:
+                ip = int(pv)
+                if ip > 0 and (not _head or _head[-1] != ip):
+                    _head.append(ip)
+            _tail = _eng[_r0:_used]
+            _rowv = _head + _tail
+            if not _rowv or len(_rowv) > vr.shape[1]:
                 return False
-            import torch
-            _pre_row_tail = [int(x) for x in (st.row or ())][len(phys_pages):]
-            _push_pages = list(phys_pages) + [x for x in _pre_row_tail if x > 0]
-            _rowi = int(st.row_index)
-            _gids = [gid for gid, spec in enumerate(
-                getattr(tbls, "spec", getattr(tbls, "kv_cache_groups", ())) or ())
-                     if getattr(spec, "kv_cache_kind", None) is None or True]
-            pushed = 0
-            for gid in range(len(getattr(tbls, "block_tables", ()) or ())):
-                try:
-                    bt = tbls.block_tables[gid]
-                    gpu = getattr(bt, "gpu", None)
-                    if gpu is None or _rowi >= gpu.shape[0]:
-                        continue
-                    rowv = gpu[_rowi]
-                    n = min(len(_push_pages), rowv.shape[0])
-                    idx = torch.arange(n, device=rowv.device)
-                    vals = torch.tensor([int(x) for x in _push_pages[:n]],
-                                        dtype=rowv.dtype, device=rowv.device)
-                    rowv.index_copy_(0, idx, vals)
-                    pushed += 1
-                except BaseException as _gex:
-                    if self.log is not None and getattr(self, "_ir_loud", 0) < 8:
-                        self._ir_loud = getattr(self, "_ir_loud", 0) + 1
-                        self.log({"kind": "d_install_row_error", "gid": gid,
-                                  "err": str(_gex)[:150]})
-            if self.log is not None and getattr(self, "_ir_ok", 0) < 8:
-                self._ir_ok = getattr(self, "_ir_ok", 0) + 1
-                self.log({"kind": "d_install_row", "req": str(req)[-6:],
-                          "groups": pushed, "pages": len(phys_pages),
-                          "row": _rowi})
-            return pushed > 0
-        except BaseException as _iex:
+            import torch as _tt
+            _idx = _tt.arange(len(_rowv), device=vr.device)
+            _val = _tt.tensor(_rowv, dtype=vr.dtype, device=vr.device)
+            with _tt.no_grad():
+                vr[_ri].index_copy_(0, _idx, _val)
+            _q_blk = max(1, int(getattr(self, "block_pages", None)
+                                 or getattr(self, "pages_per_block", 1) or 1))
+            _blk_tok = _q_blk * max(1, int(self.page_tokens))
+            _vlv = getattr(runner, "kvmem_view_lens", None)
+            _dlv = getattr(runner, "kvmem_slot_deltas", None)
+            _true = int(self._engine_computed.get(req) or st.tokens)
+            if _vlv is not None and _dlv is not None:
+                _base = len(_head) * _blk_tok
+                _tailtok = _true - (_r0 * _blk_tok)
+                _tailtok = max(0, min(_tailtok, len(_tail) * _blk_tok))
+                with _tt.no_grad():
+                    _vlv.data[_ri] = _base + _tailtok
+                    _dlv.data[_ri] = max(0, _true - (_base + _tailtok))
+                runner.kvmem_view_active = True
+            if self.log is not None and getattr(self, "_vr_loud", 0) < 8:
+                self._vr_loud = getattr(self, "_vr_loud", 0) + 1
+                self.log({"kind": "d_view_published", "req": str(req)[-6:],
+                          "head": len(_head), "tail": len(_tail),
+                          "r0": _r0, "used": _used,
+                          "view_base": _base + _tailtok, "true": _true})
+            return True
+        except BaseException as _vre:
             if self.log is not None:
-                self.log({"kind": "d_install_row_fatal", "err": str(_iex)[:160]})
+                self.log({"kind": "d_view_publish_error",
+                          "err": str(_vre)[:200]})
             return False
 
     def sync_row_from_engine(self, req, written, n_tokens=0):
