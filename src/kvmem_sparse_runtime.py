@@ -5040,6 +5040,8 @@ class VllmSparseRuntime:
                             out.append(c[i])
                         i += 1
                     return out
+                if _mid_kept_blocks is None:
+                    _mid_kept_blocks = []
                 if _mid_kept is not None and _mid_kept_blocks is None:
                     _mbset2 = {int(pg) // max(1, int(q))
                                for pg in (_mid_kept or ())}
@@ -5053,6 +5055,14 @@ class VllmSparseRuntime:
                 # union hypothesis is dead: the statistics asset never
                 # contains the needle at deep water.
                 _seq = order
+                if self.log is not None:
+                    try:
+                        self.log({"kind": "d_stage", "req": str(req)[-6:],
+                                  "at": "post-merge",
+                                  "pressure": bool(pressure),
+                                  "seq_n": len(_seq)})
+                    except Exception:
+                        pass
                 if _mid_blocks_q:
                     # insurance slots AFTER the question ranking: the
                     # question field at 88K puts the needle block rank
@@ -5067,13 +5077,16 @@ class VllmSparseRuntime:
                     _seenq = set(order)
                     _mrest = [bb for bb in _mid_kept_blocks]
                     _seq = _rr(order, _mrest)
-                if self.log is not None:
-                    self.log({"kind": "d_final_merge", "req": str(req)[-6:],
-                              "mid_blocks": (list(_mid_kept_blocks)[:12]
-                                             if _mid_kept_blocks else None),
-                              "mid_n": len(_mid_kept_blocks or ()),
-                              "room": room, "kept_pre": len(kept),
-                              "order_head": list(order[:6])})
+                    try:
+                        self.log({"kind": "d_final_merge", "req": str(req)[-6:],
+                                  "mid_blocks": (list(_mid_kept_blocks)[:12]
+                                                 if _mid_kept_blocks else None),
+                                  "mid_n": len(_mid_kept_blocks or ()),
+                                  "room": room, "kept_pre": len(kept),
+                                  "order_head": list(order[:6])})
+                    except BaseException as _fmex:
+                        self.log({"kind": "d_final_merge_error",
+                                  "err": str(_fmex)[:160]})
                 if self.log is not None:
                     try:
                         self.log({"kind": "d_fill_enter", "req": str(req)[-6:],

@@ -1068,3 +1068,10 @@ skip=不重放只装视图 - 顺路）。
 - d_final_kept 实锤链：final 调用 kept=[0..6,91] kept_n=8、budget=18、room=10、order top=[8,9,10,13..]（152K）- **fill 段跑（merge_present ✓）却没把 top 加进 kept（kept_n 恒 8）→ 最后嫌疑集中在 `for b in _seq` 循环本体**（_seq 构成/room 语义/异常吞），d_fill_enter 探针（seq_n/room/seq_head，无节流）已就位，下轮一发判死。
 - 预算账真相（一并记录）：sink_blocks=7（sink_tokens≈11000）+ recent_blocks=1（recent_tokens=1024 < 一块 1568 - **生产 recent 配置在 1568-块代际只剩 1 块 = 尾窗 1568 tokens**，与 262144-位表代际的 1616 同现象）；budget=18 → 中间槽位理论 10+。D 语义下 recent 至少应覆盖 R 区（16384→10 块）- 列入修复面（与 fill 同轮改：recent_blocks = max(recent, gen//block)）。
 - 电池：88K/152K 各 1 发 False（105/225s）。预算 1 boot。本地 ahead 8+本轮探针提交。
+
+## 96-97. Round 67：merge 事件裸 NameError 已修（真病灶之一但非全部）+ 区间跳段定界到 5016-5055
+
+- 修复（保留，有效）：①`d_final_merge` 裸 log 的 NameError（_mid_kept_blocks 分支未绑定）加 try+出声；②该变量无条件初始化；③pre-merge/post-merge 双 d_stage 钉（无节律）。离线 5/5。一次锚失败写坏语法当场修复（坏运行时那一发的数据已标记作废）。
+- 修复后读数：pre-merge 钉活（room=10, order_n=49）✓、merge_error=0 ✓、**post-merge 钉仍 0 事件、kept_n=8 依旧** → 跳过区间收窄到 **5016(pre-merge 之后)-5055(_seq=order)** 的函数体直道（`def _rr` 定义、5043 分支、初始化行 - 全部无出口语句、无外层 try - **机制不明**）。
+- 下轮判决法（一次 boot 定死）：该 40 行区间**每 5 行插一枚 d_stage 针**（针表达式保持哑简：只有字符串常量），一次读数即得断线行号。若针全活而 post-merge 死 → 我读错了控制流（_seq=order 行或不在该路径 - 届时打印 traceback 全栈进事件）。
+- 电池：88K False（106s）。累计战果保留：表同步/安装推送/坐标洞/merge 守卫全在树。生产恢复中；ahead 12。
