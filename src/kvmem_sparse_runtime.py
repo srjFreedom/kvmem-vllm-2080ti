@@ -4399,6 +4399,9 @@ class VllmSparseRuntime:
         return (ordered, ordered, [], [])
 
     def _reselect_remobilize(self, req, pressure=False):
+        if getattr(self, "d_mode", False) and __import__("os").environ.get(
+                "KVMEM_D_NOBLADE", "") in ("1", "true", "yes"):
+            return self._state.get(req)
         """THE FINAL PROTOCOL: a view expressed as PHYSICAL BLOCKS the engine really holds.
 
         Three measured truths forced this shape:
@@ -4604,14 +4607,19 @@ class VllmSparseRuntime:
         return _kc[0]
 
     def _reselect_blockwise(self, req, pressure=False):
-        # ABLATION SWITCH (design 102): KVMEM_D_NOKNIFE=1 makes the
-        # question knife (final lane) a pure no-op - the view stays at
-        # the last MID knife output. Used to binary-search whether the
-        # answer failure lives in KNIFE INSTALLATION (view content) or
-        # in the D execution model (tables/override) itself.
-        if (bool(pressure is False) and getattr(self, "d_mode", False)
-                and __import__("os").environ.get("KVMEM_D_NOKNIFE", "")
-                in ("1", "true", "yes")):
+        # ABLATION SWITCHES (design 102/104):
+        # KVMEM_D_NOKNIFE=1  - question knife (final lane) no-op
+        # KVMEM_D_NOBLADE=1  - BOTH lanes no-op: the request runs the
+        #   whole D model (harvest/store/tables plumbing) but the view
+        #   never compacts. Answers whether ANY knife-installed view
+        #   (or the override chain it arms) breaks the needle answer,
+        #   versus the D execution model itself being innocent.
+        if getattr(self, "d_mode", False) and (
+                (__import__("os").environ.get("KVMEM_D_NOBLADE", "")
+                 in ("1", "true", "yes"))
+                or (not bool(pressure)
+                    and __import__("os").environ.get("KVMEM_D_NOKNIFE", "")
+                    in ("1", "true", "yes"))):
             return self._state.get(req)
         """The NO-MOVE block view - the only view this engine's kernel table can express.
 
