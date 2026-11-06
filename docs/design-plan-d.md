@@ -1061,3 +1061,10 @@ skip=不重放只装视图 - 顺路）。
   B. **镜像语义 D 化**：D 臂 sync_row_from_engine 应"engine 新块并入行尾（R 区），不动前 selection 段"，现在 grown 直接拼接稠密 values[379:1666]（陈旧页 id 入 row 尾 + logical 尾 -1 洞）- 行为暂可容忍（洞+旧页不在 selection 区），但 causal 覆盖到 row 尾的 garbage 区是答案质量的已知污染源（round-47 "tail garbage attention" 理论在此闭环）：view_lens 发布 selection_len 后该问题自动消失（tables 已修 - 待与 A 同时验证）。
 - 电池：88K 0/2、152K 0/1（104-225s）。d_install_row ✓、book_drop ✓、表 ✓；needle 块未进 selection 是唯一缺口 - A 修好即预期 True 带。
 - 预算：2 boots 触顶。生产恢复中；本地 ahead 8。
+
+## 94. Round 66：第 10 次 throttle 冤案自破 + kept 预算账真相（sink7+recent1=8 块，room=10 实存）
+
+- 上轮"注入段从未执行"结论作废：loud 计数器被 warmup 烧光（merge_present 无节律探针显示 final 调用 252 次全过段）。**纪律再锤：仪表节流必须按请求/按调用身份，全局计数器的 silence 不是证据。**
+- d_final_kept 实锤链：final 调用 kept=[0..6,91] kept_n=8、budget=18、room=10、order top=[8,9,10,13..]（152K）- **fill 段跑（merge_present ✓）却没把 top 加进 kept（kept_n 恒 8）→ 最后嫌疑集中在 `for b in _seq` 循环本体**（_seq 构成/room 语义/异常吞），d_fill_enter 探针（seq_n/room/seq_head，无节流）已就位，下轮一发判死。
+- 预算账真相（一并记录）：sink_blocks=7（sink_tokens≈11000）+ recent_blocks=1（recent_tokens=1024 < 一块 1568 - **生产 recent 配置在 1568-块代际只剩 1 块 = 尾窗 1568 tokens**，与 262144-位表代际的 1616 同现象）；budget=18 → 中间槽位理论 10+。D 语义下 recent 至少应覆盖 R 区（16384→10 块）- 列入修复面（与 fill 同轮改：recent_blocks = max(recent, gen//block)）。
+- 电池：88K/152K 各 1 发 False（105/225s）。预算 1 boot。本地 ahead 8+本轮探针提交。

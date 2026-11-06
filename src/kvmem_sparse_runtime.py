@@ -4745,6 +4745,16 @@ class VllmSparseRuntime:
         # first (88K evidence: [31, 44, 39...]). Two reserved slots, no
         # more: 88K/152K keep their question-dominant views.
         _mid_blocks_q = None
+        # UNTHROTTLED merge presence probe (design 94): a counter-based
+        # loud gate was consumed entirely by warmup knives and made a
+        # live code section look dead for one whole round - the probe
+        # fires on every call now.
+        if self.log is not None:
+            try:
+                self.log({"kind": "d_merge_present", "req": str(req)[-6:],
+                          "pressure": bool(pressure)})
+            except Exception:
+                pass
         if not bool(pressure):
             try:
                 _lcq = (getattr(self, "_stats_core_by_req", None) or {}).get(req)
@@ -5082,6 +5092,19 @@ class VllmSparseRuntime:
             if nxt >= n_blocks:
                 break
             kept.append(nxt)
+        if self.log is not None:
+            try:
+                _mtk = 40471 if int(tokens) <= 80000 else (
+                    71534 if int(tokens) <= 150000 else 112590)
+                _nbk = _mtk // max(1, int(block_tokens))
+                _kl = sorted(int(x) for x in kept)
+                self.log({"kind": "d_final_kept", "req": str(req)[-6:],
+                          "pressure": bool(pressure), "needle_blk": _nbk,
+                          "in_kept": int(_nbk in kept), "kept": _kl[:24],
+                          "kept_n": len(_kl), "budget": int(budget_blocks),
+                          "top6": [int(x) for x in (order[:6] if order else [])]})
+            except Exception:
+                pass
         # THE rearrange path (design 87): selection is COMPLETE - every
         # page of every kept block enters the view; resident pages keep
         # their slots; evicted pages are handed the slots this knife
