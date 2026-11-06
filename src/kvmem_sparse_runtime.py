@@ -5006,6 +5006,16 @@ class VllmSparseRuntime:
                     except Exception:
                         pass
                 room = max(0, budget_blocks - len(kept))
+                if self.log is not None:
+                    try:
+                        self.log({"kind": "d_stage", "req": str(req)[-6:],
+                                  "at": "pre-merge",
+                                  "pressure": bool(pressure),
+                                  "room": int(room),
+                                  "order_n": len(order),
+                                  "seq_defined": False})
+                    except Exception:
+                        pass
                 if self.log is not None and getattr(self, "_mg_loud", 0) < 8:
                     self._mg_loud = getattr(self, "_mg_loud", 0) + 1
                     self.log({"kind": "d_merge_enter", "req": str(req)[-6:],
@@ -5073,12 +5083,36 @@ class VllmSparseRuntime:
                                   "seq_head": [int(x) for x in _seq[:8]]})
                     except Exception:
                         pass
+                _seq = list(_seq)
+                _seqn = len(_seq)
+                _head = [int(x) for x in _seq[:8]]
+                if self.log is not None:
+                    try:
+                        self.log({"kind": "d_stage", "req": str(req)[-6:],
+                                  "at": "pre-fill", "seq_n": len(_seq),
+                                  "room": int(room)})
+                    except Exception:
+                        pass
                 for b in _seq:
                     if room <= 0:
                         break
                     if 0 <= b < n_blocks and b not in kept:
                         kept.add(int(b))
                         room -= 1
+                # AFTER-fill truth snapshot (design 95): kept_n went 8->?
+                # with room 10->?; seq identity visible at last.
+                if self.log is not None:
+                    try:
+                        _mtz = 40471 if int(tokens) <= 80000 else (
+                            71534 if int(tokens) <= 150000 else 112590)
+                        _nbz = _mtz // max(1, int(block_tokens))
+                        self.log({"kind": "d_after_fill", "req": str(req)[-6:],
+                                  "pressure": bool(pressure),
+                                  "kept_n": len(kept), "room_left": int(room),
+                                  "seq_n": _seqn, "seq_head": _head,
+                                  "needle_blk": _nbz, "in_kept": int(_nbz in kept)})
+                    except Exception:
+                        pass
             except Exception:
                 pass
         if bool(pressure):
