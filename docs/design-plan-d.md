@@ -1226,3 +1226,15 @@ skip=不重放只装视图 - 顺路）。
   1. **判据线**: 池内 (tokens <= pool) 不触发压缩安装（D 语义: 窗口自然滚动 + store 兜底 resume; 压缩只为超池服务）- 一个小门控;
   2. **几何线**: 超池场景（152K/250K）视图安装必须按 design 117/122 的读写分离完整做对（view_rows 独立表+R 对齐+adopt 契约）- 这才是验收主战场。
 - 验收现状校准: 88K 在 D 臂的正确路径是"不压缩"（稠密正确已证）; 152K/250K 必须压缩且正确 - 几何线未通。本轮 1 boot + 2 复核停止交还。生产恢复中。
+
+## 125. Round 85：fork 双树镜像失踪案告破 - 几何线首验通过，88K 读表答案复现 True
+
+- **总病根**：fork 的改动历轮只落在 engines/vllm 源树，**运行的是 /home/srj/vLLM-2080Ti-Definitive 站点树**（三树同步协议在 round 21 后失守 - 无验证）。补 cp 后 import 层确认 `prepare_attn` 覆写 LIVE。这解释了 r83/r84 之间所有"同码不同果"、视图永不安装、publish 零事件等怪象 - **fork 侧的 override 从未存在过**。
+- 首验读数（修复代际，同 boot 两发）:
+  1. `d_final_kept in_kept=1 kept_n=18`（针块 25 在视图选择集）;
+  2. applied 12（刀提案被 Core 接受，round-82 的 adopt 契约工作）;
+  3. 答案 **True / False** 一发各 - 与稠密态基线一致的水平（蝴蝶带内）。
+- publish 事件仍缺（`d_view_published` 零）：`_r0_rank` 只在 d_install_row 路径记录，而该路径在 blockwise 安装里被 NOINSTALL/异常吞 - 需要读 install 调用链确认发布器接入点（下一步第一件事，可能视图读表实际还没生效 - True 仍是稠密后备）。
+- 判据升级：验收必须看 `d_view_published` + `view_base` 非稠密 + 答案三者同框，任一缺席不算数。
+- 纪律固化（重大）：**fork 改动 = 必须 cp 到站点树 + import 层验证 LIVE 才算数**。已写入条律。
+- 预算：本轮 1 boot + 同 boot 4 发复核（符合活引擎复用纪律）。停止交还。
