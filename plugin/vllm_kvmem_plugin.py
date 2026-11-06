@@ -3271,9 +3271,12 @@ def _install(cls, module_name, probe, smoke, state):
                         except Exception:
                             self.kvmem_view_rows = None
                         self.kvmem_view_active = False
-                        _rt0 = state.get("sparse")
-                        if _rt0 is not None:
-                            _rt0.d_mode = True
+                        rt = state.get("sparse")
+                        if rt is None:
+                            rt = self.kvmem_runtime
+                        if rt is not None:
+                            rt.d_mode = True
+                            rt.runner = self
                         _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",
                                 {"kind": "plan_d_wired", "pid": os.getpid(),
                                  "reqs": _n})

@@ -1260,3 +1260,12 @@ skip=不重放只装视图 - 顺路）。
 - 验证欠账（不粉饰）：修复代际的电池**还没跑** - 本轮 boot 漏发 sed（臂仍是 D=0），battery 数据无效已弃；下次 boot（下轮第一件事）跑 88K+152K mt256，判据三同框：`d_knife_call>0 + d_view_published/skip 事件在场 + 答案`。
 - 教训入律第 N+1 次：**boot 命令必须自带 arm-assert**（grep 期望值不匹配则拒绝 restart）- 下轮起 sed/grep/restart 合并为单原子块。
 - 预算: 1 boot（无效）+ 大量静态。生产恢复中，本地 ahead 47。
+
+## 129-131. Round 89：全链六环贯通四环 + wiring 首次执行 + 新裂缝（runner 侧 tables 丢失）
+
+- 修复并验证（本轮 3 boot，越界停止）:
+  1. rbv `_blk_real` NameError → 改自带 `q` 单位（remobilize 道复活：knife_call 68、applied 14、refused 0、none_reason 0 - 首次"刀提案被接受且无异常"代际）;
+  2. wiring 尾 `state.get(sparse)` 时机错误 → `rt = state or self.kvmem_runtime` + 挂 runner - **plan_d_wired 首次执行（×2）**。
+- 新裂缝（未修，如实）: `d_sync_exit why=tables-none v=true d=true` - **runner 上 view_lens/slot_deltas 两属性皆 None**：wiring 分配的表未挂到 sync 所读的 runner 对象（或 execute_model 外层 else 把属性置 None - 3281 行 fallback 触发过）。修复方向：wiring 分配与 sync 读取核对同一 runner 引用；确认 `self.kvmem_view_rows` 是否在 wiring 内成功（attrs 显示 view_rows 在、两表 None - 矛盾指向分配块中途异常走 else 置 None）。下轮第一读：wiring 块加逐行出声（每表分配成功/异常都记）。
+- 服务当前代际是实验态（D=1），生产恢复推迟至下轮开头（先修后恢复，避免无意义重启）。
+- 验收距离: 六环（刀触发→merge→rbv→install→publish→adopt→读表答案）通至第五环，第六环差表挂载一步。
