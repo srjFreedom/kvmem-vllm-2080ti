@@ -1152,3 +1152,16 @@ skip=不重放只装视图 - 顺路）。
   B2 生成 token 可见性 - 面板 vbase 每步 +1 递增证在跟随，无罪；
   B3 【唯一未测且最可疑】D 臂的每步额外 machinery（capture 桶/harvest 循环/d_dvp 面板 RPC 时序）改变前向数值归约序 - greedy 下数值差被思维链放大成答案差。这与 round-49 的"GPU 数值蝴蝶"同族，但 B3 是 [系统性] 的（D 臂每次都多跑这些 kernel）。判决实验：D=1 + KVMEM_D_SILENT=1（所有 per-step 附挂全部空转：harvest/面板/统计/bridge 读取，视图仍由刀安装）- 若 True → 病灶=观测 machinery 数值侵入；若 False → override 语义本身（届时做 override 与真账本的对照读）。
 - 本轮 1 boot。250K False 数据点在协议全通意义下保留（机制层首达标）。生产恢复中。
+
+## 109-110. Round 76：消融矩阵完成 - 刀+视图组合唯一致死，单要素全存活
+
+- 判决表（同 boot 谱系，D=1/spec0，88K）：
+  | 组合 | applied | override | 答案 |
+  |---|---|---|---|
+  | 全刀+表+override（正常 D） | 27 | 开 | False (0/2) |
+  | NOINSTALL（无行改写） | 27 | 开 | False (0/2) |
+  | NOOVERRIDE（数据无效：poll-1 假就绪跑了旧代际） | - | - | 作废 |
+  | NOBLADE（纯稠密+override） | 0 | 开 | False（稠密视图比 override 短 = 遮蔽，已知不完整模式） |
+  | **NOBLADE+NOOVERRIDE（纯稠密全 native 执行）** | 0 | 关 | **True (80.8s)** |
+- **结论**：刀的视图改写单独无罪（round 75 install 判死+本轮矩阵）、override 单独无罪（稠密+override=False 归因于 28353 遮蔽 53K 尾，语义必然）、**二者合流才致死**。机制推测定位：override 的 causal 轴 `view_base+ql` 与行内容长度 `pages×pt` 在刀视图下**同源相等**（28353=882×32）- attention 因此**丢失了视图外的 R 区生成 token（刚写的思维链/问句前文在 kv 长度 28353 之后）** - 模型对自己的生成历史半盲 → 答不出。修法候选（下轮判读）：(a) view_base 应含 R 区长度 `pages×pt + (tokens - knife_base_tokens)`；(b) 或行按 causal 长度补 R 页进视图。读 override 段 + R2b 注释定夺。
+- 本轮 3 boots（含一次假就绪数据作废）。消融开关全保留、env 已清。生产恢复中。
