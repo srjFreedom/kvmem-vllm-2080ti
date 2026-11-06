@@ -1238,3 +1238,10 @@ skip=不重放只装视图 - 顺路）。
 - 判据升级：验收必须看 `d_view_published` + `view_base` 非稠密 + 答案三者同框，任一缺席不算数。
 - 纪律固化（重大）：**fork 改动 = 必须 cp 到站点树 + import 层验证 LIVE 才算数**。已写入条律。
 - 预算：本轮 1 boot + 同 boot 4 发复核（符合活引擎复用纪律）。停止交还。
+
+## 126. Round 86：publish 哑谜定位到最后两个调用行 - 88K 答案不依赖视图（稠密+GDN 已足够），152K 是视图唯一考场
+
+- 读数: 88K gate x1 True / x2 False（蝴蝶带），152K False（407s）；`d_view_published/skip` 双零 - install 调用行（4653 remobilize / 5486 blockwise）在真实执行流里从未到达，而 `d_final_kept x42/74`（kept 事件）说明刀在 merge 段就 return 了或走了别的分支。**下轮锚点**: 在 5460 `st.row = tuple(phys_pages)` 与 4653 前各放一枚 d_install_reach 针（同函数已有事件但无这行针），一发读针就知道刀执行流死在哪一行之前。
+- 战略再校准（重要）: 88K 两代际的 True（稠密态）证明 **88K 的正确答案不依赖压缩视图**（窗口截断+GDN 全状态通道足够）- 视图几何的考场只在 **152K/250K**（超窗口必须压缩，稠密态遮蔽问句）。所以 88K 判据降为回归项，152K/250K 全对才是验收线。
+- site_sync_check 已建并 OK（fork override LIVE + diff 零漂移）- 三树纪律工具化。
+- 预算: 1 boot + 4 复核停止交还。生产恢复中。

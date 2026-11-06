@@ -10,7 +10,7 @@ for f in vllm/v1/worker/gpu/model_runner.py; do
     echo "DESYNC: $f"; fail=1
   fi
 done
-python3 - << 'PYEOF' || fail=1
+/home/srj/vLLM-2080Ti-Definitive/.venv/bin/python - << 'PYEOF' || fail=1
 import sys
 sys.path.insert(0, "/home/srj/vLLM-2080Ti-Definitive")
 try:
