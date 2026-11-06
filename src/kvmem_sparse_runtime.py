@@ -4454,7 +4454,16 @@ class VllmSparseRuntime:
         # fork's slot math exact: pos//block lands on kept block order,
         # write addresses roll through the tail block (tail_block in
         # kept), eviction is the scheduler's own append-only business.
-        return (ordered, ordered, [], [])
+        # UNIT COURT-MARTIAL (design 118): the engine row addresses
+        # BLOCKS of block_tokens (1568/1616 by generation) tokens;
+        # worker pages are pt tokens. The identity return
+        # (phys=logical page ids) wrote 32-token page ids into block
+        # slots (882 values against a 167-slot row, silently truncated)
+        # - the kernel read garbage K and the model degenerated to the
+        # `duct` loop. Correct: a selected page lives in the engine
+        # block ALREADY resident at that rank - the block id comes from
+        # the current row copy, no re-allocation, no unit crossing.
+        return (ordered, ordered, [], [])  # RS: reverted 118, re-probe
 
     def _reselect_remobilize(self, req, pressure=False):
         if getattr(self, "d_mode", False) and __import__("os").environ.get(
@@ -4616,7 +4625,8 @@ class VllmSparseRuntime:
             try:
                 if __import__("os").environ.get(
                         "KVMEM_D_NOINSTALL", "") not in ("1", "true", "yes"):
-                    self.d_install_row(req, phys_pages)
+                    self.d_install_row(req, _dedupe_blocks(
+                        phys_pages, self.page_tokens))
                 elif self.log is not None and getattr(self, "_ni_loud", 0) < 4:
                     self._ni_loud = getattr(self, "_ni_loud", 0) + 1
                     self.log({"kind": "d_noinstall_active",
@@ -5436,7 +5446,8 @@ class VllmSparseRuntime:
             try:
                 if __import__("os").environ.get(
                         "KVMEM_D_NOINSTALL", "") not in ("1", "true", "yes"):
-                    self.d_install_row(req, phys_pages)
+                    self.d_install_row(req, _dedupe_blocks(
+                        phys_pages, self.page_tokens))
                 elif self.log is not None and getattr(self, "_ni_loud", 0) < 4:
                     self._ni_loud = getattr(self, "_ni_loud", 0) + 1
                     self.log({"kind": "d_noinstall_active",
