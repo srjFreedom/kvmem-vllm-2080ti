@@ -2601,6 +2601,15 @@ class VllmSparseRuntime:
         st = self._state.get(req)
         vr = getattr(runner, "kvmem_view_rows", None) if runner else None
         if st is None or vr is None:
+            if self.log is not None and getattr(self, "_vr_why", 0) < 8:
+                self._vr_why = getattr(self, "_vr_why", 0) + 1
+                self.log({"kind": "d_view_publish_skip",
+                          "why": "st-none" if st is None else "vr-none",
+                          "runner": runner is not None,
+                          "attrs": [a for a in ("kvmem_view_rows",
+                                  "kvmem_view_lens", "kvmem_slot_deltas")
+                                  if runner is not None
+                                  and hasattr(runner, a)]})
             return False
         try:
             _ri = int(getattr(st, "row_index", -1) or -1)
@@ -2620,6 +2629,13 @@ class VllmSparseRuntime:
             _tail = _eng[_r0:_used]
             _rowv = _head + _tail
             if not _rowv or len(_rowv) > vr.shape[1]:
+                if self.log is not None and getattr(self, "_vr_why", 0) < 8:
+                    self._vr_why = getattr(self, "_vr_why", 0) + 1
+                    self.log({"kind": "d_view_publish_skip", "why": "rowv",
+                              "head": len(_head), "tail": len(_tail),
+                              "width": int(vr.shape[1]),
+                              "phys_head": [int(x) for x in
+                                            list(phys_pages)[:6]]})
                 return False
             import torch as _tt
             _idx = _tt.arange(len(_rowv), device=vr.device)
