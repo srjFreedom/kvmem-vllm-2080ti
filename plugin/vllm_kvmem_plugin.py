@@ -2449,6 +2449,15 @@ def register():
 
                 def _quiescent_compaction(core):
                     """Opt-in: compact at the Core boundary, between steps, on the main thread.
+                    # NOBLADE ablation (design 104): with KVMEM_D_NOBLADE=1
+                    # the Core-side knife trigger chain stands down too, so
+                    # the request runs the D model with a purely dense view
+                    # - the last rung of the binary search between "knife
+                    # installed a wrong view" and "the D execution model
+                    # itself breaks the answer".
+                    if os.environ.get("KVMEM_D_NOBLADE", "") in (
+                            "1", "true", "yes"):
+                        return None
 
                     Every worker must propose the same frontier/working set; EngineCore then adopts
                     the blocks and rewrites its books ONCE, so the next schedule is built from the
