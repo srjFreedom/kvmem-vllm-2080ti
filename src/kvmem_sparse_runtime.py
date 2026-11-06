@@ -4463,7 +4463,18 @@ class VllmSparseRuntime:
         # `duct` loop. Correct: a selected page lives in the engine
         # block ALREADY resident at that rank - the block id comes from
         # the current row copy, no re-allocation, no unit crossing.
-        return (ordered, ordered, [], [])  # RS: reverted 118, re-probe
+        if __import__("os").environ.get("KVMEM_D_BLKIDS", "") in (
+                "1", "true", "yes"):
+            # design 118: ENGINE-ROW UNIT - row slots address blocks of
+            # block_tokens tokens (1568 = 49 pages at pt=32). Map each
+            # selected page to its engine block id resident at that
+            # block rank (pre-knife rows are dense identity, so the
+            # block id equals the block rank for every block the
+            # request has ever filled; later knives keep this stable).
+            _bpo = max(1, int(_blk_real) // max(1, int(pt)))
+            _po = [pg // _bpo for pg in ordered]
+            return (_po, ordered, [], [])
+        return (ordered, ordered, [], [])
 
     def _reselect_remobilize(self, req, pressure=False):
         if getattr(self, "d_mode", False) and __import__("os").environ.get(
