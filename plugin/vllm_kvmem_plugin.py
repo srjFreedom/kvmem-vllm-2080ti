@@ -3497,6 +3497,10 @@ def _install(cls, module_name, probe, smoke, state):
                             except Exception:
                                 pass
                         try:
+                            runtime.d_decode_view_panel(req, int(n_new))
+                        except Exception:
+                            pass
+                        try:
                             runtime.harvest_key_statistics(req, int(n_new))
                         except Exception:
                             _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",

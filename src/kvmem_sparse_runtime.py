@@ -2085,6 +2085,64 @@ class VllmSparseRuntime:
                               "req": str(rid)[-8:],
                               "error": __import__("traceback").format_exc()[-260:]})
 
+    def d_decode_view_panel(self, req, n_new):
+        """Decode-time view coherence panel (design 81): with selection
+        proven correct (needle block ranked #1/#2), the remaining answer
+        failure must live in what DECODE actually reads. For the first
+        three decode steps per request report: the needle page's position
+        inside the installed view, the published causal base (view_lens)
+        and the write delta - the triple that decides whether attention
+        can even address the needle bytes at generation time."""
+        if not getattr(self, "d_mode", False) or int(n_new) > 8:
+            return
+        st = self._state.get(req)
+        if st is None:
+            return
+        _seen = getattr(self, "_d_dvp_seen", None)
+        if _seen is None:
+            _seen = self._d_dvp_seen = {}
+        _k = _seen.get(req, 0)
+        if _k >= 3:
+            return
+        _seen[req] = _k + 1
+        try:
+            _mt = 40471 if int(st.tokens) <= 80000 else (
+                71534 if int(st.tokens) <= 150000 else 112590)
+            _pg = _mt // max(1, int(self.page_tokens))
+            _lg = [int(x) for x in (st.logical or ())]
+            _pos = _lg.index(_pg) if _pg in _lg else -1
+            # direct block-coverage readout: which engine block the needle
+            # page belongs to, and whether ANY page of that block made it
+            # into the installed logical set (selection rank 0 must imply
+            # block pages present; a mismatch localizes the failure to
+            # the kept -> pages expansion / restore, not the ranking).
+            _bl = _pg // max(1, int(getattr(self, "block_pages", 1) or 1))
+            _blk_pages_present = sum(1 for x in _lg
+                                     if _bl * int(getattr(self, "block_pages", 1) or 1)
+                                     <= x < (_bl + 1) * int(getattr(self, "block_pages", 1) or 1))
+            _rn = getattr(self.view, "runner", None)
+            _vlv = getattr(_rn, "kvmem_view_lens", None) if _rn else None
+            _dlv = getattr(_rn, "kvmem_slot_deltas", None) if _rn else None
+            # FIX: `int(...) or -1` turned a legitimate row_index of 0
+            # into -1 and reported view_base/delta as unpublished when
+            # they were published normally - the panel lied about the
+            # tables. None-check explicitly.
+            _rix = getattr(st, "row_index", None)
+            _ri = int(_rix) if _rix is not None else -1
+            _vb = int(_vlv[_ri]) if (_vlv is not None and _ri >= 0) else -1
+            _dd = int(_dlv[_ri]) if (_dlv is not None and _ri >= 0) else -1
+            if self.log is not None:
+                self.log({"kind": "d_dvp", "req": str(req)[-6:], "n": int(n_new),
+                          "tokens": int(st.tokens), "needle_page": _pg,
+                          "pos_in_view": _pos, "view_base": _vb,
+                          "delta": _dd, "row_len": len(_lg),
+                          "needle_block": int(_bl),
+                          "block_pages_in_view": int(_blk_pages_present),
+                          "seq_len_view": int(st.seq_len)})
+        except BaseException as _dexc:
+            if self.log is not None:
+                self.log({"kind": "d_dvp_error", "error": str(_dexc)[:160]})
+
     def sweep_release(self, req):
         """The ONE release policy for sweep callers (design 24): disappearance
         from one step's batch is NOT completion - Plan D defers steps by

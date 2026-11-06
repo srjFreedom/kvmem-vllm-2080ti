@@ -1001,3 +1001,10 @@ skip=不重放只装视图 - 顺路）。
 - 由此电池现状重估：88K/152K 四连发全 False（同 boot，87.6-204.2s），而检索满分+greedy 确定（场/表/刀全确定）→ **False 若稳定复现即纯确定性行为**（不是蝴蝶）- 意味着**视图里 needle 在场，但 decode 的答案路径仍有系统性问题**。下一刀不是检索也不是蝴蝶：**同 boot 对比 greedy 采样链**：打 first sampled token + 前 8 token ids 序列（d_loop_member 旁加 sampled_tokens 面板），与"若直接以完整 prompt dense 跑"（spec4 生产臂=已知 True 链）对比首个分歧 token - 定位答案路径的分叉点（怀疑：问题刀后视图的 recency 区在 decode 写入中漂出 needle 区/或 slot_deltas 与 recency 的写序交互污染 tail K）。
 - 保留判定：本轮仪表改动永久正确；历史结论全部作废清单：wrote0×124、rank22、"边界稀释"、"自匹配霸榜"、"spec4 场塌"（部分系单位）- 全部由同一标定错误派生。
 - 预算：1 boot 完成（四发读数），停。生产恢复中。
+
+## 81. Round 59：decode 视图面板上线 - needle 页不在已安装视图（真信号），面板自身两处 bug 同修
+
+- d_dvp 面板（decode 前 3 步/请求）首轮读数（88K 同 boot 一 True 一 False 两 run 一致形态）：`pos_in_view=-1, row_len=1666, seq_len_view=17358` - **needle page 1264（=40471/pt, pt=32 代际）不在 logical 集**。检索排名（rank0）与视图安装（页不在场）**第一次被证明是两个不同的事实** - 断点在 kept→pages 展开或 restore 侧，不在打分。
+- 面板自带两 bug 同轮修掉：①`int(row_index) or -1` 把合法 row 0 报成 -1（view_base/delta 显示 -1 全是假账 - 表其实正常发布，此前一切"表未发布"推论作废）；②新增 needle 块的**页覆盖直读**（block_pages_in_view：该块有几页真在场）- 下轮读数将直接回答"块 25 完全没进视图"还是"部分页被 old_row 条件拒绝"。
+- 下一刀（纯读数，零机制改动）：修正面板跑 88K×2 - 若 block_pages_in_view=0 → 查 kept 展开循环的 q/old_row 条件；若部分在场 → 查 restore 对缺页的处理。这将是"needle 在场却答不出"的最后一段电路。
+- 预算：2 boots（面板首轮），停。commit 本地，里程碑前不 push。
