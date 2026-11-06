@@ -1245,3 +1245,11 @@ skip=不重放只装视图 - 顺路）。
 - 战略再校准（重要）: 88K 两代际的 True（稠密态）证明 **88K 的正确答案不依赖压缩视图**（窗口截断+GDN 全状态通道足够）- 视图几何的考场只在 **152K/250K**（超窗口必须压缩，稠密态遮蔽问句）。所以 88K 判据降为回归项，152K/250K 全对才是验收线。
 - site_sync_check 已建并 OK（fork override LIVE + diff 零漂移）- 三树纪律工具化。
 - 预算: 1 boot + 4 复核停止交还。生产恢复中。
+
+## 127. Round 87：dedupe 定义恢复结案 + 新首犯现形（row slot 饥饿 raise 杀刀于触发前）
+
+- 结案一: `_dedupe_blocks` 定义缺失（NameError 被吞）已修复并 LIVE 验证 - publisher 调用链在代码层完整。
+- 新首犯: 本代 after_step_error×66 - `advance_tokens:2928 -> after_step:3305 raise "sparse row has no slot for the next token page"` - 行槽位由 st.next_page/row 长度核算，在 BLKIDS+新 install 链下槽账目对不上 - **刀还没触发就被杀**（d_knife_call 代际零计数一致）。88K x1 True 是该发没走到 raise 的侥幸路径（x1=st-check 之前一发）。
+- 152K False 同因（刀死→视图从未建立→稠密遮蔽问句区）。
+- 下轮单点: 读 3305 的槽账目条件（next_page/row 宽/R 预留块槽）与 BLKIDS install 后 st.row 的块粒度新语义（882 页值→18 块值）失配处 - 把 after_step 的槽公式改成块单位 - 修完刀自然复活，publish/电池全链同 boot 验证。
+- 预算: 本轮 1 boot + 2 复核（加 kill 一发），停止交还。生产恢复中。本地 ahead 45。
