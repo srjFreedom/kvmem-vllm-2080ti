@@ -2527,6 +2527,67 @@ class VllmSparseRuntime:
         st = self.state(req)
         self._pending_new[req] = int(n_new)
 
+    def d_install_row(self, req, phys_pages):
+        """Push the knife's installed row into the ENGINE table (design
+        92): until now the worker kept the selection only in st.row,
+        while the engine row stayed dense - and `sync_row_from_engine`
+        then mirrored the dense row back over st.row every step (the
+        measured row_len 379 -> 1666 reversal). In D the knife owns the
+        row; the engine must read exactly what was selected. Slots at
+        or past the selection keep whatever the engine allocated there
+        (the rolling write region belongs to the scheduler, not us)."""
+        try:
+            st = self._state.get(req)
+            if st is None:
+                return False
+            runner = getattr(self.view, "runner", None)
+            tbls = None
+            try:
+                tbls = runner.block_tables
+            except Exception:
+                tbls = None
+            if tbls is None:
+                if self.log is not None:
+                    self.log({"kind": "d_install_row_error",
+                              "why": "no-block-tables",
+                              "groups": len(getattr(runner, "kv_cache_config", None).
+                                            kv_cache_groups if (runner and getattr(runner, "kv_cache_config", None)) else 0)})
+                return False
+            import torch
+            _rowi = int(st.row_index)
+            _gids = [gid for gid, spec in enumerate(
+                getattr(tbls, "spec", getattr(tbls, "kv_cache_groups", ())) or ())
+                     if getattr(spec, "kv_cache_kind", None) is None or True]
+            pushed = 0
+            for gid in range(len(getattr(tbls, "block_tables", ()) or ())):
+                try:
+                    bt = tbls.block_tables[gid]
+                    gpu = getattr(bt, "gpu", None)
+                    if gpu is None or _rowi >= gpu.shape[0]:
+                        continue
+                    rowv = gpu[_rowi]
+                    n = min(len(phys_pages), rowv.shape[0])
+                    idx = torch.arange(n, device=rowv.device)
+                    vals = torch.tensor([int(x) for x in phys_pages[:n]],
+                                        dtype=rowv.dtype, device=rowv.device)
+                    rowv.index_copy_(0, idx, vals)
+                    pushed += 1
+                except BaseException as _gex:
+                    if self.log is not None and getattr(self, "_ir_loud", 0) < 8:
+                        self._ir_loud = getattr(self, "_ir_loud", 0) + 1
+                        self.log({"kind": "d_install_row_error", "gid": gid,
+                                  "err": str(_gex)[:150]})
+            if self.log is not None and getattr(self, "_ir_ok", 0) < 8:
+                self._ir_ok = getattr(self, "_ir_ok", 0) + 1
+                self.log({"kind": "d_install_row", "req": str(req)[-6:],
+                          "groups": pushed, "pages": len(phys_pages),
+                          "row": _rowi})
+            return pushed > 0
+        except BaseException as _iex:
+            if self.log is not None:
+                self.log({"kind": "d_install_row_fatal", "err": str(_iex)[:160]})
+            return False
+
     def sync_row_from_engine(self, req, written, n_tokens=0):
         """Copy the pages the ENGINE has actually written into the request's row.
 
@@ -4443,6 +4504,11 @@ class VllmSparseRuntime:
                     missing += 1
         st.row = tuple(phys_pages)
         st.logical = tuple(logical_pages)
+        if getattr(self, "d_mode", False):
+            try:
+                self.d_install_row(req, phys_pages)
+            except Exception:
+                pass
         st.seq_len = int(len(phys_pages) * pt)
         st.spare = None
         st.off_pages = 0
@@ -4930,6 +4996,13 @@ class VllmSparseRuntime:
                     except Exception:
                         pass
                 room = max(0, budget_blocks - len(kept))
+                if self.log is not None and getattr(self, "_mg_loud", 0) < 8:
+                    self._mg_loud = getattr(self, "_mg_loud", 0) + 1
+                    self.log({"kind": "d_merge_enter", "req": str(req)[-6:],
+                              "pressure": bool(pressure), "room": room,
+                              "kept_pre": len(kept), "budget": int(budget_blocks),
+                              "n_blocks": int(n_blocks),
+                              "order_n": len(order) if order is not None else -1})
                 # round-robin fill (design 54): question top-k and the
                 # statistics-picked blocks interleave, so each family gets
                 # HALF the middle room deterministically. The static
@@ -5114,7 +5187,24 @@ class VllmSparseRuntime:
                     failed += 1
         st.row = tuple(phys_pages)
         st.logical = tuple(logical_pages)
-        st.seq_len = int(visible)
+        if getattr(self, "d_mode", False):
+            try:
+                self.d_install_row(req, phys_pages)
+            except Exception:
+                pass
+        # BOOK DROP (design 91): `visible` is Core's proposal book
+        # (resident_before - freed), computed BEFORE the rebuild
+        # expansion; the worker must book what it ACTUALLY installed
+        # (len(logical_pages) * pt), or the view is invisible to every
+        # consumer keyed by the books (tables sync, causal base, panel).
+        st.seq_len = int(len(logical_pages) * pt)
+        st.off_pages = max(0, (int(st.tokens) - st.seq_len) // max(1, pt))
+        if self.log is not None and getattr(self, "_bd_loud", 0) < 6:
+            self._bd_loud = getattr(self, "_bd_loud", 0) + 1
+            self.log({"kind": "d_book_drop", "req": str(req)[-6:],
+                      "old_visible": int(visible),
+                      "new_seq_len": st.seq_len, "pages": len(logical_pages),
+                      "off_pages": st.off_pages})
         st.spare = None
         # coin (design 36, rebuilt after an indent-damaged insert was
         # restored): membership of the needle page in the installed view,
@@ -5193,8 +5283,15 @@ class VllmSparseRuntime:
                     _true = int(self._engine_computed.get(req) or tokens)
                     # .data escapes the inference-tensor guard (measured:
                     # "InplaceMode is not allowed" inside the engine context)
-                    _dv.data[_ri] = _true - _d_window_visible
-                    _vlv.data[_ri] = _d_window_visible
+                    # BOOK-DROP CONSUMER (design 91): the install now
+                    # re-stamps st.seq_len to the ACTUAL view length;
+                    # publish that, not the pre-knife `visible` window -
+                    # publishing the dense base (53248) told the engine
+                    # the whole window was live and left the causal base
+                    # stale while the installed row held 379 pages.
+                    _vb_now = int(st.seq_len)
+                    _dv.data[_ri] = _true - _vb_now
+                    _vlv.data[_ri] = _vb_now
                     _runner.kvmem_view_active = True
                     if not bool(pressure) and self._state.get(req) is not None:
                         try:

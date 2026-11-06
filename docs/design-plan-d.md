@@ -1052,3 +1052,12 @@ skip=不重放只装视图 - 顺路）。
 - 场读数（仪表单位本无错，前轮 nb2 疑虑撤销）：88K needle **rank0**（真块 25）；152K needle **rank59**（真块 45）- 88K rank0 却没进 kept 且答案 False：**kept 注入段（_seq/order/room 循环，含 d_final_merge 仪表）从未执行**（merge 事件零计数，整窗 grep 无一枚）。MID 时代 98 页视图没执行过 final 段？门在哪个 if？
 - 待办三件（下轮一次做完）：①merge 段入口+出口各一事件钉死未执行原因；②final 账本更新补齐（installed 后 seq_len/off_pages/表 必须重刷 - sync 每步在刷，但 seqv=稠密说明 st.seq_len 本体没动，sync 刷的是 st.seq_len 的值所以照旧）；③注入修复后 152K rank59 vs 预算 7 的分数差距单独治（真检索问题，可能回到 query 窗/场质量）。
 - 电池：88K 0/2 False、152K 0/1 False（104-223s 无拒刀风暴）。预算 1 boot。生产恢复中。本地 ahead 7。
+
+## 91-92. Round 65：账本落地三连修（book drop/tables 发布/engine 行推送）与剩余两问
+
+- 修复三件（全部落地、离线 5/5）：①install 段 `st.seq_len = len(logical_pages)*pt`（不再是 Core 的旧 visible）+ off_pages 重刷（d_book_drop 仪表）；②表发布消费落地后的 seq_len（原发布稠密 53248 告诉引擎整窗存活 - 与安装脱节）；③**d_install_row**：刀安装的页集**推进 engine 自家 block table**（4 groups GPU index_copy_，事件确认 pushed）- 此前刀只改 worker 侧 st.row，engine 行恒稠密、sync 镜像每步把 st.row 冲回 1666（**"刀装了又被镜像冲掉"= pos=-1 全史的机制解释**）。
+- 剩余两问（下轮一发，按序）：
+  A. **final kept 不含场 top**：merge 事件显示注入循环仅 pressure:true 跑到；final(pressure=False) 的 `_seq/order/room` 段在 remobilize 里没有对应物（remobilize kept 来自它自己的 block_scores 段，需核实其 fill 是否执行 + kept 是否含 rank0-2 块）。修法：remobilize 的 kept 构建后打 kept 事件（含 needle 块判定），若缺 → 它的 top-k 循环有同类门问题。
+  B. **镜像语义 D 化**：D 臂 sync_row_from_engine 应"engine 新块并入行尾（R 区），不动前 selection 段"，现在 grown 直接拼接稠密 values[379:1666]（陈旧页 id 入 row 尾 + logical 尾 -1 洞）- 行为暂可容忍（洞+旧页不在 selection 区），但 causal 覆盖到 row 尾的 garbage 区是答案质量的已知污染源（round-47 "tail garbage attention" 理论在此闭环）：view_lens 发布 selection_len 后该问题自动消失（tables 已修 - 待与 A 同时验证）。
+- 电池：88K 0/2、152K 0/1（104-225s）。d_install_row ✓、book_drop ✓、表 ✓；needle 块未进 selection 是唯一缺口 - A 修好即预期 True 带。
+- 预算：2 boots 触顶。生产恢复中；本地 ahead 8。
