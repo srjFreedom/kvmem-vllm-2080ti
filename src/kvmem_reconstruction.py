@@ -13,7 +13,8 @@ def select_tokens(prompt_token_ids, logical_pages, page_tokens):
     return [token for p in pages for token in ids[p * width:(p + 1) * width]]
 
 
-def plan_attention_blocks(kv_cache_manager, request_id, physical_pages, block_pages):
+def plan_attention_blocks(kv_cache_manager, request_id, physical_pages, block_pages, d_mode=False):
+
     """Validate a packed row against this request's blocks without changing ownership."""
     pages = [int(p) for p in physical_pages]
     width = int(block_pages)
@@ -21,7 +22,7 @@ def plan_attention_blocks(kv_cache_manager, request_id, physical_pages, block_pa
         raise ValueError("invalid physical page row")
     blocks = list(dict.fromkeys(p // width for p in pages))
     expanded = [b * width + offset for b in blocks for offset in range(width)]
-    if pages != expanded[:len(pages)]:
+    if pages != expanded[:len(pages)] and not d_mode:
         raise ValueError("compaction row must pack complete native blocks before its tail")
     managers = [m for m in kv_cache_manager.coordinator.single_type_managers
                 if "FullAttention" in type(m).__name__]
@@ -37,10 +38,12 @@ def plan_attention_blocks(kv_cache_manager, request_id, physical_pages, block_pa
     return manager, [by_id[b] for b in blocks], freed
 
 
-def adopt_attention_blocks(kv_cache_manager, request_id, physical_pages, block_pages):
+def adopt_attention_blocks(kv_cache_manager, request_id, physical_pages,
+                           block_pages, d_mode=False):
     """Keep packed attention blocks only; recurrent groups retain their own state slots."""
     manager, kept, freed = plan_attention_blocks(
-        kv_cache_manager, request_id, physical_pages, block_pages)
+        kv_cache_manager, request_id, physical_pages, block_pages,
+        d_mode=bool(d_mode))
     manager.req_to_blocks[request_id] = kept
     if freed:
         kv_cache_manager.block_pool.free_blocks(freed)
@@ -216,10 +219,12 @@ def validate_quiescent_compaction(request, records, tp_size, epoch, kv_cache_man
             raise ValueError("duplicate or missing TP rank in compaction proposal")
         if proposal is None:
             raise ValueError("missing TP compaction proposal")
-        plan_attention_blocks(kv_cache_manager, req_id, proposal[1], proposal[4])
+        plan_attention_blocks(kv_cache_manager, req_id, proposal[1],
+                              proposal[4], d_mode=bool(d_mode))
         return {"request": req_id, "epoch": int(epoch), "logical_frontier": logical,
                 "resident_frontier": resident, "selected_pages": proposal[0],
                 "physical_pages": proposal[1], "visible_tokens": proposal[2],
-                "page_tokens": proposal[3], "block_pages": proposal[4]}
+                "page_tokens": proposal[3], "block_pages": proposal[4],
+                "d_mode": bool(d_mode)}
     except (KeyError, TypeError, IndexError) as exc:
         raise ValueError("incomplete TP compaction proposal") from exc

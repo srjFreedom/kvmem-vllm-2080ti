@@ -51,7 +51,16 @@ def apply_compaction(request, result, adopt_attention_blocks):
     """
     visible = int(result["visible_tokens"])
     logical = int(request.num_logical_tokens)
-    if visible <= 0 or visible >= logical:
+    if visible <= 0 or (visible >= logical
+                        # D-lane exemption (design 100): the never-
+                        # rewound book makes every D proposal shorter
+                        # than the TRUE logical frontier structurally
+                        # impossible to grade with the old resident-
+                        # window law; shrinkage in D is enforced
+                        # worker-side (the knife must free real room
+                        # before proposing) and the fork overrides the
+                        # attention causal from the published tables.
+                        and not result.get("d_mode")):
         raise ValueError("compaction must shorten the resident book")
     adopted = adopt_attention_blocks(visible, result["physical_pages"], result["block_pages"])
     request.num_computed_tokens = visible
