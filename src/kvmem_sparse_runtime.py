@@ -4529,7 +4529,9 @@ class VllmSparseRuntime:
             # block rank (pre-knife rows are dense identity, so the
             # block id equals the block rank for every block the
             # request has ever filled; later knives keep this stable).
-            _bpo = max(1, int(_blk_real) // max(1, int(pt)))
+            # rbv-internal units (never borrow the caller's locals):
+            # pages per engine block = block_pages = q passed in.
+            _bpo = max(1, int(q))
             _po = [pg // _bpo for pg in ordered]
             return (_po, ordered, [], [])
         return (ordered, ordered, [], [])
