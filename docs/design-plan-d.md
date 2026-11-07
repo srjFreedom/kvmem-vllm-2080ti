@@ -1403,3 +1403,9 @@ skip=不重放只装视图 - 顺路）。
 - 修复点（下轮第一刀）: rbv want 环 `for o in range(q)` 的实际入页条件（4531-4545 区）- 目标是完整 49 页/块（残块来自某个 [:6] 上限或 grid 换算错）。修后 coincide3 必出 {eng,store,match,pid} - 若 match 且答案对 = 全案终验。
 - 仪表自我改造四次（单位→latch→顺序→星表）终于产出决定性数据 - 星表法（直接印页集对照）列为终判标准工具。
 - 4 boots 硬停。生产恢复。ahead 98→99。
+
+## 172-173. Round 106：identity 早返落码（tuple 对齐+离线仿真绿）- live 星表仍 6 页 → 执行路径疑点交下轮仿真对质
+
+- 修复链: assign/pool 饥饿 break 定罪（869 页 want 对 167 槽 pool）→ identity 早返绕开 → 首代 applied=0（早返 4-tuple 对不上 5-tuple 解包）→ 对齐 → applied=9 ✓ 耗时回 99s ✓。
+- 星表对质: 早返后 live 仍 lpg=[0..1407] 全页序、near=[1225..1230] 仅 6 页 - 但离线仿真中同一 sorted(set(want)) 数学给完整 span。**执行路径与静态推导分叉**: 候选 (a) pagespace 读数来自另一条早返/旧代事件 (req 混窗 - grep 未按 rid 隔离!), (b) st.logical 在 coincede 前被别处重写, (c) _rebuild_view 有第三调用形态绕过早返。**下轮第一步 = rid 严格隔离重读 pagespace + rbv 入口计数针**（一发定执行路径）。
+- 预算 3 boots+3 发触硬线停止。生产恢复。ahead 101→102。
