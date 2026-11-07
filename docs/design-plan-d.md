@@ -1473,3 +1473,10 @@ skip=不重放只装视图 - 顺路）。
 - 专项实验单（下轮，一发 boot 可判）: (1) `CUBLAS_WORKSPACE_CONFIG=:4096:8` + `VLLM_ATTENTION_BACKEND` 固定注入 /etc/default 后两连 boot 各 1 发 - 若两代结果**一致**（同 True 或先后 True/False 可复）→ 环境变量可锁变体，继续推向 100% True; (2) 若仍随机 → kernel 变体论降级，转向 graph capture 期固定化（capture 前 warmup 步数对齐 r112 时代）; (3) 全失败 → 按 design 192 (3) 产品层重试语义（答案不符→重放）。
 - 战役定性更新: adapter 代码线（六层+store）判真完成; 本专项=**榨干引擎非确定性的可控手段**，预算每轮 ≤2 boots。
 - 0 boots 本轮停止交还。生产健康。ahead 121。
+
+## 196-198. Round 115：CUBLAS 实验无效化自纠 + autotune 变量降级 + **新问题立案：GDN 状态真实尺寸 vs 250K 容量**
+
+- 自纠两连: (1) `CUBLAS_WORKSPACE_CONFIG` 非 vLLM 消费变量，其注入实验（0/2）不构成证据; (2) Triton autotune 结果存 **10 月 15 日的持久磁盘 json** - True/False 代际共享同一份 → **autotune 计时选择说降为低优先级**。
+- 至此代际变量清单已排除: 块布局(指纹同) / atomic(默认关) / autotune(共享缓存) / 仪表噪声(两轮独立)。**剩余候选收缩到两个**: (a) GPU 时钟/温控下的 FP8 kernel 实际路径 (L2 时序，代码不可控，接受为物理噪声); (b) **新立案 - GDN 状态尺寸真相**: state_get_stream 若按 mamba_block_size 分窗存 state，88K prompt 的 GDN 通道就不是全量 - "针离读起点越远越易丢"与 p(True)≈0.3 相容 - **且直接决定 250K 是否物理可行**。
+- 下轮第一动作（纯读码）: mamba_utils/mamba2_linearity state 尺寸推导 + 日志核对 mamba_block_size 生效值 → 判定 GDN 通道容量 → 若是窗口: 250K 需要窗口内针或 prerope 路线; 若全量: 回到物理噪声论。
+- 预算: 2 boots（1356 双代）+ 3 静态 触顶停止。生产恢复中。ahead 122→123。
