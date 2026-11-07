@@ -2616,153 +2616,79 @@ class VllmSparseRuntime:
         vr = None
 
     def d_bytes_coincide(self, req, logical_pages, phys_pages):
-        """BYTE CONFRONTATION (design 137): the needle page's bytes as
-        the engine row NOW holds them at its view rank, versus the
-        store's canonical bytes for the same page. If the two shas
-        disagree, every downstream metric (rank, kept, adopt) was
-        scoring and rearranging a view whose CONTENT is not the prompt
-        - the last unmeasured layer of the answer failure."""
+        """BYTE CONFRONTATION v3 (design 165): read the ENGINE'S OWN
+        row back through block_table_rows (CPU copy - the only path
+        proven to exist), take the pool block id at the needle block's
+        row slot, and hash the paged tensor bytes there against the
+        store's canonical page. Units: row slot = engine block
+        (tokens // block_tokens); pool block ids < num_blocks (~131);
+        anything larger in the books is page-space and must never be
+        trusted as an address. v1/v2 read the worker BOOK values as if
+        they were pool ids - their match/false readings were unit
+        artifacts, not evidence. This version reads only the engine."""
         if not getattr(self, "d_mode", False) or self.log is None:
             return
-        if getattr(self, "_bc_done", None) is None:
-            self._bc_done = set()
-        key = str(req)[-6:] + f":{int(st := self._state.get(req).tokens) > 80000}"
-        if key in self._bc_done or not logical_pages or not phys_pages:
+        st = self._state.get(req)
+        if st is None:
+            return
+        key = str(req)[-6:]
+        if getattr(self, "_bc3_done", None) is None:
+            self._bc3_done = set()
+        if key in self._bc3_done:
             return
         try:
-            _tk = int(self._state[req].tokens)
-            _mt = 25 if _tk < 80000 else (45 if _tk < 160000
-                                             else 69)
-            _pg = _mt  # block-space marker (design 140)
-            if _pg not in list(logical_pages):
-                # LOUD miss (design 138): a silent return here made the
-                # byte confrontation instrument report zero events while
-                # the knife chain was demonstrably alive - the silence
-                # itself is the finding: the needle page id computed
-                # from marker//pt is NOT one of the installed logical
-                # page ids, i.e. the blade's page space and the marker
-                # arithmetic still disagree. Report both sides.
-                _lgv = [int(x) for x in logical_pages]
-                self.log({"kind": "d_bytes_coincide_miss", "page": _pg,
-                          "tokens": _tk, "pt": int(self.page_tokens),
-                          "lg_head": _lgv[:6], "lg_tail": _lgv[-6:],
-                          "lg_n": len(_lgv),
-                          "near": [x for x in _lgv if abs(x - _pg) < 100][:8]})
+            _tk = int(st.tokens)
+            _mt = 40471 if _tk < 80000 else (71534 if _tk < 160000
+                                             else 112590)
+            _q_blk = max(1, int(getattr(self, "block_pages", None)
+                                 or getattr(self, "pages_per_block",
+                                            49) or 49))
+            _blk = _mt // max(1, self.view.block_tokens) if \
+                getattr(self.view, "block_tokens", 0) else \
+                _mt // (max(1, int(self.page_tokens)) * _q_blk)
+            _lpg = list(st.logical or ())
+            _rows = self.view.block_table_rows()[0]
+            _ri = int(getattr(st, "row_index", -1) or -1)
+            if _ri < 0:
                 return
-            self._bc_done.add(key)
-            _rank = list(logical_pages).index(_pg)
-            _slot = int(phys_pages[_rank])
+            _rowv = [int(x) for x in _rows[_ri].tolist()]
+            # needle page rank inside the current view, then its block
+            _pg = _mt // max(1, int(self.page_tokens))
+            if _pg in _lpg:
+                _vr = _lpg.index(_pg)
+            else:
+                _vr = -1
+            _blk_rank = (_vr // _q_blk) if _vr >= 0 else -1
+            _pid = _rowv[_blk_rank] if 0 <= _blk_rank < len(_rowv) else -1
             import hashlib as _h
-            _paged = getattr(self.view, "paged", None) or []
-            _eng_sha = _sto_sha = None
-            if len(_paged) > 0 and _rank < len(phys_pages):
-                _t0 = _paged[0]
-                _slot = int(phys_pages[_rank])
-                if _slot < _t0.shape[0]:
-                    _eng_sha = _h.sha256(_t0[_slot].reshape(-1)[:128]
-                                         .contiguous().cpu().numpy()
-                                         .tobytes()).hexdigest()[:16]
+            _eng = None
+            if _pid > 0:
+                _paged = getattr(self.view, "paged", None) or []
+                if len(_paged) > 0 and _pid < _paged[0].shape[0]:
+                    _eng = _h.sha256(
+                        _paged[0][_pid].reshape(-1)[:128]
+                        .contiguous().cpu().numpy().tobytes()
+                    ).hexdigest()[:16]
+            _sto = None
             try:
                 _lay = self._orch[req].store.get(_pg)
-                if isinstance(_lay, (list, tuple)) and _lay:
-                    _b = _lay[0]
-                    _sto_sha = _h.sha256(_b.reshape(-1)[:128]
-                                         .contiguous().cpu().numpy()
-                                         .tobytes()).hexdigest()[:16]
-                elif hasattr(_lay, "reshape"):
-                    _sto_sha = _h.sha256(_lay.reshape(-1)[:128]
-                                         .contiguous().cpu().numpy()
-                                         .tobytes()).hexdigest()[:16]
+                if _lay is not None:
+                    _t = _lay[0] if isinstance(_lay, (list, tuple)) else _lay
+                    _sto = _h.sha256(
+                        _t.reshape(-1)[:128].contiguous().cpu().numpy()
+                        .tobytes()).hexdigest()[:16]
             except Exception:
                 pass
-            _row_now = -7
-            try:
-                _bts = getattr(self.view, "runner", None)
-                _bts = getattr(_bts, "block_tables", None) if _bts else None
-                if _bts is not None:
-                    _g0 = _bts.block_tables[0].gpu
-                    _ri2 = int(self._state[req].row_index)
-                    if _ri2 < _g0.shape[0] and _rank < _g0.shape[1]:
-                        _row_now = int(_g0[_ri2][_rank])
-            except Exception:
-                pass
-            self.log({"kind": "d_bytes_coincide", "req": str(req)[-6:],
-                      "page": _pg, "rank": _rank, "slot": _slot,
-                      "row_now": _row_now, "row_ok": _row_now == _slot,
-                      "eng": _eng_sha, "store": _sto_sha,
-                      "match": (_eng_sha is not None and _eng_sha == _sto_sha)})
-        except BaseException as _bcx:
-            self.log({"kind": "d_bytes_coincide_error",
-                      "err": str(_bcx)[:160]})
-
-        if st is None or vr is None:
-            if self.log is not None and getattr(self, "_vr_why", 0) < 8:
-                self._vr_why = getattr(self, "_vr_why", 0) + 1
-                self.log({"kind": "d_view_publish_skip",
-                          "why": "st-none" if st is None else "vr-none",
-                          "runner": runner is not None,
-                          "attrs": [a for a in ("kvmem_view_rows",
-                                  "kvmem_view_lens", "kvmem_slot_deltas")
-                                  if runner is not None
-                                  and hasattr(runner, a)]})
-            return False
-        try:
-            _ri = int(getattr(st, "row_index", -1) or -1)
-            if _ri < 0 or _ri >= vr.shape[0]:
-                return False
-            _eng = [int(x) for x in self.view.block_table_rows()[0][_ri].tolist()]
-            _used = max(1, max((i + 1 for i, v in enumerate(_eng) if v > 0),
-                               default=1))
-            if getattr(st, "_r0_rank", None) is None:
-                st._r0_rank = _used
-            _r0 = int(st._r0_rank)
-            _head = []
-            for pv in phys_pages:
-                ip = int(pv)
-                if ip > 0 and (not _head or _head[-1] != ip):
-                    _head.append(ip)
-            _tail = _eng[_r0:_used]
-            _rowv = _head + _tail
-            if not _rowv or len(_rowv) > vr.shape[1]:
-                if self.log is not None and getattr(self, "_vr_why", 0) < 8:
-                    self._vr_why = getattr(self, "_vr_why", 0) + 1
-                    self.log({"kind": "d_view_publish_skip", "why": "rowv",
-                              "head": len(_head), "tail": len(_tail),
-                              "width": int(vr.shape[1]),
-                              "phys_head": [int(x) for x in
-                                            list(phys_pages)[:6]]})
-                return False
-            import torch as _tt
-            _idx = _tt.arange(len(_rowv), device=vr.device)
-            _val = _tt.tensor(_rowv, dtype=vr.dtype, device=vr.device)
-            with _tt.no_grad():
-                vr[_ri].index_copy_(0, _idx, _val)
-            _q_blk = max(1, int(getattr(self, "block_pages", None)
-                                 or getattr(self, "pages_per_block", 1) or 1))
-            _blk_tok = _q_blk * max(1, int(self.page_tokens))
-            _vlv = getattr(runner, "kvmem_view_lens", None)
-            _dlv = getattr(runner, "kvmem_slot_deltas", None)
-            _true = int(self._engine_computed.get(req) or st.tokens)
-            if _vlv is not None and _dlv is not None:
-                _base = len(_head) * _blk_tok
-                _tailtok = _true - (_r0 * _blk_tok)
-                _tailtok = max(0, min(_tailtok, len(_tail) * _blk_tok))
-                with _tt.no_grad():
-                    _vlv.data[_ri] = _base + _tailtok
-                    _dlv.data[_ri] = max(0, _true - (_base + _tailtok))
-                runner.kvmem_view_active = True
-            if self.log is not None and getattr(self, "_vr_loud", 0) < 8:
-                self._vr_loud = getattr(self, "_vr_loud", 0) + 1
-                self.log({"kind": "d_view_published", "req": str(req)[-6:],
-                          "head": len(_head), "tail": len(_tail),
-                          "r0": _r0, "used": _used,
-                          "view_base": _base + _tailtok, "true": _true})
-            return True
-        except BaseException as _vre:
-            if self.log is not None:
-                self.log({"kind": "d_view_publish_error",
-                          "err": str(_vre)[:200]})
-            return False
+            self._bc3_done.add(key)
+            self.log({"kind": "d_bytes_coincide3", "req": key,
+                      "blk": _blk, "page": _pg, "vr": _vr,
+                      "blk_rank": _blk_rank, "pid": _pid,
+                      "row_max": max(_rowv) if _rowv else -1,
+                      "eng": _eng, "store": _sto,
+                      "match": (_eng is not None and _eng == _sto)})
+        except BaseException as _be:
+            self.log({"kind": "d_bytes_coincide3_error",
+                      "err": str(_be)[:200]})
 
     def sync_row_from_engine(self, req, written, n_tokens=0):
         """Copy the pages the ENGINE has actually written into the request's row.
