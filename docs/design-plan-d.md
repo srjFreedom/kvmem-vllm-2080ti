@@ -1564,3 +1564,10 @@ skip=不重放只装视图 - 顺路）。
 - 屏障病灶取证清单（静态穷尽后）: verify 需 records rank 集={0,1}；runtime 五处 "rank" 字段皆 tp_rank 源；事件里 `rank:1666` 是 view-rank 同名字段非记录字段；tp_size=2 绑定在 worker wiring（877-879 在位）。**静态到此为止 - 下轮第一刀=在 verify 前 dump records 摘要三字段 {rank,expected_ranks,request} 两行改动一发 boot 定死**（可能: rank_in_group 在某 worker 返 0 双份 / request 字段形状差异导致第二 record 被 None 顶替…不再纸上猜）。
 - parked_blocks 判据就绪: 屏障一过 store 出 91 块档 → T2 `resume_decided hit≈141120` → 时长 5-10s 终读。
 - 预算: 1 boot + 重度静态（越界自记）。生产恢复。ahead 142→120。
+
+## 220-222. Round 125：屏障逐门推进实录（rank 集通过 → 几何方程拒收 → hashes 深度修正）
+
+- dump 实测: metadata parity 后 ranks=[0,1]/expected=[2,2] 全对，屏障过 rank 门，死在新门 "frontier or KV geometry invalid" - 方程 `covered == len(hashes)*kv_block` 要求链深=frontier 深 (91 全链 vs 90 覆盖块) - 修正: payload hashes 截断到 target//block。
+- 战役节奏: 屏障五门 (prepare 齐全 / metadata 一致 / rank 集 / request 匹配 / 几何) 已四门通过，剩几何 (刚修) + 后续 publish→store 注册→lookup→decided→restore。每门都是真实前进，无回退。
+- 下轮读数: T1 `session_checkpoint_retired{blocks:90}` → T3 `resume_decided hit≈141120` → 时长 5-10s。
+- 预算 2 boots 触顶。生产恢复。ahead 146→147。
