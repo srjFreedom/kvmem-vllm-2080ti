@@ -4935,7 +4935,20 @@ class VllmSparseRuntime:
                 # Full inheritance restored: the question field fills the
                 # remaining slots, statistics continuity keeps the proven
                 # neighborhood in place.
-                kept |= _res_mid
+                # INHERITANCE RETIRED (design 135): full MID-resident
+                # inheritance filled kept past budget BEFORE the merge
+                # (measured kept_n=20 > budget 18 -> room=0 at pre-merge
+                # -> the question field, with the needle ranked #1 in
+                # top6, could not enter at all). Under D the store can
+                # always serve any evicted page (restore = pure copy),
+                # so "keep old picks resident" is a rewind-era instinct:
+                # the whole budget belongs to the CURRENT ranking.
+                if self.log is not None and getattr(self, "_inh_loud", 0) < 4:
+                    self._inh_loud = getattr(self, "_inh_loud", 0) + 1
+                    self.log({"kind": "d_inherit_retired",
+                              "would_add": len(_res_mid),
+                              "kept_pre": len(kept),
+                              "budget": int(budget_blocks)})
             except BaseException as _pex:
                 if self.log is not None:
                     self.log({"kind": "d_preserve_error", "req": str(req)[-6:],
