@@ -1598,3 +1598,13 @@ skip=不重放只装视图 - 顺路）。
 - 语义链核对: lookup(owner 专查)落空 → lookup(共享重试)命中 → 打 resume_shared_hit → 消费同 decided 路径；两查皆空才 skip。sha256 链等值为权威，owner 命名空间为性能分区 - 与 implicit 会话语义 (1323 注) 一致。
 - 下轮读数（v230 代）: T2 `resume_shared_hit` → `resume_decided hit=141120` → `session_resumed` → **终时长**（state 修后 324→预期 restore batch 生效 <15s）。
 - restore-issued（修复后树生效）。生产确认。ahead 155。
+
+## 231-232. Round 130：控制面全线贯通（shared_hit×3 + decided hit=141120×2），应用线定性为跨进程数据面设计题
+
+- 终局读数: T2 `resume_shared_hit{90}` + `resume_decided hit=141120 resident=141120 pages=4410 offset=0` - **scheduler 控制面从 lookup 到裁决全绿**（八门战役的终图）；session_resumed 零 - 消费死在 worker `_adopt_session` 的第二次本地 lookup（MetaStore entries 对 worker 恒空 - 与 230 同族病）。
+- 数据面三问（修复前必须回答的设计单）:
+  1. **页字节的归属**: T1 的 host store 是 per-request orchestrator 的 - park 注册进 MetaStore 的 entry 里 pages 是引用还是拷贝? T2 apply 时 restore 从哪个对象读字节? (查 SessionEntry.park 的 pages 语义 - 若是引用，T1 释放后悬垂; 若是拷贝，内存翻倍)
+  2. **state 的到达路径**: entry.mamba_state 由 scheduler park 时携带（worker capture 产），消费在 worker - 需要把 state 传回 worker 的通道（collective_rpc 带载荷 or worker 本地 _d_state_archive 以 content digest 为键）- **D 方案倾向**: worker capture 时同步写本地 `_d_state_archive[digest]`，adopt 按键自取 - 零跨进程载荷。
+  3. **adopt 的 D 形**: 不再 lookup 本地 MetaStore - pending(_resume) 存在即 scheduler 裁决证据，pages 从 entry 描述(经 RPC 回传的 digest 列表→本地 store 载入? T2 的 orch.store 此时为空!) → **页数据的真源必须是 park 时写出的 store 快照文件/或共享内存段** - 现状 MetaStore 只存元数据，页字节留在 T1 worker 的 HostPageStore - **T1 结束 HostPageStore 生命周期先于 T2 消费的话数据已不存在** - 查 HostPageStore 的 session 归档语义 (max_sessions=2 LRU - store 按 session 保留页 - **这才是页的真跨进程通道**: park 时应触发 store→session 归档，T2 attach session 后 usable 直接可见)。
+- 决策: 下轮先读 HostPageStore 生命周期与 park 的 pages 语义（纯读），出**一页纸数据面设计**再动码 - 本战役最后一次架构性推进。
+- 预算: 1 boot 触顶停止。生产恢复。ahead 156→157。
