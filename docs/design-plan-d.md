@@ -1285,3 +1285,10 @@ skip=不重放只装视图 - 顺路）。
 - 电池终态: 88K False（场 top6=[25,26,8..] needle rank0 首次带真入 kept - 但答案 False）；152K top6=[8,9,10,13,12,14] needle_blk45 排 59 场外。**88K 的视图链路已完整建立（kept 含 needle、adopt 重排、行=视图）而答案仍错 → 病灶回到答案通路本身（视图内容对但字节相位?）**；152K 转入**问句场质量**（信息论天花板老对质 - captured 问句窗与 stats 场代际需重验）。
 - 终局诊断实验（下轮）：88K 的 needle 已在视图、rank 正确、causal 覆盖 - 若字节相位对，答案应 True。发"字节对照": 对 installed 行的 needle 块槽做一次 store 内容 vs engine 行内容 sha 对比仪表（d_bytes_coincide 事件），一发定"视图里的 needle 字节是不是 needle"。
 - 预算: 3 boots 越界停止。生产恢复中。ahead 56。
+
+## 141-142. Round 94：世纪 swap bug（六轮元凶）+ stride 撤销（对齐数学结案）
+
+- **d_bytes_coincide 首读 match=true**（eng sha==store sha 双层）→ 顺着"host 对影为何仍错"挖出：**blockwise 调用点把 rbv 返回 (phys, logical) 解包名写反六个轮次** - st.row 一直装的页 id 列表（= duct 血统未死），st.logical 装的是块 - 全部页寻址消费者（store 定位/字节对质/滚动写）看到的都是错位数字。修复=解包名对调。
+- 修复代际读数：时间 142-295s（对齐数学崩坏：v2 的 `[::_bpo]` stride 让行只剩 18 项而 pos 跑到 868 - 行尾全外）、applied 0、coincede IndexError。**结案：engine 页宽=q*pt=1568 与视图页宽同源，kernel `pos//1568` 要求行按视图页位置逐项填块 id（同块 49 连续位同值=原生稠密行的样子）- dedup 只准出现在 adopt 调用（块空间）**。已撤销 stride，行恢复页位置块序列。
+- 电池欠账：撤销版未跑（2 boots 已尽）。下轮第一事：boot 撤销版 → 88K×1+152K×2，读 applied/coincide(match,row_now)/答案 - 若 row_now==slot 且 match 而答案仍 False，才真正进入蝴蝶带判据（多次计数）；152K 的 needle rank59 预算外为独立已知项。
+- 服务现跑 swap 修复+stride 旧版（10:2x 代际），非终形 - 已知状态，不作结论依据。
