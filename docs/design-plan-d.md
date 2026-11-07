@@ -1292,3 +1292,10 @@ skip=不重放只装视图 - 顺路）。
 - 修复代际读数：时间 142-295s（对齐数学崩坏：v2 的 `[::_bpo]` stride 让行只剩 18 项而 pos 跑到 868 - 行尾全外）、applied 0、coincede IndexError。**结案：engine 页宽=q*pt=1568 与视图页宽同源，kernel `pos//1568` 要求行按视图页位置逐项填块 id（同块 49 连续位同值=原生稠密行的样子）- dedup 只准出现在 adopt 调用（块空间）**。已撤销 stride，行恢复页位置块序列。
 - 电池欠账：撤销版未跑（2 boots 已尽）。下轮第一事：boot 撤销版 → 88K×1+152K×2，读 applied/coincide(match,row_now)/答案 - 若 row_now==slot 且 match 而答案仍 False，才真正进入蝴蝶带判据（多次计数）；152K 的 needle rank59 预算外为独立已知项。
 - 服务现跑 swap 修复+stride 旧版（10:2x 代际），非终形 - 已知状态，不作结论依据。
+
+## 143-145. Round 95：**六环全链第一次贯通**（adopt 零拒绝）+ 仪表单位遗留声明
+
+- 三修连破: ①坏区行号手术（脏脚本半途文件恢复）+ install push 退役（"invalid physical page row" x821 元凶=冗余第二次改行）; ②`_po` 页位置对齐; ③**提案 physical_pages 交 sorted 页序列 = adopt 打包法自己的形状** → **refused 821→0, applied 0→14, 耗时 171-320s 回 98/215s 正常, needle 块 25/26/27 全进 kept** - 刀→merge→场→rbv→提案→adopt→engine 行重排**首次全链无异常贯通**。
+- 遗留（下轮唯一清单）: a) `d_bytes_coincide`/`d_dvp` 仪表仍拿块号当页 index（rank=25/slot=0 假读数, match=false 不可信）- 仪表改成 ordered 内的页 index 后重测 needle 字节; b) 答案 88K/152K 仍 False（但这是**第一次在真视图上得到的 False** - 前面的 False 都有链断混杂）; c) 蝴蝶计数判据。
+- 事故记录: 一次正则脏替换写坏文件（parse 挡住未提交）- 行号手术恢复; 3 boots 越界, 停止。
+- 生产恢复中, 本地 ahead 69。
