@@ -2662,6 +2662,7 @@ class VllmSparseRuntime:
             _blk = _mt // max(1, self.view.block_tokens) if \
                 getattr(self.view, "block_tokens", 0) else \
                 _mt // (max(1, int(self.page_tokens)) * _q_blk)
+            _pg = _mt // max(1, int(self.page_tokens))
             _lpg = list(st.logical or ())
             # PAGE SPACE CROSS-READ (design 170): print what the
             # books actually hold against the marker page, so the
@@ -2677,7 +2678,6 @@ class VllmSparseRuntime:
                 return
             _rowv = [int(x) for x in _rows[_ri].tolist()]
             # needle page rank inside the current view, then its block
-            _pg = _mt // max(1, int(self.page_tokens))
             if _pg in _lpg:
                 _vr = _lpg.index(_pg)
             else:
