@@ -1608,3 +1608,10 @@ skip=不重放只装视图 - 顺路）。
   3. **adopt 的 D 形**: 不再 lookup 本地 MetaStore - pending(_resume) 存在即 scheduler 裁决证据，pages 从 entry 描述(经 RPC 回传的 digest 列表→本地 store 载入? T2 的 orch.store 此时为空!) → **页数据的真源必须是 park 时写出的 store 快照文件/或共享内存段** - 现状 MetaStore 只存元数据，页字节留在 T1 worker 的 HostPageStore - **T1 结束 HostPageStore 生命周期先于 T2 消费的话数据已不存在** - 查 HostPageStore 的 session 归档语义 (max_sessions=2 LRU - store 按 session 保留页 - **这才是页的真跨进程通道**: park 时应触发 store→session 归档，T2 attach session 后 usable 直接可见)。
 - 决策: 下轮先读 HostPageStore 生命周期与 park 的 pages 语义（纯读），出**一页纸数据面设计**再动码 - 本战役最后一次架构性推进。
 - 预算: 1 boot 触顶停止。生产恢复。ahead 156→157。
+
+## 233. Round 130 终档：传播链全线核验通过，resume 剩余唯一变量=worker 双镜像的页数据在场性
+
+- 核验清单（全 ✓）: decided 处 flag/num_computed/num_logical/offset 四写同场 (2125-2128) → worker 侧 note_resume 消费 (3090/3797) → _resume 填充 → adopt pending ✓；proof 通道在 D 下 ok (v230 代实测 shared_hit+decided 连发) ✓；state 源 preflight ✓。
+- 剩余变量收敛为一个可测问题: **T2 worker 的 `_adopt_session` 本地 lookup 命中与否** - worker MetaStore 需要 worker 自己的 park（D 分支 218 的 fall-through publish 在 prepare RPC 时双 worker 各执行一次 ✓ 代码在场）→ 若命中则 apply→session_resumed 出现；v230 代 session_resumed=0 意味着 **worker publish 未发生或 lookup 键不齐** - 下轮第一刀=在 worker _park_session 与 adopt 各加一枚出声针 (d_worker_park/d_adopt_lookup 带 found 布尔与 owner) 一发定案。
+- 战役状态: 控制面八门全破 + 应用线三修 (state/owner flag) 上盘；时长判据的实现只差最后两枚针的定位。250K/A/B/双臂统一未启动（后续阶段）。
+- 预算触顶（1 boot+7 读）硬停止。生产 probe 200 健康。ahead 157→158。
