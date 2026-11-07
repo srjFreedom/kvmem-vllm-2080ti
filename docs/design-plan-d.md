@@ -1396,3 +1396,10 @@ skip=不重放只装视图 - 顺路）。
 - 画面: kept(False,问刀)×2 装成、applied 9、add_trace 20 - 但问刀装机后 enter 缺席 → **kept 事件(5498)与 coincede 调用(5622)之间有被吞异常**（候选: d_blk_restore 段、tail law 段）- 下轮单针 `d_bc3_preinstall` 打 5620 (调用前一行) 抓现行。
 - 字节对质读数仍欠（三轮仪表债: 单位→latch→吞点）- 修复后它给出的 {eng,store,match} 才是 restore 链的第一份真证据。
 - 答案 88K 累计带账不变（0/1 本轮）。预算 2 boots 停止。生产恢复。ahead 95→96。
+
+## 170-171. Round 105：**页星表实锤 - 视图每块只有 6/49 页（块展开环上界缺陷）** - 全案最大单点
+
+- d_bc3_pagespace 直读: pg=1264 不在 st.logical, near 仅 [1225..1230] - 块 25 的 49 页只入视图 6 页 - **needle 文本首 6 页在场但块 K 缺失 88%** - 这是"场对/adopt 对/数学对/答案错"的统一解释: 模型读的是残块。coincide3/novr 双零与 `_vr<0` 路径互证（1264∉lpg→vr=-1→novr 分支... novr 计数条件与 _bc3_loud 共享被 pagespace 先耗尽 - 仪表预算纠缠细节入遗留）。
+- 修复点（下轮第一刀）: rbv want 环 `for o in range(q)` 的实际入页条件（4531-4545 区）- 目标是完整 49 页/块（残块来自某个 [:6] 上限或 grid 换算错）。修后 coincide3 必出 {eng,store,match,pid} - 若 match 且答案对 = 全案终验。
+- 仪表自我改造四次（单位→latch→顺序→星表）终于产出决定性数据 - 星表法（直接印页集对照）列为终判标准工具。
+- 4 boots 硬停。生产恢复。ahead 98→99。
