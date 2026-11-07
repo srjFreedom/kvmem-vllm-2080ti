@@ -492,6 +492,31 @@ class VllmSparseRuntime:
         except Exception:
             pass
 
+    def _blocks_to_pages(self, vals, width):
+        """Engine row values are POOL BLOCK ids; one entry covers
+        pages_per_block store pages (block_tokens // page_tokens).
+        Map each row position to the list of store page keys it
+        addresses, under the identity book: view rank r of the row
+        addresses logical pages r*W .. r*W+W-1 minus the frame
+        offset - here rank IS the position, the caller subtracts
+        off_pages. -1/0 entries (placeholders/unwritten) are skipped
+        (design 182 consumer map: this is the ONLY address table the
+        harvest needs)."""
+        out = {}
+        pt = max(1, int(self.page_tokens))
+        w = max(1, int(getattr(self, "block_pages", 0) or
+                       (max(1, int(getattr(self.view, "block_sizes[0]",
+                                           ) if getattr(self.view,
+                                              "block_sizes", None)
+                                          else 1568)) // pt)))
+        for pos, v in enumerate(vals):
+            v = int(v)
+            if v <= 0:
+                continue
+            for o2 in range(w):
+                out[pos * w + o2] = v * w + o2
+        return out
+
     def slot_pages_for(self, req):
         """Physical page ids the LAST forward wrote, per query token, from the attention
         kernels' own slot mapping (the ONLY address that is by construction where the bytes
@@ -510,7 +535,8 @@ class VllmSparseRuntime:
                 return None
             vals = row[p0:p1].tolist()          # ONE device sync for the whole span
             pt = self.page_tokens
-            out = {p0 + k: v // pt for k, v in enumerate(vals) if v >= 0}
+            out = self._blocks_to_pages(row[p0:p1].tolist(),
+                                         int(row.shape[1]))
             return out or None
         except Exception:
             return None
@@ -3297,7 +3323,12 @@ class VllmSparseRuntime:
                 _cp0, _cvals = _cap
                 _sm_span = (_cp0, _cp0 + len(_cvals))
                 _pt = int(self.page_tokens)
-                _smap = {_cp0 + k: v // _pt for k, v in enumerate(_cvals) if v >= 0} or _smap
+                # (design 183) the harvest KEY is the logical page
+                # itself - identity books never rewind, so page i of
+                # the stream is store page (st.tokens+i)//pt. The row
+                # value is only the byte SOURCE (pool block id).
+                _smap = {(_cp0 + k): (_cp0 + k) for k in
+                         range(len(_cvals))}
             for i in range(n_new_tokens):
                 logical = (st.tokens + i) // self.page_tokens
                 rank = (start + i) // self.page_tokens
@@ -3363,7 +3394,12 @@ class VllmSparseRuntime:
                 # (measured: bytes at physical 1176 while st.row[1176]=1372 was all zero).
                 tb_val = None
                 slot_src = "row"
-                page = None
+                page = int(logical)        # DESIGN 183: store key is
+                # the logical page number itself (identity book, never
+                # rewound). The engine row value feeds the byte source
+                # slot only; the old chain confused pool block ids with
+                # page numbers at every step (refused [-1] samples and
+                # the whole store-key corruption).
                 # Priority: the KERNEL's slot mapping for the step under commit
                 # (authoritative - it IS the address the kernels used to write the bytes we
                 # are capturing), then the staging table mirror at rank, then the row.
@@ -3380,7 +3416,15 @@ class VllmSparseRuntime:
                         slot_src = "stage1" if (tb_val and tb_val > 0) else "row"
                     except Exception:
                         page = int(st.row[rank])
-                slot = int(page)
+                try:
+                    _bk = int(self.view.block_table_rows()[0][
+                        st.row_index][rank])
+                except Exception:
+                    _bk = -1
+                if _bk <= 0:
+                    _bk = int(st.row[rank]) if rank < len(st.row) \
+                        else -1
+                slot = _bk
                 touched[logical] = (slot, rank, tb_val, slot_src)
             _tp = getattr(self, "trace_pages", None)
             if _tp and self.log is not None and any(lp in _tp for lp in touched):
