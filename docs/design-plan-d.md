@@ -1503,3 +1503,10 @@ skip=不重放只装视图 - 顺路）。
 - D park 路线定形（下轮实现单）: (1) D 模式绕过 seal gate: hashes=block_hash_sequence(prompt ids) 全量直构（已有函数），frontier=observed prefix（r116 已修）；(2) **state 归档 = fork `state_get_stream` 读 GDN 递归矩阵 + conv 尾**（TP 双 worker 各备各层 - retire prepare 校验已有钩子）；(3) resume 消费: T2 命中 → park 的 state 装回引擎槽（fork 有 scatter_states）+ skip prefill 至 cursor + 视图从 store 页重建 → 时长 5-10s 判据自动读出。
 - 本代答案 3/3 False（152K 上代 3/3 T - 计数 6T/6F≈0.5 - 代际论继续占上风，6/6 反例降级为局部连续）。
 - 预算 1 boot 触停止交还。生产恢复。ahead 126→127。
+
+## 205-207. Round 118：capture 绕锁生效（park prepared 再现）+ resume 两处剩余断点定位 + 152K 计数 9/9
+
+- 绕锁战果: `session_park_prepared` 恢复（此前永 skip）- blocks=16/covered=25856/pages=1616 - **capture 本体在跑但 frontier 在 capture 路径再被算小**（T2 的 covered 应为 T1 全前缀 142208）+ `state: false`（rank0 快照缺）- 两断点入单: (a) capture 的 covered 计算与 park 侧同源化（observed prefix）; (b) scheduler 匹配侧 `lookup(_hashes...)` 只扫 19 块窗 - 需全链下降匹配（blocks=len(_hashes) 逐降至 parked 深度）; (c) state 捕获链在 D 下为何 None（has_state 校验会拒 resume - 必须补）。
+- 计数（好代际带内）: 152K 本代 3/3 True → 累计 9T/6F; T2 时长 230s 未降 = resume 未生效（skip 于匹配前）- 时长判据待三断点补齐后读。
+- 下轮: (a)(b)(c) 三点连修（纯 python + 一次 boot 判时长）- 目标读数=session_resumed + T2 5-10s。
+- 预算 1 boot 3 发停止。生产恢复。ahead 128→129。
