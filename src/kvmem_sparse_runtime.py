@@ -5485,9 +5485,13 @@ class VllmSparseRuntime:
                 # insurance). The law floor: top-k keeps a guaranteed
                 # share = max(1, room - len(mid)); mid never eats the
                 # whole budget.
-                _mid_share = len(_mid_blocks_q or ())
-                _top_share = room - _mid_share if _mid_share < room // 2                     else max(1, room // 2)
-                _seq = list(order)[:max(0, _top_share)] +                     list(_mid_blocks_q or [])[:max(0, room - _top_share)]
+                # LAW (design 153, proven by tests/assembly_law_test.py):
+                # strict top-k-first - order fills the budget, insurance
+                # only takes slots top-k leaves. The earlier share math
+                # (room-len(mid) floors) still crowded rank-1 blocks out
+                # whenever mid >= room.
+                _seq = list(order) + [b for b in (_mid_blocks_q or ())
+                                      if b not in set(order)]
                 _seqn = len(_seq)
                 _head = [int(x) for x in _seq[:8]]
                 if self.log is not None:

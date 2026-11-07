@@ -18,8 +18,7 @@ def assemble(budget, sink, recent, order, mid):
     fill by seq into kept = sink|recent."""
     kept = set(sink) | set(recent)
     room = max(0, budget - len(kept))
-    share = max(0, room - len(mid))   # floor at 0 (r98 assertion find)
-    seq = list(order)[:share] + list(mid)
+    seq = list(order) + [b for b in mid if b not in set(order)]
     for b in seq:
         if room <= 0:
             break
