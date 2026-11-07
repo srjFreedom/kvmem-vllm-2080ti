@@ -5518,6 +5518,17 @@ class VllmSparseRuntime:
                     if 0 <= b < n_blocks and b not in kept:
                         kept.add(int(b))
                         room -= 1
+                        # DECISIVE TRACE (design 157): first admits of
+                        # each fill, with the live kept size right
+                        # after the add - distinguishes a real add-path
+                        # failure from a serialization bug in the
+                        # d_final_kept event builder.
+                        if self.log is not None and                                 getattr(self, "_at_loud", 0) < 10:
+                            self._at_loud = getattr(self, "_at_loud", 0) + 1
+                            self.log({"kind": "d_add_trace",
+                                      "req": str(req)[-6:],
+                                      "pressure": bool(pressure),
+                                      "b": int(b), "kept_n": len(kept)})
                 # AFTER-fill truth snapshot (design 95): kept_n went 8->?
                 # with room 10->?; seq identity visible at last.
                 if self.log is not None:
