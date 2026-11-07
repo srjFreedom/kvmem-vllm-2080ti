@@ -2616,6 +2616,59 @@ class VllmSparseRuntime:
         runner = getattr(self.view, "runner", None)
         st = self._state.get(req)
         vr = None
+
+    def d_bytes_coincide(self, req, logical_pages, phys_pages):
+        """BYTE CONFRONTATION (design 137): the needle page's bytes as
+        the engine row NOW holds them at its view rank, versus the
+        store's canonical bytes for the same page. If the two shas
+        disagree, every downstream metric (rank, kept, adopt) was
+        scoring and rearranging a view whose CONTENT is not the prompt
+        - the last unmeasured layer of the answer failure."""
+        if not getattr(self, "d_mode", False) or self.log is None:
+            return
+        if getattr(self, "_bc_done", None) is None:
+            self._bc_done = set()
+        key = str(req)[-6:] + f":{int(st := self._state.get(req).tokens) > 80000}"
+        if key in self._bc_done or not logical_pages or not phys_pages:
+            return
+        try:
+            _mt = 71534 if int(self._state[req].tokens) > 80000 else 40471
+            _pg = _mt // max(1, int(self.page_tokens))
+            if _pg not in list(logical_pages):
+                return
+            self._bc_done.add(key)
+            _rank = list(logical_pages).index(_pg)
+            _slot = int(phys_pages[_rank])
+            import hashlib as _h
+            _paged = getattr(self.view, "paged", None) or []
+            _eng_sha = _sto_sha = None
+            if _paged:
+                _t0 = _paged[0]
+                if _slot < _t0.shape[0]:
+                    _eng_sha = _h.sha256(_t0[_slot].reshape(-1)[:128]
+                                         .contiguous().cpu().numpy()
+                                         .tobytes()).hexdigest()[:16]
+            try:
+                _lay = self._orch[req].store.get(_pg)
+                if isinstance(_lay, (list, tuple)) and _lay:
+                    _b = _lay[0]
+                    _sto_sha = _h.sha256(_b.reshape(-1)[:128]
+                                         .contiguous().cpu().numpy()
+                                         .tobytes()).hexdigest()[:16]
+                elif hasattr(_lay, "reshape"):
+                    _sto_sha = _h.sha256(_lay.reshape(-1)[:128]
+                                         .contiguous().cpu().numpy()
+                                         .tobytes()).hexdigest()[:16]
+            except Exception:
+                pass
+            self.log({"kind": "d_bytes_coincide", "req": str(req)[-6:],
+                      "page": _pg, "rank": _rank, "slot": _slot,
+                      "eng": _eng_sha, "store": _sto_sha,
+                      "match": (_eng_sha is not None and _eng_sha == _sto_sha)})
+        except BaseException as _bcx:
+            self.log({"kind": "d_bytes_coincide_error",
+                      "err": str(_bcx)[:160]})
+
         if st is None or vr is None:
             if self.log is not None and getattr(self, "_vr_why", 0) < 8:
                 self._vr_why = getattr(self, "_vr_why", 0) + 1
@@ -4673,6 +4726,11 @@ class VllmSparseRuntime:
         st.row = tuple(phys_pages)
         st.logical = tuple(logical_pages)
         if getattr(self, "d_mode", False):
+            try:
+                self.d_bytes_coincide(req, logical_pages, phys_pages)
+            except Exception:
+                pass
+        if getattr(self, "d_mode", False):
             # row-tail law at install: keep the engine's native blocks
             # BEHIND the view (they still hold the newest pages, and
             # the view length is a block multiple so the seam aligns)
@@ -5506,6 +5564,11 @@ class VllmSparseRuntime:
         _pre_off0 = int(getattr(st, "off_pages", 0) or 0)
         st.row = tuple(phys_pages)
         st.logical = tuple(logical_pages)
+        if getattr(self, "d_mode", False):
+            try:
+                self.d_bytes_coincide(req, logical_pages, phys_pages)
+            except Exception:
+                pass
         if getattr(self, "d_mode", False):
             # row-tail law at install: keep the engine's native blocks
             # BEHIND the view (they still hold the newest pages, and
