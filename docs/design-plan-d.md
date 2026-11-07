@@ -1409,3 +1409,10 @@ skip=不重放只装视图 - 顺路）。
 - 修复链: assign/pool 饥饿 break 定罪（869 页 want 对 167 槽 pool）→ identity 早返绕开 → 首代 applied=0（早返 4-tuple 对不上 5-tuple 解包）→ 对齐 → applied=9 ✓ 耗时回 99s ✓。
 - 星表对质: 早返后 live 仍 lpg=[0..1407] 全页序、near=[1225..1230] 仅 6 页 - 但离线仿真中同一 sorted(set(want)) 数学给完整 span。**执行路径与静态推导分叉**: 候选 (a) pagespace 读数来自另一条早返/旧代事件 (req 混窗 - grep 未按 rid 隔离!), (b) st.logical 在 coincede 前被别处重写, (c) _rebuild_view 有第三调用形态绕过早返。**下轮第一步 = rid 严格隔离重读 pagespace + rbv 入口计数针**（一发定执行路径）。
 - 预算 3 boots+3 发触硬线停止。生产恢复。ahead 101→102。
+
+## 174. Round 107：早返针在场但本窗未捕 + 问刀 kept_n=8 复现（fill 再吞案新疑）+ 窗口纪律再违规自记
+
+- 读数（诚实标注取样缺陷）: 取证脚本用固定行窗 305000，混入旧 rid 事件、且 d_rbv_early 未在本窗捕获（针已落码在场，取样窗口错）。本代真 rid 的 kept_q = [0-6,48] kept_n=8 - **问刀 fill 段又没跑**（与 r99 的 None 案同形: `[:room - len(_mid_blocks_q)]` 或早返后的新序列对旧 merge 变量失配）。
+- 分叉问题状态: 未定。早返针 + rid 隔离重读是同一动作，下轮第一步: boot 后按 chatcmpl rid 直取（禁行窗）: rbv_early.span_pages / fill enter / kept 三同框一案发。
+- 纪律违规自记: 固定行窗第三次造成混读 - 取证模板永久改为 rid 参数化 grep。
+- 预算 1 boot 4 读停止。生产恢复。ahead 103→104。
