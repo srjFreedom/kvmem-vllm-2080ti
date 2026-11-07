@@ -2675,8 +2675,15 @@ class VllmSparseRuntime:
         _pg0 = ((40471 if int(st.tokens) < 80000 else
                  (71534 if int(st.tokens) < 160000 else 112590))
                 // max(1, int(self.page_tokens)))
-        if key in self._bc3_done and _pg0 not in set(
-                int(x) for x in (logical_pages or ())):
+        # LATCH v3 (design 184): key by (rid, stage) - the MID view
+        # ALSO contains the needle page after the page-completion fix,
+        # so a rid-only latch let MID arm it first and the QUESTION
+        # stage call (the only one whose bytes matter for the answer)
+        # early-returned. Stage boundary = the question knife window.
+        _stage = "q" if int(st.tokens) >= 80000 else "m"
+        if (key, _stage) in self._bc3_done:
+            return
+        if _pg0 not in set(int(x) for x in (logical_pages or ())):
             return
         try:
             _tk = int(st.tokens)
@@ -2731,8 +2738,9 @@ class VllmSparseRuntime:
                         .tobytes()).hexdigest()[:16]
             except Exception:
                 pass
-            self._bc3_done.add(key)
+            self._bc3_done.add((key, _stage))
             self.log({"kind": "d_bytes_coincide3", "req": key,
+                      "stage": _stage,
                       "blk": _blk, "page": _pg, "vr": _vr,
                       "blk_rank": _blk_rank, "pid": _pid,
                       "row_max": max(_rowv) if _rowv else -1,
