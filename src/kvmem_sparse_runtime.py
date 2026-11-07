@@ -4617,7 +4617,15 @@ class VllmSparseRuntime:
             # pages per engine block = block_pages = q passed in.
             _bpo = max(1, int(q))
             _po = [pg // _bpo for pg in ordered]
-            return (_po, ordered, [], [])
+            # BLKIDS v2 (design 139): PHYSICALS deduped to one entry
+            # per engine block (adopt + row math speak blocks);
+            # LOGICALS stay the true page-id sequence - the earlier
+            # per-page repetition [0,0,...,28,28,...] destroyed page
+            # identity for every consumer (byte confrontation could
+            # not find page 1264 among 869 block repetitions, restore
+            # addressing and the rolling write seam both key on page
+            # ids, and the store is page-addressed by contract).
+            return (_po[::_bpo] if _bpo > 1 else _po, ordered, [], [])
         return (ordered, ordered, [], [])
 
     def _reselect_remobilize(self, req, pressure=False):
