@@ -1389,3 +1389,10 @@ skip=不重放只装视图 - 顺路）。
 - 88K 问刀画面 (定版): kept=[0-6,8-14,25,26,27,48] in_kept=1 双 rank (TP) - **视图含针已 100% 装机**; 答案 0/1 (累计带账不变)。
 - 下轮: boot 直读 coincide3 {eng,store,match,pid,row_max} - 字节定罪 → 修 store 链或转入 decode 层。
 - 预算 1 boot + 4 读。生产恢复。ahead 93→94。
+
+## 168-169. Round 104：latch 星食修复入档 + 问刀 kept-装机-仪表间隔的新吞点定位图
+
+- 修复: coincide3 per-rid 一次性闩锁被 MID 首进吃掉 → 改为"视图含针才闩"（enter 12× 全 MID tokens 45056-65536 直证）。
+- 画面: kept(False,问刀)×2 装成、applied 9、add_trace 20 - 但问刀装机后 enter 缺席 → **kept 事件(5498)与 coincede 调用(5622)之间有被吞异常**（候选: d_blk_restore 段、tail law 段）- 下轮单针 `d_bc3_preinstall` 打 5620 (调用前一行) 抓现行。
+- 字节对质读数仍欠（三轮仪表债: 单位→latch→吞点）- 修复后它给出的 {eng,store,match} 才是 restore 链的第一份真证据。
+- 答案 88K 累计带账不变（0/1 本轮）。预算 2 boots 停止。生产恢复。ahead 95→96。
