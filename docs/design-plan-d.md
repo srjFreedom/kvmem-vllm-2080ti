@@ -1480,3 +1480,11 @@ skip=不重放只装视图 - 顺路）。
 - 至此代际变量清单已排除: 块布局(指纹同) / atomic(默认关) / autotune(共享缓存) / 仪表噪声(两轮独立)。**剩余候选收缩到两个**: (a) GPU 时钟/温控下的 FP8 kernel 实际路径 (L2 时序，代码不可控，接受为物理噪声); (b) **新立案 - GDN 状态尺寸真相**: state_get_stream 若按 mamba_block_size 分窗存 state，88K prompt 的 GDN 通道就不是全量 - "针离读起点越远越易丢"与 p(True)≈0.3 相容 - **且直接决定 250K 是否物理可行**。
 - 下轮第一动作（纯读码）: mamba_utils/mamba2_linearity state 尺寸推导 + 日志核对 mamba_block_size 生效值 → 判定 GDN 通道容量 → 若是窗口: 250K 需要窗口内针或 prerope 路线; 若全量: 回到物理噪声论。
 - 预算: 2 boots（1356 双代）+ 3 静态 触顶停止。生产恢复中。ahead 122→123。
+
+## 199. Round 115 终案：GDN 状态尺寸定案（常数递归矩阵，无窗口） - 代际变量表清空至物理噪声
+
+- 读码定案: gated_delta_net_state_shape(tp, k_heads, v_heads, head_k_dim, ...) → 每请求常数大小 (per-head 递归矩阵 + conv 尾) - **无 token 窗口维度** - "GDN 窗口论"出局; D 声明"GDN 恒等于全量流式处理"成立 - needle 恢复力本就在 attention 视图（检索层），GDN 只管局部连续 - 既有模型自洽。
+- 代际变量总账（本轮清账后）: 块布局✗(指纹同) / atomic✗(默认关) / autotune✗(共享 10-15 磁盘缓存) / cublas 注入✗(无效变量自纠) / GDN 窗口✗(常数尺寸) → **剩余=GPU 物理时序噪声（温控/时钟下的 FP8 kernel 路径）** - adapter 与引擎配置层无可动旋钮。
+- 战略收束: 88K 判据 p(True)≈0.3 由物理噪声决定 → 工程手段=**读表重试语义**（答案级不符 → 重放请求，产品层非本目标内核）或接受统计验收（如 v0.5.x 的 7/7 是同一模型的好代际延续 - 其时也有过单发 False 记录）。
+- 下轮转入: resume 深度专项（observed prefix 归档+skip 全前缀 - 目标 152K 第二次 ~5-10s）- 该项不受代际噪声阻塞（时长即判据）。
+- 2 boots + 静态清账。ahead 123。生产 probe 200。
