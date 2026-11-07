@@ -1584,3 +1584,10 @@ skip=不重放只装视图 - 顺路）。
 - 修复 (design 225): D 模式秩证明 = **参与即证据** - scheduler 只对过了 TP retire 屏障（全秩 prepare 一致 hashes）的档发起 proof，reuse+D 即真；注释写明语义边界（无假阳性来源：没屏障通过的档根本不会被 lookup）。
 - 下轮判决链: T2 proof ok → `resume_decided hit=141120` → restore/装状态 → **时长 5-10s 终读**。restore-pending/has_state 若卡，resume_proof_d 与既有 dump 群继续点名。
 - 预算 1 boot + 2 静态（一次拼接事故未污染）停止。生产恢复。ahead 150→151。
+
+## 227-228. Round 128：resume_decided hit=141120 全深度首达成 + decided→consumed 断链定罪（session_resumed 零出现 + 560s 灾难开销）
+
+- 史级读数: proof_d ok×2 → `resume_decided hit=141120 resident=141120 pages=4410 prompt=143134` - 目标 (4) 的命中深度第一次达成 - 归档/屏障/lookup/proof 全线贯通。
+- 但 T2/T3=562/560s (冷=218): **hit 之后 `session_resumed` 事件零出现** - decided→应用断链，且请求反而多花 ~340s - 假说排序: (1) apply 路径逐页 micro-restore (4410 页×17 层 - r94 已知 15s/88K 线性放大 ~20 倍 = 300s 级吻合!) - restore_pages_batch 快速路径没被 resume apply 用上; (2) num_computed 未推进导致全前缀重跑+restore 双重。resume apply 区 (1463-1522) 的下钻与 batch 化=下轮主刀。
+- 判据现状: 命中深度 ✓ ; 时长 ✗ (560 vs 5-10) ; 一致性待测 - 战役进入 restore 应用线。
+- 预算 1 boot 触顶停止。生产恢复。ahead 152→153。
