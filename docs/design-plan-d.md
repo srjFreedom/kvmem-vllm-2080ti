@@ -1277,3 +1277,11 @@ skip=不重放只装视图 - 顺路）。
 - 回滚三处（wiring class dict 写、sync/install class dict 读、`rt.runner=self` 已在前删）——tables-none 的原始问题回到"同一 runner 实例的分配路径核对"：wire_probe 显示 `rt_has_runner_attr: true`（wrapper-self 就是 view 的 runner），**tables 都在其上**——则 sync 读 None 只能是 **timing**：sync 在 wiring 之前的步骤跑过。修 reader 前必须先确认此点（探针已在：tables-none 次数与 wired 先后序——本代次 tables-none×2 而 publish=0——刀从未跑到，正是死时早于 wiring 完成）。
 - 下一步剧本明确：回滚 class dict → 保留 wire_probe → boot 验证"刀首次跑到 publish"→ 若 tables-none 只在 wiring 前出现（良性），publish 在场即全链通。
 - 预算：本轮 3 boots 停止交还。恢复生产中（回滚后）。
+
+## 135-136. Round 91：两病灶连破（cpu gather 覆写崩 rank1 / 继承挤爆预算）+ 终局战场=152K 问句场质量
+
+- 破一：read-table 覆写对 CPU gather 传 cuda idx → rank1 崩（两次 500 结案）；fork 覆写删除、plugin/runtime 分配读方退役、`adopt` 重排后原生行即读表（架构更简）。site_sync_check 契约同步更新（不再要求已退役 token）。
+- 破二：resident 继承把 MID 全部块塞进 kept（20>18）→ **room=0 → 场 top（含 needle）永不可入** —— 继承彻底退役后 room 0→10，kept 恰 18 ✓。两修都带出声仪表（d_inherit_retired/d_stage 双钉）。
+- 电池终态: 88K False（场 top6=[25,26,8..] needle rank0 首次带真入 kept - 但答案 False）；152K top6=[8,9,10,13,12,14] needle_blk45 排 59 场外。**88K 的视图链路已完整建立（kept 含 needle、adopt 重排、行=视图）而答案仍错 → 病灶回到答案通路本身（视图内容对但字节相位?）**；152K 转入**问句场质量**（信息论天花板老对质 - captured 问句窗与 stats 场代际需重验）。
+- 终局诊断实验（下轮）：88K 的 needle 已在视图、rank 正确、causal 覆盖 - 若字节相位对，答案应 True。发"字节对照": 对 installed 行的 needle 块槽做一次 store 内容 vs engine 行内容 sha 对比仪表（d_bytes_coincide 事件），一发定"视图里的 needle 字节是不是 needle"。
+- 预算: 3 boots 越界停止。生产恢复中。ahead 56。
