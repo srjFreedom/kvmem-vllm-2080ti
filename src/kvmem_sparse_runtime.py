@@ -2633,9 +2633,9 @@ class VllmSparseRuntime:
             return
         try:
             _tk = int(self._state[req].tokens)
-            _mt = 40471 if _tk < 80000 else (71534 if _tk < 160000
-                                             else 112590)
-            _pg = _mt // max(1, int(self.page_tokens))
+            _mt = 25 if _tk < 80000 else (45 if _tk < 160000
+                                             else 69)
+            _pg = _mt  # block-space marker (design 140)
             if _pg not in list(logical_pages):
                 # LOUD miss (design 138): a silent return here made the
                 # byte confrontation instrument report zero events while
