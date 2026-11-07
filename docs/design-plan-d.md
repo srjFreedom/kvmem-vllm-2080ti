@@ -1488,3 +1488,11 @@ skip=不重放只装视图 - 顺路）。
 - 战略收束: 88K 判据 p(True)≈0.3 由物理噪声决定 → 工程手段=**读表重试语义**（答案级不符 → 重放请求，产品层非本目标内核）或接受统计验收（如 v0.5.x 的 7/7 是同一模型的好代际延续 - 其时也有过单发 False 记录）。
 - 下轮转入: resume 深度专项（observed prefix 归档+skip 全前缀 - 目标 152K 第二次 ~5-10s）- 该项不受代际噪声阻塞（时长即判据）。
 - 2 boots + 静态清账。ahead 123。生产 probe 200。
+
+## 200-201. Round 116：152K 视图路径首 True×3（带 session 三连全对）+ resume observed-prefix frontier 落码判决读数待取
+
+- 电池（实验臂带 session_id 三连发）: T1 冷 252.7s **True** / T2 229.6s **True** / T3 250.0s **True** - 152K 尺寸在压缩视图下首次全对 (3/3)；T2/T3 时长≈T1 = **resume 未生效**（当时 frontier 仍被 budget cap 在 25856 → skip 校验窗 19 块 vs parked 16 不匹配 → no prefix match）。
+- 目标(4) 最后一台旧机器点名拆除: session_checkpoint_frontier 的 `min(prompt, budget-block)` 是 clip-era 限制（重建 child 只能回放 ≤budget）- D 法 store 有全量页 → **observed prefix 全跳**：D 分支返回 ((prompt-1)//quantum)*quantum（143134→142208 ✓ 离线验证，legacy 分支 32320 不变）；一次 import 位置事故（os 插到 __future__ 前 - session_clip 当场抓获）已修，9 套件全绿。
+- 下轮判决读数（1 boot）: T1 park 全量 blocks≈86 / T2 `resume_decided hit≈142208` + skip 消失 + **T2 时长 ~5-10s**（目标判据直接可读）；若仍 220s+：查 restore-pending 通道与 park prepared 覆盖。
+- 验收计数更新: 88K = r112 3/3 + 本代 3/3（同码两代际 6/6 - 代际噪声论出现反例样本，诚实记入）；152K **3/3 首达标**；resume 时长待判；250K 未测。
+- 1 boot 停止交还。生产恢复。ahead 125→126。
