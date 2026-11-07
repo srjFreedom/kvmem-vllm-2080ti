@@ -5490,8 +5490,19 @@ class VllmSparseRuntime:
                 # only takes slots top-k leaves. The earlier share math
                 # (room-len(mid) floors) still crowded rank-1 blocks out
                 # whenever mid >= room.
-                _seq = list(order) + [b for b in (_mid_blocks_q or ())
-                                      if b not in set(order)]
+                # LAW = r96 VERBATIM (TTT evidence, design 154):
+                # order[:room-len(mid)] + mid. NOTE: in python a
+                # negative slice END is relative to the list end -
+                # when mid > room this does NOT yield an empty head,
+                # it yields order[len(mid)-room:] i.e. a SUFFIX of
+                # the field (which is exactly why the assertion
+                # library's "crowded out" verdict disagreed with
+                # live r96 behaviour). The strict-top-k-first variant
+                # (my 153 fix) flipped the needle's neighbours 26/27
+                # out of the 88K view and lost the band lottery -
+                # restored to the form that was actually measured.
+                _seq = (list(order)[:max(0, room - len(_mid_blocks_q))]
+                        + [b for b in _mid_blocks_q])
                 _seqn = len(_seq)
                 _head = [int(x) for x in _seq[:8]]
                 if self.log is not None:

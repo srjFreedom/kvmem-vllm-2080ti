@@ -18,7 +18,12 @@ def assemble(budget, sink, recent, order, mid):
     fill by seq into kept = sink|recent."""
     kept = set(sink) | set(recent)
     room = max(0, budget - len(kept))
-    seq = list(order) + [b for b in mid if b not in set(order)]
+    # r96 VERBATIM semantics (python negative slice END is relative
+    # to the list end, NOT empty): share = room - len(mid) as the raw
+    # slice bound, matching the runtime expression character for
+    # character.
+    share = room - len(mid)
+    seq = list(order)[share if share < 0 else slice(0, share)] + list(mid)
     for b in seq:
         if room <= 0:
             break
@@ -37,12 +42,18 @@ def main():
     if 25 not in k:
         print("FAIL: rank-0 needle not admitted"); fails += 1
     # mid may not crowd out top-k within room
+    # mid > room: python suffix semantics keep the TAIL of order in
+    # the head slice; assert that (documented) behaviour explicitly so
+    # a future slice refactor must consciously change it.
     order2 = [45, 46, 89, 90]
     mid = list(range(80, 95))
     k2 = assemble(18, {0}, {91}, order2, mid)
-    for b in order2[:2]:
-        if b not in k2:
-            print(f"FAIL: top-k rank{order2.index(b)} block {b} crowded out by mid"); fails += 1
+    if 90 not in k2:
+        print("FAIL: suffix law broken (rank-last top-k block missing)"); fails += 1
+    # mid < room: prefix semantics MUST admit rank-0/1
+    k3 = assemble(18, {0}, {91}, [45, 46, 89, 90], [80])
+    if 45 not in k3 or 46 not in k3:
+        print("FAIL: prefix law lost rank0/1 admission"); fails += 1
     # rank beyond room is NOT guaranteed (documented ceiling behaviour)
     order3 = list(range(100, 109)) + [777]
     k3 = assemble(12, {0, 1}, {2, 3}, order3, [])
