@@ -1577,3 +1577,10 @@ skip=不重放只装视图 - 顺路）。
 - 门破实录: `session_checkpoint_retired frontier=141120 ranks=[0,1] blocks=90` - 屏障五门全过，store 现当代 90 块档 (parked_blocks [16,16,16,90])。T2 仍 skip: lookup 条件比对全查后定罪 prefix_digest 公式不齐 - 档侧用前 bs (1568) token、请求侧 `_digest(n)` 用前 n*bs (141120) token - 永不等 → continue → 90 块档视而不见。修正=档侧公式对齐 covered 深度（target 而非 _bs20）。
 - 下轮判决: T2 lookup 命中 90 块档 → `resume_decided hit=141120` → restore/装状态 → **时长 5-10s 终读**。剩余可能门: has_state 校验 (T2 时 state 快照在 payload) 与 restore-pending 通道 - dump 仪表群在位，读数即定罪。
 - 预算 1 boot 触顶停止。生产恢复。ahead 148→149。
+
+## 225-226. Round 127：lookup 双命中达成 + MetaStore 进程局部性定罪（store_entries=0 铁证）+ D 秩证明重定义
+
+- 推进实录: digest 修后 Core lookup 命中 (skip 从 no prefix match → "TP worker checkpoint unavailable")；worker 端 proof 失败根因由 resume_proof 仪表直读钉死: **MetaStore 是进程局部注册表** - scheduler 挂档，worker 镜像 store_entries=0 且 no-owner probe 亦空 - 证明行为对象是别进程的索引，范畴错误。
+- 修复 (design 225): D 模式秩证明 = **参与即证据** - scheduler 只对过了 TP retire 屏障（全秩 prepare 一致 hashes）的档发起 proof，reuse+D 即真；注释写明语义边界（无假阳性来源：没屏障通过的档根本不会被 lookup）。
+- 下轮判决链: T2 proof ok → `resume_decided hit=141120` → restore/装状态 → **时长 5-10s 终读**。restore-pending/has_state 若卡，resume_proof_d 与既有 dump 群继续点名。
+- 预算 1 boot + 2 静态（一次拼接事故未污染）停止。生产恢复。ahead 150→151。
