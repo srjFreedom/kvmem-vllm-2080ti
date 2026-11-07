@@ -5094,7 +5094,7 @@ class VllmSparseRuntime:
         # the statistics query (whole last chunk) ranks the needle middle
         # first (88K evidence: [31, 44, 39...]). Two reserved slots, no
         # more: 88K/152K keep their question-dominant views.
-        _mid_blocks_q = None
+        _mid_blocks_q = []
         # UNTHROTTLED merge presence probe (design 94): a counter-based
         # loud gate was consumed entirely by warmup knives and made a
         # live code section look dead for one whole round - the probe
@@ -5379,7 +5379,7 @@ class VllmSparseRuntime:
                 # BIND BEFORE USE (design 98): every variable this
                 # region reads gets a real default here, so no path
                 # through it can raise NameError again.
-                _mid_blocks_q = None
+                _mid_blocks_q = []
                 _mid_kept = None
                 _mid_kept_blocks = []
                 _rr_used = 0
@@ -5443,7 +5443,7 @@ class VllmSparseRuntime:
                     # middle blocks after question top-k fills the LAST
                     # room slots with cross-view insurance and cannot
                     # displace any question pick
-                    _seq = (list(order)[:max(0, room - len(_mid_blocks_q))]
+                    _seq = (list(order)[:room - len(_mid_blocks_q)]
                             + [b for b in _mid_blocks_q])
                 if _mid_kept_blocks:
                     _seenq = set(order)
@@ -5501,7 +5501,7 @@ class VllmSparseRuntime:
                 # (my 153 fix) flipped the needle's neighbours 26/27
                 # out of the 88K view and lost the band lottery -
                 # restored to the form that was actually measured.
-                _seq = (list(order)[:max(0, room - len(_mid_blocks_q))]
+                _seq = (list(order)[:room - len(_mid_blocks_q)]
                         + [b for b in _mid_blocks_q])
                 _seqn = len(_seq)
                 _head = [int(x) for x in _seq[:8]]
