@@ -2749,6 +2749,12 @@ class VllmSparseRuntime:
                         .tobytes()).hexdigest()[:16]
             except Exception:
                 pass
+            if getattr(self, "_rt_loud2", 0) < 8:
+                self._rt_loud2 = getattr(self, "_rt_loud2", 0) + 1
+                self.log({"kind": "d_bc3_route2", "req": key,
+                          "vr": _vr, "blk_rank": _blk_rank,
+                          "pid": _pid, "eng_head": (_eng or "")[:8],
+                          "sto_head": (_sto or "")[:8]})
             self._bc3_done.add((key, _stage))
             self.log({"kind": "d_bytes_coincide3", "req": key,
                       "stage": _stage,
