@@ -2637,6 +2637,19 @@ class VllmSparseRuntime:
                                              else 112590)
             _pg = _mt // max(1, int(self.page_tokens))
             if _pg not in list(logical_pages):
+                # LOUD miss (design 138): a silent return here made the
+                # byte confrontation instrument report zero events while
+                # the knife chain was demonstrably alive - the silence
+                # itself is the finding: the needle page id computed
+                # from marker//pt is NOT one of the installed logical
+                # page ids, i.e. the blade's page space and the marker
+                # arithmetic still disagree. Report both sides.
+                _lgv = [int(x) for x in logical_pages]
+                self.log({"kind": "d_bytes_coincide_miss", "page": _pg,
+                          "tokens": _tk, "pt": int(self.page_tokens),
+                          "lg_head": _lgv[:6], "lg_tail": _lgv[-6:],
+                          "lg_n": len(_lgv),
+                          "near": [x for x in _lgv if abs(x - _pg) < 100][:8]})
                 return
             self._bc_done.add(key)
             _rank = list(logical_pages).index(_pg)
