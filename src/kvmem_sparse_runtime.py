@@ -1542,6 +1542,14 @@ class VllmSparseRuntime:
                     int(t).to_bytes(4, "little", signed=False)
                     for t in list(ids)[:_bs20])).hexdigest()
                 payload.update({
+                    # GEOMETRY PARITY (design 222): the barrier
+                    # requires covered == len(hashes) * kv_block_size
+                    # and capacity*page == covered - hashes must be
+                    # TRUNCATED to the frontier depth (91 full-chain
+                    # blocks vs 90 covered blocks failed the equation).
+                    "hashes": [h.hex() if not isinstance(h, str) else h
+                               for h in (hashes or [])[:int(target) //
+                                         max(1, int(self.kv_block_size))]],
                     "covered": int(target),
                     "prefix_digest": _dig20,
                     "kv_block_size": _bs20,
