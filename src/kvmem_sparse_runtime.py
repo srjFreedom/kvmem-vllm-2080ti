@@ -4546,9 +4546,10 @@ class VllmSparseRuntime:
             if self.log is not None and getattr(self, "_sp_loud", 0) < 6:
                 self._sp_loud = getattr(self, "_sp_loud", 0) + 1
                 _bt_ok = max(1, int(q) * max(1, int(pt)))
-                _nbx = int(_mt_marker) // _bt_ok if (_mt_marker := (
-                    40471 if int(tokens) <= 80000 else (
-                    71534 if int(tokens) <= 160000 else 112590))) >= 0 else -1
+                _tk0 = int(st.tokens)
+                _mt_marker = (40471 if _tk0 <= 80000 else
+                              (71534 if _tk0 <= 160000 else 112590))
+                _nbx = _mt_marker // _bt_ok
                 _blk_pages = {b: [b * int(q) + o2 for o2 in range(int(q))
                                   if b * int(q) + o2 < n_pages]
                               for b in (int(x) for x in kept)}
@@ -4559,7 +4560,7 @@ class VllmSparseRuntime:
                               pg for pg in _blk_pages.get(_nbx, [])
                               if pg in set(want)][:4] if _nbx in _blk_pages else [],
                           "want_n": len(want), "q": int(q), "pt": int(pt),
-                          "bt": _bt_ok, "tokens": int(tokens)})
+                          "bt": _bt_ok, "tokens": _tk0})
         except BaseException as _spex:
             if self.log is not None:
                 self.log({"kind": "d_span_probe_error",
@@ -5473,8 +5474,13 @@ class VllmSparseRuntime:
                 # holds sink+recent, so order[:room] admits every block
                 # ranked within the remaining budget - the 152K needle
                 # at field rank 3 can no longer be crowded out.
-                _seq = list(order) + [b for b in _seq
-                                      if b not in set(order)]
+                # r96 LAW RESTORED (design 150): order[:room-mid_n] +
+                # mid - order FIRST, mid limited to its reserved tail
+                # share. Full-order seq (my 149 attempt) let insurance
+                # crowd 88K (True->False regression, measured).
+                _seq = (list(order)[:max(0, room - len(_mid_blocks_q)
+                                        if _mid_blocks_q else room)]
+                        + list(_mid_blocks_q or []))
                 _seqn = len(_seq)
                 _head = [int(x) for x in _seq[:8]]
                 if self.log is not None:
