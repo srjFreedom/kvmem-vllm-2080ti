@@ -1496,3 +1496,10 @@ skip=不重放只装视图 - 顺路）。
 - 下轮判决读数（1 boot）: T1 park 全量 blocks≈86 / T2 `resume_decided hit≈142208` + skip 消失 + **T2 时长 ~5-10s**（目标判据直接可读）；若仍 220s+：查 restore-pending 通道与 park prepared 覆盖。
 - 验收计数更新: 88K = r112 3/3 + 本代 3/3（同码两代际 6/6 - 代际噪声论出现反例样本，诚实记入）；152K **3/3 首达标**；resume 时长待判；250K 未测。
 - 1 boot 停止交还。生产恢复。ahead 125→126。
+
+## 202-204. Round 117：resume 卡点确诊 - park 被"无 seal checkpoint"门永远锁死（seal 是已删旧机器）+ D park 路线定形
+
+- 判决读数: T2/T3 时长不降 (221/219s) + `session_park_skipped reason="no sealed executed-frontier checkpoint"` ×全 + `retire_aborted "TP workers did not all prepare"` - **frontier 修生效但 park 从未备料**：归档通道 gating 在 shallow-seal checkpoint 上，而 seal 机器已按目标(4) 删除 - **resume 无源可匹，命中层 91 vs 2 只是空转表象**。
+- D park 路线定形（下轮实现单）: (1) D 模式绕过 seal gate: hashes=block_hash_sequence(prompt ids) 全量直构（已有函数），frontier=observed prefix（r116 已修）；(2) **state 归档 = fork `state_get_stream` 读 GDN 递归矩阵 + conv 尾**（TP 双 worker 各备各层 - retire prepare 校验已有钩子）；(3) resume 消费: T2 命中 → park 的 state 装回引擎槽（fork 有 scatter_states）+ skip prefill 至 cursor + 视图从 store 页重建 → 时长 5-10s 判据自动读出。
+- 本代答案 3/3 False（152K 上代 3/3 T - 计数 6T/6F≈0.5 - 代际论继续占上风，6/6 反例降级为局部连续）。
+- 预算 1 boot 触停止交还。生产恢复。ahead 126→127。
