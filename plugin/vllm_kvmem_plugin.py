@@ -2046,6 +2046,19 @@ def register():
                     found = store.lookup(_hashes, prefix_digest=_digest,
                                          owner_session_id=owner_session_id)
                     if found is None:
+                        # SHARED-SPACE FALLBACK (design 230): direct capture runs
+                        # in the worker, which only knows the rid - its archives
+                        # land under the implicit prefix-cache owner while this
+                        # query carries the native session. Content equality of
+                        # the sha256 block-hash chain IS the authority; owner is
+                        # a performance partition. Retry owner-agnostically.
+                        found = store.lookup(_hashes, prefix_digest=_digest)
+                        if found is not None:
+                            _append(_sched_cfg(scheduler).get("log")
+                                    or "/tmp/kvmem_sparse.jsonl",
+                                    {"kind": "resume_shared_hit", "req": rid,
+                                     "blocks": int(found[1])})
+                    if found is None:
                         _append(_sched_cfg(scheduler).get("probe_log")
                                 or "/tmp/kvmem_sparse.jsonl",
                                 {"kind": "resume_skip", "req": rid, "why": "no prefix match",
