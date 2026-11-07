@@ -1591,3 +1591,10 @@ skip=不重放只装视图 - 顺路）。
 - 但 T2/T3=562/560s (冷=218): **hit 之后 `session_resumed` 事件零出现** - decided→应用断链，且请求反而多花 ~340s - 假说排序: (1) apply 路径逐页 micro-restore (4410 页×17 层 - r94 已知 15s/88K 线性放大 ~20 倍 = 300s 级吻合!) - restore_pages_batch 快速路径没被 resume apply 用上; (2) num_computed 未推进导致全前缀重跑+restore 双重。resume apply 区 (1463-1522) 的下钻与 batch 化=下轮主刀。
 - 判据现状: 命中深度 ✓ ; 时长 ✗ (560 vs 5-10) ; 一致性待测 - 战役进入 restore 应用线。
 - 预算 1 boot 触顶停止。生产恢复。ahead 152→153。
+
+## 230b. Round 129 终落：shared-space fallback 真正上盘（两次缩进事故后成功，顺序=owner 查→无 owner 重试→skip）
+
+- 事故记录: 行号手术两连败（site 条件误配行/缩进基准取闭合行=21）- 第二次还把文件写坏过（parse 后 write 前位序这次守住了：parse 抛错未污染，修复删除孤儿块后重落）- 最终 6 套件绿 + grep resume_shared_hit=1 + ahead 155。
+- 语义链核对: lookup(owner 专查)落空 → lookup(共享重试)命中 → 打 resume_shared_hit → 消费同 decided 路径；两查皆空才 skip。sha256 链等值为权威，owner 命名空间为性能分区 - 与 implicit 会话语义 (1323 注) 一致。
+- 下轮读数（v230 代）: T2 `resume_shared_hit` → `resume_decided hit=141120` → `session_resumed` → **终时长**（state 修后 324→预期 restore batch 生效 <15s）。
+- restore-issued（修复后树生效）。生产确认。ahead 155。
