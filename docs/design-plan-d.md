@@ -1320,3 +1320,11 @@ skip=不重放只装视图 - 顺路）。
 - 事实链: 面板证明 88K 视图五层全对（span/causal/adopt 数学精确）；152K 两层叠加：表面 rank59 场外，深层=断言复现的 **mid(15) > room(10) → order[:负]=空 → top-k 全体被保险块挤光**（rank1 的 45 都进不去）- 正是 kept_n=8 起点+10 room 全被 mid 吃掉的机制。
 - 修复: runtime 律改 `_top_share = room-mid if mid<room/2 else max(1, room//2)`，mid 永不吃光预算; 断言库 `max(0,...)` 底 + 违例回归固化（top-k rank1 必入）。
 - 88K 蝴蝶带判据: 计数投票（5 发 ≥4 True）- 下轮执行。
+
+## 154. Round 98：temperature0 带 = 非确定归约链 + r96/r97 表达式考古（负数切片后缀语义）+ 律回植
+
+- 采样参数核对: 两电池 temperature=0/top_p=None - 纯贪心。贪心下 3T4F 摆动 → 定罪**数值非确定链**（fp8 atomic/cross-rank all-reduce 顺序/图内归约），不是带内随机 - 修复属 kernel/硬件层（后置），判据=计数投票但预期 ~0.4-0.5 通过率低。
+- 表达式考古（live 证据裁定语义）: r96 的 `order[:max(0, room-len(mid))]` 与 r97 的 `order[:room-len(mid) if mid else room]` **非同型**: 后者负 bound=**python 后缀语义**（order[len(mid)-room:]）- 88K mid=0 同型；152K mid>room 走后缀 - 问场头形被改 → r97 起 88K 连 F 与 152K kept 头变（34,35,91）皆由此。r98 回植 r96 原文 + 测试固化真语义（后缀/前缀两案分断言）。
+- 教训: **断言库先于改造成立 - 但断言的镜像公式必须逐字符对齐被测表达式，否则"抓获违例"是镜像自身的假案**（本次 46 案就是 share=max(0,..) 与负切片的行为差）。
+- 电池待办: r96 律回植版同 boot 5 发投票（下轮第一动作，boot 预算已尽本轮 2）。152K 场 rank59 独立在册（问句捕获质量，信息论层）。
+- 生产恢复中。ahead 78。
