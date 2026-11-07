@@ -1525,3 +1525,11 @@ skip=不重放只装视图 - 顺路）。
 - resume 判据路径最终两步: (c) 修完 → T1 complete=true → T2 `session_resumed + hit 141120` → 时长 5-10s 读数即验收项 2 达成。
 - 代际注: 本代 T1/T2 答案 0/2（F 带连续 - 代际状态论继续占优）。
 - 预算 1 boot 停止交还。生产恢复。ahead 132→133。
+
+## 212. Round 121：sweep v1 定量失败画像（4192/4410）+ sweep v2 从全页书补齐（resident 权威）+ no-evidence 大声化
+
+- v1 读数: swept=49/735 有效但 pages 4192 < 4410 - 行=当前视图，未选中间段根本不在行里 → v1 天花板可见。no_evidence 页（终态无设备证据）如实计数而非静默。
+- v2: 遍历 frontier 以下全部页号，resident 且缺 store 的从 _page_map/行双源找槽拷贝；无证据者上报计数 - capture complete 校验保持严格（缺页即拒，不缩档）。
+- 代际注: 本代 152K 0/2（F 带）；T2 时长判据在 capture complete 之前不可达 - 顺序正确。
+- 下轮: boot v2 → 读数 swept/no_evidence/complete → 若 complete=true 则 T2 时长判决；若 no_evidence≈218 且不可压 - 缺口=终态已被刀淘汰出 resident 的段，解法升一档（terminal 前强制 pre-刀 store 保证 - 涉及 harvest 时序，届时再定形）。
+- 预算 1 boot 触顶。生产恢复。ahead 134。
