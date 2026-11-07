@@ -5499,7 +5499,15 @@ class VllmSparseRuntime:
         # (restore = pure copy). The old loop dropped any block with a
         # missing member page - the mechanical cause of a rank-0 needle
         # block absent from the installed view.
-        logical_pages, phys_pages, _to_restore2, _to_evict2 = \
+        # UNPACK FIX (design 141): _rebuild_view returns
+        # (phys, logical, to_restore, to_evict) - the call sites here
+        # bound the first value to `logical_pages` for six rounds, so
+        # st.row received the PAGE list and st.logical the BLOCK list.
+        # The engine row was thus filled with page ids exactly as in
+        # the original duct crime, and every page-addressed consumer
+        # (store, byte confrontation, rolling writes) saw block-space
+        # numbers instead. Swapping the names restores both books.
+        phys_pages, logical_pages, _to_restore2, _to_evict2 = \
             self._rebuild_view(req, st, orch, kept, q, pt, n_pages)
         if _to_restore2:
             try:
