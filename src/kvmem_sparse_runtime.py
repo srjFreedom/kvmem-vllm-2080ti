@@ -3402,12 +3402,17 @@ class VllmSparseRuntime:
                 # (measured: bytes at physical 1176 while st.row[1176]=1372 was all zero).
                 tb_val = None
                 slot_src = "row"
-                page = int(logical)        # DESIGN 183: store key is
-                # the logical page number itself (identity book, never
-                # rewound). The engine row value feeds the byte source
-                # slot only; the old chain confused pool block ids with
-                # page numbers at every step (refused [-1] samples and
-                # the whole store-key corruption).
+                page = None                # DESIGN 185: the 183
+                # override was WRONG - the pre-existing resolution
+                # chain (engine row value via tb_val, then book) is
+                # the byte SOURCE and its result feeds commit's
+                # slot/page pair with the (slot,page) duality contract
+                # already reconciled at 3383 by reading the ENGINE
+                # row directly. Restoring page=None keeps that chain.
+                # The harvest store-key corruption, if any, lives in
+                # commit's own page math and must be probed there, not
+                # patched here blind. (refused went 0 -> nonzero with
+                # the 183 override; the pre-183 chain at least runs.)
                 # Priority: the KERNEL's slot mapping for the step under commit
                 # (authoritative - it IS the address the kernels used to write the bytes we
                 # are capturing), then the staging table mirror at rank, then the row.
