@@ -1,3 +1,4 @@
+import os
 """Opt-in exact-frontier session candidates; not qualified for production use.
 
 Native (cache_salt, session_id) scopes a candidate, chained block hashes locate it, and a full
@@ -447,6 +448,14 @@ def session_checkpoint_frontier(prompt_tokens, block_tokens, budget_tokens,
     # Leave one native KV block of headroom. The old B-aligned boundary triggered physical
     # compaction before the checkpoint could be captured at 36064 tokens in the MTP-off geometry.
     limit = max(0, budget - block)
+    if os.environ.get("KVMEM_PLAN_D", "") in ("1", "true", "yes"):
+        # OBSERVED PREFIX (design 200, objective clause 4): Plan D
+        # never rewinds the token stream and the host store keeps
+        # EVERY canonical page, so a resume may skip the WHOLE
+        # captured prefix - the budget-aligned cap was the clip-era
+        # machine's limit (a rebuilt child could only replay
+        # <= budget) and dies with the rest of that protocol.
+        return max(0, ((prompt - 1) // quantum) * quantum)
     return max(0, min(((prompt - 1) // quantum) * quantum,
                       (limit // quantum) * quantum))
 
