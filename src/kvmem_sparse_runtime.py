@@ -5707,7 +5707,14 @@ class VllmSparseRuntime:
             "logical_frontier": _dsend[0] if _dsend else tokens,
             "resident_frontier": resident_before,
             "selected_pages": [int(p) for p in logical_pages],
-            "physical_pages": [int(p) for p in phys_pages],
+            # DESIGN 144: adopt's packing law demands
+            # pages == [b*width + offset ...] i.e. the sorted view
+            # PAGE sequence itself - and logical_pages IS that
+            # sequence (rbv returns `ordered`). The block-start
+            # repetition (_po) can never equal `expanded` and died
+            # with "invalid physical page row" x821. The proposal
+            # now hands the law its own shape.
+            "physical_pages": [int(p) for p in logical_pages],
             "visible_tokens": int(visible), "page_tokens": int(pt),
             "block_pages": int(q),
             "engine_logical": self._engine_logical.get(req),
