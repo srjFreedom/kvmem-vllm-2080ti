@@ -2156,12 +2156,10 @@ class VllmSparseRuntime:
                 continue
             _true = int(self._engine_computed.get(req) or st.tokens)
             try:
-                if getattr(st, "_r0_rank", None) is not None:
-                    # live view maintenance: the R tail grew this step;
-                    # re-publish (engine row read is a cheap CPU copy)
-                    self.d_install_row(req, st.row)
-                    n += 1
-                    continue
+                # (design 161: the _r0_rank re-publish branch was dead
+                # code from the retired read-table era; removed so no
+                # future flag can resurrect GPU row pushes - adopt
+                # alone owns the engine row.)
                 _vlv.data[int(row)] = _seqv
                 _dlv.data[int(row)] = max(0, _true - _seqv)
                 n += 1
