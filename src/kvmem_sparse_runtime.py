@@ -1507,7 +1507,19 @@ class VllmSparseRuntime:
                       "complete": len(pages) >= expected})
             if not hashes or len(pages) < expected:
                 return False
-            _snap = getattr(self, "_dense_state_snap", {}).get(req)
+            # STATE SOURCE (design 229): _dense_state_snap is bound by
+            # the RETIRED seal machine - under Plan D it is never
+            # written, so every direct capture archived state=None and
+            # the apply path raised "resumed GDN StateImage missing",
+            # falling back to a full cold run PLUS exception overhead
+            # (measured T2=562s). Use the Plan D snapshot helper.
+            # STATE SOURCE (design 229, corrected): the preflight
+            # machinery already snapshots the FULL recurrent state at
+            # the completing prefill step (d_state_snapshot by row)
+            # and stores it per-request in _d_snaps - direct capture
+            # takes THAT handle; taking one at terminal time would be
+            # polluted by decode-window drift.
+            _snap = getattr(self, "_d_snaps", {}).get(req)
             payload = {
                 "hashes": list(hashes),
                 "pages": list(pages),
