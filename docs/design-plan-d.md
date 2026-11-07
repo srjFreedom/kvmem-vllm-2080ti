@@ -1351,3 +1351,10 @@ skip=不重放只装视图 - 顺路）。
 - 修正定性: 88K 在 r98/r99 代际 **问句场从未装针**（rank 崩到 27,28 之后）；同事件序（pre-merge room=10/order_n 29-40→fill seq=[25,26,..]→kept_n=8）逻辑不自洽 → **kept 序列化或 add 路径仪表缺陷嫌疑**，与"数值带"并存待分。"场/fill/adopt 无罪"表述降级为"仪表读数矛盾未解"。
 - 判决性仪表（下轮唯一动作）: fill 循环内 kept.add 时打 d_add_trace {b, kept_n_after} 6 发限 - 一发分辨 (a) add 真发生未序列化（仪表假） / (b) add 真没发生（seq 引用旧 kept/循环假）。修完 88K 重投票。
 - 本轮 1 boot 4 发 + 计数三改入档。生产 spec4/D=0 probe 200。ahead 81。
+
+## 159-160. Round 100：r99 guard 自造负切片回归（kept=[46,47,48] 现场实锤）+ r96 字面全还原
+
+- guard 代际读数: kept(False)= [0-6, 44, 46,47,48,50,51,52...] needle 缺席 - 面板 MID 态数学全对（rank725/slot921/base26787）但问刀 kept 错误。机制定案: r99 把 `room-len(mid)` 加 max(0,...) 与 () 兜底 - **改变了 python 负切片语义**（r96 原文负值=order 后缀切片，恰好是 MID 场形需要的头块序位；max(0)=正值前缀时 mid 大反而吃光预算…现场 kept_n=18 装 46-48 尾块）。
+- 还原 r96 字面（len 无 max、迭代无 or-()）x4 处 - 与 153 时代"回植"不同的是这次连 fill_enter 前的第二处 seq 也还原。**88K guard 代际 0/2+0/3 全作废为"guard 回归代数据"。**
+- 教训: "guard None" 修的是 TypeError，但 TypeError 的来源是 5124 绑定失败（union_v2 未执行）- **r96 能跑是因为 len(None) 在 r96 根本不会触发（union_v2 每代绑定成功）** - 现在需要修的是**为什么本代 union_v2 不绑定**（_stats_core_by_req 空？）而非在切片处兜底。绑定链仪表 d_union_v2/d_union_v2_error 已在 5127-5135，读一发判绑定死活。
+- 预算 1 boot 3 发。ahead 85→86。生产恢复。
