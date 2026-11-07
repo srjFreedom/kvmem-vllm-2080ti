@@ -2631,6 +2631,12 @@ class VllmSparseRuntime:
         st = self._state.get(req)
         if st is None:
             return
+        if self.log is not None and getattr(self, "_bc3_loud", 0) < 6:
+            self._bc3_loud = getattr(self, "_bc3_loud", 0) + 1
+            self.log({"kind": "d_bc3_enter", "req": str(req)[-6:],
+                      "logical_n": len(logical_pages or ()),
+                      "row_index": int(getattr(st, "row_index", -9)),
+                      "tokens": int(st.tokens)})
         key = str(req)[-6:]
         if getattr(self, "_bc3_done", None) is None:
             self._bc3_done = set()
@@ -4725,10 +4731,19 @@ class VllmSparseRuntime:
         st.row = tuple(phys_pages)
         st.logical = tuple(logical_pages)
         if getattr(self, "d_mode", False):
+            if self.log is not None and str(req)[-6:] not in \
+                    getattr(self, "_bc3_reach", set()):
+                self._bc3_reach = getattr(self, "_bc3_reach", set())
+                self._bc3_reach.add(str(req)[-6:])
+                self.log({"kind": "d_bc3_reach", "req": str(req)[-6:],
+                          "logical_n": len(logical_pages),
+                          "phys_n": len(phys_pages)})
             try:
                 self.d_bytes_coincide(req, logical_pages, phys_pages)
-            except Exception:
-                pass
+            except BaseException as _bcx:
+                if self.log is not None:
+                    self.log({"kind": "d_bc3_call_error",
+                              "err": str(_bcx)[:200]})
         if getattr(self, "d_mode", False):
             # row-tail law at install: keep the engine's native blocks
             # BEHIND the view (they still hold the newest pages, and
@@ -5624,10 +5639,19 @@ class VllmSparseRuntime:
         st.row = tuple(phys_pages)
         st.logical = tuple(logical_pages)
         if getattr(self, "d_mode", False):
+            if self.log is not None and str(req)[-6:] not in \
+                    getattr(self, "_bc3_reach", set()):
+                self._bc3_reach = getattr(self, "_bc3_reach", set())
+                self._bc3_reach.add(str(req)[-6:])
+                self.log({"kind": "d_bc3_reach", "req": str(req)[-6:],
+                          "logical_n": len(logical_pages),
+                          "phys_n": len(phys_pages)})
             try:
                 self.d_bytes_coincide(req, logical_pages, phys_pages)
-            except Exception:
-                pass
+            except BaseException as _bcx:
+                if self.log is not None:
+                    self.log({"kind": "d_bc3_call_error",
+                              "err": str(_bcx)[:200]})
         if getattr(self, "d_mode", False):
             # row-tail law at install: keep the engine's native blocks
             # BEHIND the view (they still hold the newest pages, and
