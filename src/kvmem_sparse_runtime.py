@@ -4538,6 +4538,32 @@ class VllmSparseRuntime:
                     break
                 want.append(int(pg))
         want.sort()
+        # SPAN PROBE (design 149): which selected blocks actually
+        # contribute pages to `want` - the needle block (page marker
+        # // block_tokens) must appear; if it is in kept but never
+        # wanted, the kept->want expansion is where it dies.
+        try:
+            if self.log is not None and getattr(self, "_sp_loud", 0) < 6:
+                self._sp_loud = getattr(self, "_sp_loud", 0) + 1
+                _bt_ok = max(1, int(q) * max(1, int(pt)))
+                _nbx = int(_mt_marker) // _bt_ok if (_mt_marker := (
+                    40471 if int(tokens) <= 80000 else (
+                    71534 if int(tokens) <= 160000 else 112590))) >= 0 else -1
+                _blk_pages = {b: [b * int(q) + o2 for o2 in range(int(q))
+                                  if b * int(q) + o2 < n_pages]
+                              for b in (int(x) for x in kept)}
+                self.log({"kind": "d_span_probe",
+                          "needle_blk": _nbx, "kept_n": len(kept),
+                          "kept_has_needle": _nbx in _blk_pages,
+                          "needle_pages_wanted": [
+                              pg for pg in _blk_pages.get(_nbx, [])
+                              if pg in set(want)][:4] if _nbx in _blk_pages else [],
+                          "want_n": len(want), "q": int(q), "pt": int(pt),
+                          "bt": _bt_ok, "tokens": int(tokens)})
+        except BaseException as _spex:
+            if self.log is not None:
+                self.log({"kind": "d_span_probe_error",
+                          "err": str(_spex)[:160]})
         # ROW TAIL LAW (design 113): the view may only start at block 0.
         # Pages before the lowest selected block are NOT evicted from
         # the row - they stay resident at their native ranks (kept as a
@@ -5328,6 +5354,16 @@ class VllmSparseRuntime:
                                       if b in block_scores}})
                     except Exception:
                         pass
+                # STABLE LAW (design 148): the budget is a SET
+                # expression - sink blocks + recent tail blocks + the
+                # top-k of the CURRENT question/statistics field,
+                # truncated to budget. Interleaved "insurance" blocks
+                # (previous-view mid blocks) are demoted to FILLERS:
+                # they may only take slots that top-k did not claim.
+                # At 152K the needle block ranked #3 in the field and
+                # still fell out of kept because the interleave spent
+                # room before reaching it. The law makes rank<=k
+                # admission unconditional.
                 room = max(0, budget_blocks - len(kept))
                 if self.log is not None:
                     try:
@@ -5431,7 +5467,14 @@ class VllmSparseRuntime:
                                   "seq_head": [int(x) for x in _seq[:8]]})
                     except Exception:
                         pass
-                _seq = list(_seq)
+                # STABLE LAW (design 148, corrected): fill order is the
+                # question/statistics ranking `order` ONLY; insurance
+                # mid blocks may take what top-k leaves. kept already
+                # holds sink+recent, so order[:room] admits every block
+                # ranked within the remaining budget - the 152K needle
+                # at field rank 3 can no longer be crowded out.
+                _seq = list(order) + [b for b in _seq
+                                      if b not in set(order)]
                 _seqn = len(_seq)
                 _head = [int(x) for x in _seq[:8]]
                 if self.log is not None:
