@@ -1382,3 +1382,10 @@ skip=不重放只装视图 - 顺路）。
 - 答案仍 0/2 False + coincide3 零事件（仪表自身又有哑点: _bc3_done/paged 访问路径未出声）- 下轮: coincide3 出口全出声（每早退分支记 reason），字节对质终于出数。
 - 事故: ov1 锚文本差一字符（-2*4096 vs +）导致一次无效 boot（旧树重启）- 行号手术根治。
 - 预算 3 boots 大越界, 硬停止。生产恢复。ahead 90→91。
+
+## 167. Round 104：coincide3 哑火结案（tuple 解包错）+ 问帧全绿画面定版
+
+- d_bc3_enter×12 而 coincide3×0、call_error×0 的矛盾 = try 内第一句 `block_table_rows()[0]` 解包错 (返回是 (rows, ids) tuple) → IndexError 被函数级 except 吞且该 except 在 enter 之前?? - 不: except 记 error 事件也为 0 - 最终定位 enter 后第一行即炸、error 分支同样被外层 pass 吞 (call site 针只记 BaseException 到 _bc3_call_error - 计数 0 说明炸在函数内 try 前... 实际修 = 规范解包, 下代直读 coincide3 值)。
+- 88K 问刀画面 (定版): kept=[0-6,8-14,25,26,27,48] in_kept=1 双 rank (TP) - **视图含针已 100% 装机**; 答案 0/1 (累计带账不变)。
+- 下轮: boot 直读 coincide3 {eng,store,match,pid,row_max} - 字节定罪 → 修 store 链或转入 decode 层。
+- 预算 1 boot + 4 读。生产恢复。ahead 93→94。
