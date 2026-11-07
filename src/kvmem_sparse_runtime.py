@@ -4617,7 +4617,7 @@ class VllmSparseRuntime:
             # rbv-internal units (never borrow the caller's locals):
             # pages per engine block = block_pages = q passed in.
             _bpo = max(1, int(q))
-            _po = [pg // _bpo for pg in ordered]
+            _po = [pg - pg % _bpo for pg in ordered]  # block-start pages (143)
             # BLKIDS v2 (design 139): PHYSICALS deduped to one entry
             # per engine block (adopt + row math speak blocks);
             # LOGICALS stay the true page-id sequence - the earlier
@@ -4802,22 +4802,9 @@ class VllmSparseRuntime:
                 if self.log is not None:
                     self.log({"kind": "d_tail_law_error",
                               "err": str(_tle)[:140]})
-        if getattr(self, "d_mode", False):
-            try:
-                if __import__("os").environ.get(
-                        "KVMEM_D_NOINSTALL", "") not in ("1", "true", "yes"):
-                    self.d_install_row(req, [p // max(1, _bpw if "_bpw" in dir()
-                        else 1) * 0 + (p - (p % max(1, _bpw)))
-                        for i, p in enumerate(phys_pages)
-                        if i == 0 or (p - (p % max(1, _bpw)))
-                        != (phys_pages[i - 1]
-                            - (phys_pages[i - 1] % max(1, _bpw)))]
-                elif self.log is not None and getattr(self, "_ni_loud", 0) < 4:
-                    self._ni_loud = getattr(self, "_ni_loud", 0) + 1
-                    self.log({"kind": "d_noinstall_active",
-                              "req": str(req)[-6:]})
-            except Exception:
-                pass
+        # d_install_row RETIRED (design 143): adopt already
+        # rewrites the engine row to the proposal order; the
+        # extra push corrupted it (invalid physical page row).
         st.seq_len = int(len(phys_pages) * pt)
         st.spare = None
         st.off_pages = 0
@@ -5653,22 +5640,9 @@ class VllmSparseRuntime:
                 if self.log is not None:
                     self.log({"kind": "d_tail_law_error",
                               "err": str(_tle)[:140]})
-        if getattr(self, "d_mode", False):
-            try:
-                if __import__("os").environ.get(
-                        "KVMEM_D_NOINSTALL", "") not in ("1", "true", "yes"):
-                    self.d_install_row(req, [p // max(1, _bpw if "_bpw" in dir()
-                        else 1) * 0 + (p - (p % max(1, _bpw)))
-                        for i, p in enumerate(phys_pages)
-                        if i == 0 or (p - (p % max(1, _bpw)))
-                        != (phys_pages[i - 1]
-                            - (phys_pages[i - 1] % max(1, _bpw)))]
-                elif self.log is not None and getattr(self, "_ni_loud", 0) < 4:
-                    self._ni_loud = getattr(self, "_ni_loud", 0) + 1
-                    self.log({"kind": "d_noinstall_active",
-                              "req": str(req)[-6:]})
-            except Exception:
-                pass
+        # d_install_row RETIRED (design 143): adopt already
+        # rewrites the engine row to the proposal order; the
+        # extra push corrupted it (invalid physical page row).
         # BOOK DROP (design 91): `visible` is Core's proposal book
         # (resident_before - freed), computed BEFORE the rebuild
         # expansion; the worker must book what it ACTUALLY installed
