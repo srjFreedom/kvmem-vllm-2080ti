@@ -1064,10 +1064,21 @@ class VllmSparseRuntime:
             return False
         if self._session_checkpoints.get(req) is not None:
             return False
-        if getattr(st, "compacted_in_prefill", False):
+        if getattr(st, "compacted_in_prefill", False) and \
+                not getattr(self, "d_mode", False):
             return False   # the dense window closed: the first cut already
                            # rewrote columns - sealing now would be the POISON
                            # point measured 2026-11-03 (152K wrong answer).
+        elif getattr(st, "compacted_in_prefill", False):
+            # D MODE BYPASS (design 205): the old gate refused capture
+            # once a prefill knife had run - sealing rewrote columns
+            # under the clip-era child rebuild, the machine objective
+            # (4) deleted. Plan D keeps every canonical page in the
+            # host store and the stream never rewinds, so a post-knife
+            # checkpoint is complete: hashes from prompt ids, pages
+            # from the store, view rebuilt from canonical bytes. The
+            # capture body below is stage-agnostic by construction.
+            pass
         if req in getattr(self, "_resume", {}):
             return False   # a resume-applied turn must not re-seal: its state
                            # already carries the previous seal's bounded
