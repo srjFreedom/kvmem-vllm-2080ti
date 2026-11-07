@@ -1,4 +1,3 @@
-import os
 """Opt-in exact-frontier session candidates; not qualified for production use.
 
 Native (cache_salt, session_id) scopes a candidate, chained block hashes locate it, and a full
@@ -10,6 +9,7 @@ MTP checkpoints remain unsupported.
 """
 
 from __future__ import annotations
+import os
 
 from collections import OrderedDict
 
