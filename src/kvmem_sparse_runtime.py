@@ -2653,7 +2653,8 @@ class VllmSparseRuntime:
                 getattr(self.view, "block_tokens", 0) else \
                 _mt // (max(1, int(self.page_tokens)) * _q_blk)
             _lpg = list(st.logical or ())
-            _rows = self.view.block_table_rows()[0]
+            _rt3 = self.view.block_table_rows()
+            _rows = _rt3[0] if isinstance(_rt3, tuple) else _rt3
             _ri = int(getattr(st, "row_index", -1) or -1)
             if _ri < 0:
                 return
