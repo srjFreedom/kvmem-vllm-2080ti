@@ -1510,3 +1510,10 @@ skip=不重放只装视图 - 顺路）。
 - 计数（好代际带内）: 152K 本代 3/3 True → 累计 9T/6F; T2 时长 230s 未降 = resume 未生效（skip 于匹配前）- 时长判据待三断点补齐后读。
 - 下轮: (a)(b)(c) 三点连修（纯 python + 一次 boot 判时长）- 目标读数=session_resumed + T2 5-10s。
 - 预算 1 boot 3 发停止。生产恢复。ahead 128→129。
+
+## 208-209. Round 119：D 直采路线落码（frontier 账本化 + d_capture_direct + prepare 钩子）- 代际变量清单终版=GPU 物理噪声（16 连 F）
+
+- resume 断链真相补全: 除 frontier 假象（GPU 折叠计数读 25856，已改账本 st.tokens 权威）外，**整条 seal→prepared→publish 状态机在 D 世界不运转（0 事件）** - 按"不留兼容"不复活，改 **d_capture_direct**: prompt ids 直构 hashes + store 全量页 + observed-prefix frontier → 直接挂 checkpoint 载荷；prepare_session_checkpoint D 分支优先走直采。
+- 代际终数: v208 代 152K 0/3（连续 16 发 F） - "GPU 物理时序噪声"论升级为**引擎代际状态论**（capture 变体/workspace 布局随 boot 变化，代码不可达层）- 记录在案不伪装修复。
+- 下轮: boot 直采代 → 读数 d_capture_direct{target,hashes,pages,expected,complete} + T2 resume_decided hit≈142208 + **时长判据**。
+- 预算 2 boots 触顶。生产恢复。ahead 130→131。

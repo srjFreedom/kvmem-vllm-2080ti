@@ -1090,7 +1090,14 @@ class VllmSparseRuntime:
             # checkpoint is complete: hashes from prompt ids, pages
             # from the store, view rebuilt from canonical bytes. The
             # capture body below is stage-agnostic by construction.
-            pass
+            ids = self._prompt_ids.get(req)
+            if not ids:
+                full = getattr(self, "_all_prompt_tokens", {})
+                _ids2 = full.get(req) or getattr(
+                    self.view, "prompt_tokens", lambda r: None)(req)
+                if _ids2:
+                    self._prompt_ids[req] = list(_ids2)
+                    self._prompt_len[req] = len(_ids2)
         if req in getattr(self, "_resume", {}):
             return False   # a resume-applied turn must not re-seal: its state
                            # already carries the previous seal's bounded
@@ -1371,6 +1378,65 @@ class VllmSparseRuntime:
             return False
         return payload
 
+    def d_capture_direct(self, req):
+        """Plan D terminal capture (design 209): the retired clip-era
+        checkpoint state machine (seal -> prepared -> publish) is not
+        resurrected; instead the store, which already holds every
+        canonical page of the never-rewound stream, is archived
+        directly with hashes computed from the prompt ids."""
+        if not getattr(self, "d_mode", False):
+            return False
+        try:
+            st = self._state.get(req)
+            if st is None:
+                return False
+            ids = self._prompt_ids.get(req)
+            if not ids:
+                getter = getattr(self.view, "prompt_tokens", None)
+                if callable(getter):
+                    ids = getter(req)
+                    if ids:
+                        self._prompt_ids[req] = list(ids)
+                        self._prompt_len[req] = len(ids)
+            if not ids:
+                self.log({"kind": "d_capture_direct", "req": str(req)[-6:],
+                          "ok": False, "why": "no prompt ids"})
+                return False
+            orch = self._orch.get(req)
+            if orch is None:
+                return False
+            from kvmem_session_store import session_checkpoint_frontier
+            target = session_checkpoint_frontier(
+                int(len(ids)), self.kv_block_size, self.budget_tokens,
+                self.select_block_tokens)
+            if target <= 0:
+                return False
+            hashes = self._session_hashes(req, ids)
+            pages = orch.usable_pages(target)
+            expected = int(target) // max(1, int(self.page_tokens))
+            self.log({"kind": "d_capture_direct", "req": str(req)[-6:],
+                      "target": int(target), "hashes": len(hashes or ()),
+                      "pages": len(pages), "expected": int(expected),
+                      "complete": len(pages) >= expected})
+            if not hashes or len(pages) < expected:
+                return False
+            payload = {
+                "hashes": list(hashes),
+                "pages": list(pages),
+                "frontier": int(target),
+                "state": None,
+                "d_direct": True,
+                "prompt_digest": None,
+            }
+            self._session_checkpoints[req] = {"payload": payload,
+                                              "frontier": int(target)}
+            return True
+        except BaseException as _dcx:
+            if self.log is not None:
+                self.log({"kind": "d_capture_direct_error",
+                          "err": str(_dcx)[:200]})
+            return False
+
     def prepare_session_checkpoint(self, req):
         """Called by EngineCore only after this request has emitted a terminal output."""
         try:
@@ -1378,6 +1444,12 @@ class VllmSparseRuntime:
             if pending:
                 self.after_step(req, pending, prefill=pending >= self.page_tokens)
                 self._prev_n[req] = 0
+            if getattr(self, "d_mode", False):
+                # D takes the direct store path first; the retired
+                # seal machine path is not resurrected (design 209).
+                if self.d_capture_direct(req):
+                    return True
+                return None
             return self._park_session(req)
         except Exception as exc:
             self.log({"kind": "session_park_prepare_error", "req": req,
