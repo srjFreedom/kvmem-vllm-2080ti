@@ -1534,7 +1534,7 @@ skip=不重放只装视图 - 顺路）。
 - 下轮: boot v2 → 读数 swept/no_evidence/complete → 若 complete=true 则 T2 时长判决；若 no_evidence≈218 且不可压 - 缺口=终态已被刀淘汰出 resident 的段，解法升一档（terminal 前强制 pre-刀 store 保证 - 涉及 harvest 时序，届时再定形）。
 - 预算 1 boot 触顶。生产恢复。ahead 134。
 
-## 213. Round 213（121 续）：sweep 页源定形 - orch.resident 在 D 终态为空，运行时时账本 st.logical 为权威，并集取源
+## 213. Round 121 续：sweep 页源定形 - orch.resident 在 D 终态为空，运行时时账本 st.logical 为权威，并集取源
 
 - v2 静态自审发现: `_res` 取 Core 侧 orch.resident - D 终态该集合可为空 → v2 可能白扫。v3 并集 runtime st.logical（全视图页账，D 世界唯一全量叙述源）。no_evidence 计数机制保留（大声失败原则）。
 - 下轮读数分支: swept 达 218 级 → T2 时长判决；no_evidence 大 → 页在历次刀间彻底离开任何账本 - 解法升档到"淘汰前入 store"（harvest 时序，刀淘汰点顺手补拷）- 那是设计内一步（淘汰页 store 规范真位置本就是不变量 2 的应然动作）。
