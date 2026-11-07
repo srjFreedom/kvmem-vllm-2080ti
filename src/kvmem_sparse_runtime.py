@@ -2632,7 +2632,9 @@ class VllmSparseRuntime:
         if key in self._bc_done or not logical_pages or not phys_pages:
             return
         try:
-            _mt = 71534 if int(self._state[req].tokens) > 80000 else 40471
+            _tk = int(self._state[req].tokens)
+            _mt = 40471 if _tk < 80000 else (71534 if _tk < 160000
+                                             else 112590)
             _pg = _mt // max(1, int(self.page_tokens))
             if _pg not in list(logical_pages):
                 return
@@ -2661,8 +2663,20 @@ class VllmSparseRuntime:
                                          .tobytes()).hexdigest()[:16]
             except Exception:
                 pass
+            _row_now = -7
+            try:
+                _bts = getattr(self.view, "runner", None)
+                _bts = getattr(_bts, "block_tables", None) if _bts else None
+                if _bts is not None:
+                    _g0 = _bts.block_tables[0].gpu
+                    _ri2 = int(self._state[req].row_index)
+                    if _ri2 < _g0.shape[0] and _rank < _g0.shape[1]:
+                        _row_now = int(_g0[_ri2][_rank])
+            except Exception:
+                pass
             self.log({"kind": "d_bytes_coincide", "req": str(req)[-6:],
                       "page": _pg, "rank": _rank, "slot": _slot,
+                      "row_now": _row_now, "row_ok": _row_now == _slot,
                       "eng": _eng_sha, "store": _sto_sha,
                       "match": (_eng_sha is not None and _eng_sha == _sto_sha)})
         except BaseException as _bcx:
