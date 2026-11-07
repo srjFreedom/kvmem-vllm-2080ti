@@ -5586,9 +5586,15 @@ class VllmSparseRuntime:
             #    refused the 152K final knife: view 24K steady-state could
             #    never beat resident+8192, so the question knife that would
             #    fetch the needle block #74 from the store never landed).
-            if (len(logical_pages) > len(old_row)
-                    or (bool(pressure)
-                        and _d_window_visible >= resident_before - 2 * 4096)):
+            # OVERROW GATE RETIRED (design 165): comparing view pages
+            # against the FULL native row length inverted the truth
+            # (a compacted view is SMALLER than native - the gate
+            # fired only through its own unit bug and silently killed
+            # every question knife for six rounds). Core adoption
+            # validates the row rebuild already; keep a real unit
+            # sanity check: view pages beyond the token stream.
+            if (len(logical_pages) >
+                    (int(st.tokens) // max(1, int(pt))) + 2):
                 self._last_proposal = None
                 if self.log is not None:
                     self.log({"kind": "blockwise_d_overrow", "req": req,
