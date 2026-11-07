@@ -2657,8 +2657,9 @@ class VllmSparseRuntime:
             import hashlib as _h
             _paged = getattr(self.view, "paged", None) or []
             _eng_sha = _sto_sha = None
-            if _paged:
+            if len(_paged) > 0 and _rank < len(phys_pages):
                 _t0 = _paged[0]
+                _slot = int(phys_pages[_rank])
                 if _slot < _t0.shape[0]:
                     _eng_sha = _h.sha256(_t0[_slot].reshape(-1)[:128]
                                          .contiguous().cpu().numpy()
@@ -4625,7 +4626,19 @@ class VllmSparseRuntime:
             # not find page 1264 among 869 block repetitions, restore
             # addressing and the rolling write seam both key on page
             # ids, and the store is page-addressed by contract).
-            return (_po[::_bpo] if _bpo > 1 else _po, ordered, [], [])
+            # DESIGN 142 (undo v2 stride): the engine kernel maps
+            # pos -> row[pos // page_tokens] and page_tokens IS the
+            # engine page width (1568 here, q*pt by construction), so
+            # the row must be ONE ENTRY PER VIEW PAGE POSITION holding
+            # that page's block id (49 repeats per block are CORRECT -
+            # consecutive positions inside one block must read the same
+            # block id, which is exactly how a dense native row looks).
+            # The stride dedup broke page-position alignment (applied
+            # dropped to 0, times jumped to 142-294s, the row ended at
+            # entry 18 while positions run to 868 - out of book).
+            # Deduplication belongs ONLY at the adopt call (block
+            # space), done by _dedupe_blocks there.
+            return (_po, ordered, [], [])
         return (ordered, ordered, [], [])
 
     def _reselect_remobilize(self, req, pressure=False):
