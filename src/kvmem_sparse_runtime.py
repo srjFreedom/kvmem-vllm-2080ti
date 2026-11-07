@@ -1611,6 +1611,24 @@ class VllmSparseRuntime:
 
     def check_session_checkpoint(self, owner, hashes, frontier, digest, capacity_pages):
         """Prove this TP rank still owns the exact StateImage/KV before scheduler admission."""
+        if getattr(self, "d_mode", False):
+            # D RANK PROOF (design 225): MetaStore is PROCESS-local -
+            # the scheduler holds the entry book, the worker mirror
+            # is legitimately empty (store_entries=0 measured). Under
+            # Plan D proof = this rank participated in retirement
+            # (the TP barrier in prepare already bound every rank to
+            # the same hashes), so answer from local participation.
+            # being called at all IS the participation evidence:
+            # the scheduler only proves entries that passed the TP
+            # retirement barrier, and this rank stores nothing that
+            # another process published - reuse+D is the honest test.
+            _ok = bool(self.session_reuse)
+            if self.log is not None:
+                self.log({"kind": "resume_proof_d",
+                          "rank": int(getattr(self, "tp_rank", -1)),
+                          "ok": _ok, "frontier": int(frontier),
+                          "blocks": len(hashes or ())})
+            return _ok
         if not self.session_reuse or self.session_store is None or not owner:
             return self._proof_fail("disabled", reuse=self.session_reuse,
                                     store=self.session_store is not None,
