@@ -1540,7 +1540,7 @@ class VllmSparseRuntime:
                 import hashlib as _qj
                 _dig20 = _qj.sha256(b"".join(
                     int(t).to_bytes(4, "little", signed=False)
-                    for t in list(ids)[:_bs20])).hexdigest()
+                    for t in list(ids)[:int(target)])).hexdigest()
                 payload.update({
                     # GEOMETRY PARITY (design 222): the barrier
                     # requires covered == len(hashes) * kv_block_size
