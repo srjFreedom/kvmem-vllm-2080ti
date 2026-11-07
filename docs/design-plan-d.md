@@ -1517,3 +1517,11 @@ skip=不重放只装视图 - 顺路）。
 - 代际终数: v208 代 152K 0/3（连续 16 发 F） - "GPU 物理时序噪声"论升级为**引擎代际状态论**（capture 变体/workspace 布局随 boot 变化，代码不可达层）- 记录在案不伪装修复。
 - 下轮: boot 直采代 → 读数 d_capture_direct{target,hashes,pages,expected,complete} + T2 resume_decided hit≈142208 + **时长判据**。
 - 预算 2 boots 触顶。生产恢复。ahead 130→131。
+
+## 210-211. Round 120：直采机器首次全读数 + **R 预留区 harvest 空洞定罪（512 页=16384 token 精确吻合）**
+
+- 读数链（自洽闭环）: T1 `d_capture_direct {target 141120, hashes 91, pages 3898 < expected 4410, complete false}` → T1 归档被覆盖校验正确拒收 → T2 冷跑 219.8s（无档可 resume）→ T2 自己 capture `complete=true`（4410/4410 ✓ 全量页此时已在 store - 因 T2 跑完后 R 区被后续写满/提交）。
+- 定罪: 缺口 4410-3898=512 页 = 512×32=**16384 token = gen_reserve/R 预留区精确同宽** - **prompt 的最后 16K token 落在 R 预留段，其页在 T1 终态尚未进 store**（harvest 覆盖停在 view_base 折叠线，R 段写提交未接住）。修法候选（下轮）: (a) T1 终态前把 R 段页一并 harvest（after_step 尾批 or prepare 时补 harvest 一次 store 缺口 - 数据仍在 GPU 行内，一次批量拷）; (b) usable_pages 统计口径包含未提交但 resident 的页 - 不行，字节必须真在 host; (c) prepare_session_checkpoint 里对缺口页强制 device->host 收批（最直接：读 engine row rank∈[3898,4410) 的池块槽字节 put 进 store）。选 (c)：单函数改动，数据源与 harvest 同源（paged_kv 拷贝）。
+- resume 判据路径最终两步: (c) 修完 → T1 complete=true → T2 `session_resumed + hit 141120` → 时长 5-10s 读数即验收项 2 达成。
+- 代际注: 本代 T1/T2 答案 0/2（F 带连续 - 代际状态论继续占优）。
+- 预算 1 boot 停止交还。生产恢复。ahead 132→133。
