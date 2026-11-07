@@ -2733,12 +2733,23 @@ class VllmSparseRuntime:
             import hashlib as _h
             _eng = None
             if _pid > 0:
-                _paged = getattr(self.view, "paged", None) or []
-                if len(_paged) > 0 and _pid < _paged[0].shape[0]:
+                # DESIGN 188: THE dead line was `view.paged` - the
+                # interface is paged_kv() (a method). len(None) raised
+                # TypeError and the whole body died between route and
+                # route2 every generation. Page-vs-block: store keeps
+                # one tensor PER STORE PAGE; paged_kv row is the whole
+                # engine block (q store pages) - compare the block
+                # entry for the needle page's BLOCK (pid of the block
+                # start) against the store page at the block start,
+                # first 128 bytes, both layer 0.
+                _paged = self.view.paged_kv()
+                _blkstart = _pg - _pg % max(1, int(_q_blk))
+                if _paged and _pid < _paged[0].shape[0]:
                     _eng = _h.sha256(
                         _paged[0][_pid].reshape(-1)[:128]
                         .contiguous().cpu().numpy().tobytes()
                     ).hexdigest()[:16]
+                _pg = _blkstart
             _sto = None
             try:
                 _lay = self._orch[req].store.get(_pg)
