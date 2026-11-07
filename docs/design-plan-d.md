@@ -1366,3 +1366,12 @@ skip=不重放只装视图 - 顺路）。
 - 验收判据重写（终形）: **代际抽样** - 连续 boot 3 代各 1 发，2/3 代全对即达线；同 boot 复跑无信息量（确定性已证）。
 - 下轮: 代际抽样 ×3（3 boots 快判 mt256 单发/代）+ 若全坏代, 对比好/坏代际的 d_span_probe/stats 首步差异找"坏代"指纹（可修的根: 让池/图布局进入好分支）。
 - 预算: 1 boot + 同 boot 3 发 + 2 发确定性。ahead 88。生产恢复中。
+
+## 162-164. Round 102：代际假说破产（5 代全 F）+ spec4 排除 + **152K 复读指纹（"What is the normal one?"×∞）** = K 内容损坏的模型侧证词
+
+- 统计事实: 字面律代 **跨 5 次独立 boot 全 False**（每代确定性）→ 不是彩票，是**稳定坏态**。spec4 两发也 F → 与 MTP 无关。
+- 模型证词（mt120 reasoning 头部直读）: 152K 输出 "What is the normal one?" 无限循环 - 复读机指纹=**注意力读到的 K 大量重复/失真**。kept 直读 [0-6,44,58,65,73-88] 无针块。
+- 面板 slot_at_rank=921 判读修正: 池仅 ~131 块（206180/1568），921 是**页号读相**（仪表读 st.row 页空间而非 gpu 池块 id）- 不构成分支错证据，仪表单位债记档。
+- 当前最简一致解释（待证）: **adopt 重排后的行是好的，但 restore/store 供给的淘汰页 K 字节是坏的**（v0.5.2 补丁机删净后，restore=纯拷贝这条腿从未真通过字节验证 - coincide 仪表的页/块单位债拖累了它）。88K kept 含针仍 F: 针块 25 若为淘汰页, 其 restore 字节坏 → 复读。
+- 判决实验（下轮唯一）: 字节对质终修 - 对 installed gpu row 的 needle **池块 id**（从 gpu row 读回）取 paged 字节 sha vs 同页冷 prefill 基线 sha（v0.5 稠密代 88K 正确输出时的页字节）- 同 boot 一发定 restore 字节死活。若 restore 坏 → 修 store 写入链（harvest→store 的真位置字节）- 那就是终案。
+- 预算 3 boots 停止。生产恢复。ahead 88→89。
