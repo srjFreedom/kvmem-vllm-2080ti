@@ -4547,6 +4547,24 @@ class VllmSparseRuntime:
             ordered = sorted(set(want))
             _bpo = max(1, int(q))
             _po = [pg - pg % _bpo for pg in ordered]
+            # EARLY-PATH FIELD TRUTH (design 174): print what the
+            # identity path ACTUALLY produced for the needle block -
+            # complete 49-page span, page count, and the returned
+            # widths. If this says the span is complete while the
+            # downstream book still shows 6 pages, the split lives
+            # AFTER the return (a later writer of st.logical).
+            if self.log is not None and getattr(self, "_ep_loud", 0) < 6:
+                self._ep_loud = getattr(self, "_ep_loud", 0) + 1
+                _nb = (40471 if int(st.tokens) <= 80000 else (
+                       71534 if int(st.tokens) <= 160000 else 112590)
+                       ) // (max(1, int(q)) * max(1, int(pt)))
+                _span = [pg for pg in ordered
+                         if _nb * int(q) <= pg < (_nb + 1) * int(q)]
+                self.log({"kind": "d_rbv_early", "req": str(req)[-6:],
+                          "pressure": bool(pressure), "ordered_n": len(ordered),
+                          "phys_n": len(_po), "nb": _nb,
+                          "span_pages": len(_span), "q": int(q),
+                          "tokens": int(st.tokens)})
             return (_po, ordered, [], [], _bpo)
         assign = {}
         used = set()
