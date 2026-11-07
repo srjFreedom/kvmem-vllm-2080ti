@@ -1423,3 +1423,11 @@ skip=不重放只装视图 - 顺路）。
 - add_trace 全 pressure:true = 全局 10 预算被 MID×2TP 烧尽; per-(rid,stage)×4 改造脚本两次败于锚文本与缩进（write-before-parse 双挡死, 文件零污染）- 下轮首步落此小修（用 ast 级插入代替字符串锚）。
 - 下轮判据战（写死）: 预算修 → boot → rid 隔离直取四同框 {rbv_early.span_pages, add_trace(pressure=false), coincide3{eng,store,match}, 答案} - 一发定案: 残块修复后的场满代是否 True。
 - 本轮 1 boot + 5 离线读停止。生产 spec4/D=0 代际 21:4x probe 200。ahead 104。
+
+## 177-179. Round 108：四同框终局读数 - 视图层全部正名，唯一残瑕 = store 供给字节
+
+- 代际终读数（rid 68cb3b 隔离）: TRACES b=25/26 kept_n 9/10（问场准入首次可观测）；KEPT kept_n=18 in_kept=1；PS 第三次起 near 满 [1225..1230+]（span 补全代）；答案 False 95.6s。
+- **终局判词**: 场/fill/adopt/行/causal/块展开 六层全部直读为真 - **方案 D 的地址空间模型成立**。残余病灶唯一候选 = **淘汰页经 store→gpu 的字节**（本轮 coincide3 match 读数缺失=仪表 loud 预算再次先耗尽，记债）。r96 世代 3/3 True 与该判词不矛盾（其 store 恰好全命中 resident 的概率窗口）。
+- v0.5.2 对照: 同 restore 机制当年带补丁机通过验收 - 删兼容后 restore 字节路径缺真验证是已知风险面（design 61 时代记录在案），现聚焦单一修复线: harvest 写入规范真位置 + restore_pages_batch 纯拷贝字节校验（离线仿真可先行: store_semantics 已覆盖结构, 补字节 sha 断言）。
+- 验收进度: 88K 0/1 本代（累计见 doc164），152K/250K/resume 未测。**代码战役转入 store 字节线（新阶段）**。
+- 预算 1 boot 停止。生产恢复。ahead 106→107。
