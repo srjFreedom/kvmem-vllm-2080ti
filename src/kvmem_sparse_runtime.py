@@ -3434,7 +3434,18 @@ class VllmSparseRuntime:
                 # (authoritative - it IS the address the kernels used to write the bytes we
                 # are capturing), then the staging table mirror at rank, then the row.
                 if _smap and _sm_span:
-                    _q = int(_sm_span[0]) + max(0, logical * self.page_tokens - int(st.tokens))
+                    # DESIGN 187 (final): the captured span is the
+                    # byte stream of THIS step in true-position order,
+                    # so its k-th slot holds page (st.tokens+k)//pt.
+                    # The old formula subtracted the post-increment
+                    # st.tokens (future offset) and indexed view rows
+                    # with a true page number - every question-stage
+                    # store write missed (route-in, route2-out, -1
+                    # samples: proven chain). Identity book: page key
+                    # = stream position, byte source = engine row slot.
+                    _q = int(_sm_span[0]) + max(
+                        0, logical * self.page_tokens
+                        - int(st.tokens) + n_new_tokens)
                     if _q in _smap:
                         page = _smap[_q]
                         slot_src = "slotmap"
