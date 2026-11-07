@@ -1593,6 +1593,25 @@ def register():
                 try:
                     import json as _json
                     with open("/tmp/kvmem_sparse.jsonl", "a") as _fh:
+                        try:
+                            _recs = []
+                            for _rr in (prepared if isinstance(
+                                    prepared, (list, tuple)) else [prepared]):
+                                if isinstance(_rr, dict):
+                                    for _kq, _vq in _rr.items():
+                                        _recs.append({
+                                            "rank": _vq.get("rank")
+                                            if isinstance(_vq, dict) else None,
+                                            "exp": _vq.get("expected_ranks")
+                                            if isinstance(_vq, dict) else None,
+                                            "request": str(_vq.get("request"))[:20]
+                                            if isinstance(_vq, dict) else repr(_vq)[:20],
+                                        })
+                            _fh.write(_json.dumps(
+                                {"kind": "park_records_dump",
+                                 "dump": _recs}) + "\n")
+                        except Exception:
+                            pass
                         _fh.write(_json.dumps({"kind": "park_rpc_result",
                                                "pid": os.getpid(), "reqs": str(request_ids),
                                                "result_types": {str(k): type(v).__name__
