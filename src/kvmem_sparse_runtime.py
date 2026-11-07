@@ -1419,7 +1419,19 @@ class VllmSparseRuntime:
                 _pt = max(1, int(self.page_tokens))
                 _have = set(int(x) for x in orch.store.pages)
                 _paged = self.view.paged_kv()
-                _res = getattr(orch, "resident", set()) or set()
+                # SOURCE v3 (design 213): the authoritative FULL
+                # page book in the D world is the runtime ledger -
+                # st.logical holds every logical page the current
+                # view covers and the view only shrinks (never
+                # grows past the stream), plus orch.resident from
+                # the Core side if populated. Union them; missing
+                # slots are then looked up per page in the books.
+                _res = set(int(x) for x in (st.logical or ()))
+                try:
+                    _res |= set(int(x) for x in
+                                (getattr(orch, "resident", set()) or set()))
+                except Exception:
+                    pass
                 _swept = 0
                 _noev = 0
                 for _pgv in range(0, 141120 // _pt + 2):
