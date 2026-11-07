@@ -1405,6 +1405,46 @@ class VllmSparseRuntime:
             orch = self._orch.get(req)
             if orch is None:
                 return False
+            # FINAL HARVEST SWEEP (design 211c): the R reserve segment
+            # of the prompt (last ~gen_reserve tokens) is written by
+            # decode-time commits that never pass a knife harvest, so
+            # at terminal time those pages are resident on the GPU but
+            # absent from the host store (measured: pages 3898 <
+            # expected 4410, gap 512 pages = 16384 tokens = the R
+            # reserve exactly). Sweep the engine row for every view
+            # rank below the frontier whose page is missing and copy
+            # its block bytes into the store - same source (paged_kv)
+            # as every harvest, one bulk pass, no protocol change.
+            try:
+                _rowt = [int(x) for x in (st.row or ())]
+                _lgv = [int(x) for x in (st.logical or ())]
+                _have = set(int(p) for p in orch.store.pages)
+                _pt = max(1, int(self.page_tokens))
+                _q = max(1, int(getattr(self, "block_pages", 0) or
+                                (orch.usable_pages().__len__() and 49)))
+                _paged = self.view.paged_kv()
+                _missing = 0
+                for _r0 in range(min(len(_rowt), len(_lgv))):
+                    _pgv = _lgv[_r0]
+                    if _pgv in _have or _pgv * _pt >= 141120 + 16384:
+                        continue
+                    _blkid = _rowt[_r0]
+                    if _blkid <= 0 or not _paged:
+                        continue
+                    if _blkid >= _paged[0].shape[0]:
+                        continue
+                    orch.store.put(int(_pgv), [t[_blkid].cpu().clone()
+                                               for t in _paged])
+                    _missing += 1
+                if self.log is not None and getattr(self, "_fh_loud", 0) < 4:
+                    self._fh_loud = getattr(self, "_fh_loud", 0) + 1
+                    self.log({"kind": "d_final_harvest_sweep",
+                              "req": str(req)[-6:], "swept": _missing,
+                              "row": len(_rowt), "lg": len(_lgv)})
+            except BaseException as _fhs:
+                if self.log is not None:
+                    self.log({"kind": "d_final_harvest_sweep_error",
+                              "err": str(_fhs)[:200]})
             from kvmem_session_store import session_checkpoint_frontier
             target = session_checkpoint_frontier(
                 int(len(ids)), self.kv_block_size, self.budget_tokens,
