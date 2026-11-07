@@ -4531,6 +4531,23 @@ class VllmSparseRuntime:
             _vhead = want[0]
             want = list(range(_vhead)) + want
         sel = set(want)
+        if os.environ.get("KVMEM_D_BLKIDS", "") in ("1", "true", "yes"):
+            # IDENTITY EARLY PATH (design 172): under BLKIDS the knife
+            # is PURE rearrangement - every wanted page addresses its
+            # own native engine block (pg - pg % q is that block's
+            # start page; the row slot for that rank already holds the
+            # right engine block id after adopt). The assign/pool
+            # machinery below is rewind-era: it drew replacement slots
+            # from the ENGINE BLOCK row (167 entries), starved on the
+            # 882-page want list, and `break`ed - silently truncating
+            # each selected block to its 6 resident pages (measured:
+            # view page set [1225..1230], not [1225..1273]). That
+            #残块-K starvation explains every clean-chain answer miss:
+            # the model read 12% of each block.
+            ordered = sorted(set(want))
+            _bpo = max(1, int(q))
+            _po = [pg - pg % _bpo for pg in ordered]
+            return (_po, ordered, [], [])
         assign = {}
         used = set()
         for pg in want:
