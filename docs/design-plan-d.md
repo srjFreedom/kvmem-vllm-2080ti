@@ -1299,3 +1299,10 @@ skip=不重放只装视图 - 顺路）。
 - 遗留（下轮唯一清单）: a) `d_bytes_coincide`/`d_dvp` 仪表仍拿块号当页 index（rank=25/slot=0 假读数, match=false 不可信）- 仪表改成 ordered 内的页 index 后重测 needle 字节; b) 答案 88K/152K 仍 False（但这是**第一次在真视图上得到的 False** - 前面的 False 都有链断混杂）; c) 蝴蝶计数判据。
 - 事故记录: 一次正则脏替换写坏文件（parse 挡住未提交）- 行号手术恢复; 3 boots 越界, 停止。
 - 生产恢复中, 本地 ahead 69。
+
+## 146-147. Round 96：**88K 视图终形 3/3 全 True - 六环链合法性定案** + 152K 转入场质量单点战场
+
+- 同代际四发: 88K True / True / True (124.7/99.0/123.3s) - **非蝴蝶, 是机制**。压缩视图第一次真正端到端正确（刀→场→rbv→提案→adopt→行=读表→causal 折叠→答案），round-27 以来 88K 尺寸在 D 语义下首次全对。
+- 152K False 的定罪证据链完整: top6=[89,90,45,88,46,8] - needle 块 45 排场 #3 - **kept 装的是 [8,9,10]+尾块[88-91] 而 45/46 掉出** - room 竞争下中段高分块输给 recent 尾簇 - 属**场装配策略**（sink+recent+top 的填法），不再是地址病。修复方向（下轮）: 场装配保证"排名 ≤ budget-sink-recent 的块必入" 的简单稳定律 (top-k by score 直接取, 不做 interleave 让 recent 挤掉高位)。
+- 验收进度: 88K ✓✓✓ (3/3 视图) / 152K ✗(场质量) / 250K 未测 / resume 深度未测 / A/B 未测 / OFF 臂未统一。quad 仪表空文件（block_tables 索引 shape 异常被吞）暂不追。
+- 本地 ahead 70; 3 boots; 生产恢复。
