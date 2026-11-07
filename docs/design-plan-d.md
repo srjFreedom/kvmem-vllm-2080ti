@@ -1431,3 +1431,13 @@ skip=不重放只装视图 - 顺路）。
 - v0.5.2 对照: 同 restore 机制当年带补丁机通过验收 - 删兼容后 restore 字节路径缺真验证是已知风险面（design 61 时代记录在案），现聚焦单一修复线: harvest 写入规范真位置 + restore_pages_batch 纯拷贝字节校验（离线仿真可先行: store_semantics 已覆盖结构, 补字节 sha 断言）。
 - 验收进度: 88K 0/1 本代（累计见 doc164），152K/250K/resume 未测。**代码战役转入 store 字节线（新阶段）**。
 - 预算 1 boot 停止。生产恢复。ahead 106→107。
+
+## 182. Round 110：写提交段消费者全清单 - page/slot 混淆链完整地图 + 重构蓝图（本轮零改码零 boot）
+
+- 消费链实况 (3292-3384):
+  1. `_smap`=slot_pages_for: `vals//pt` - vals=engine 行值=**池块 id** → 商为数个荒谬页号（定罪 r109 的机制细节）；
+  2. 3373 `page=_smap[_q]` 后 3383 `slot=int(page)` - **page 变量当 slot 用**、tb_val 回退同样拿池块 id 当页 - 全链三个名字（logical/page/slot）互相踩踏；
+  3. 真账本（D 恒等，books 永不 rewind）: **写页键 = logical（真位置页号，恒等成立无需查任何表）**；取字节槽 = 引擎行该视图 rank 值（池块 id）；**块条目覆盖 49 个 store 页（1568/32），harvest 需按块→页展开切片** - 现行代码没有这层展开，store 的 decode 页键体系整体错位。
+- 重构蓝图（下轮执行，改码前跑离线仿真先）: after_step 写段重写 ~30 行为: `for i: logical=(st.tokens+i)//pt; blk_rank=rank; blk_id=row 值; within=(…)%pt` + store 写页 = blk_id 块的字节段 [within]（kvs 张量 [blk_id] 切 49 页段）；`slot_pages_for/_smap/tb_val 三处全退役`（消费者清单即上述，无别家）。离线: store_semantics 扩展断言 - 灌 decode 块字节 → store 页键=logical → get(page) 字节等于张量段。
+- 风险声明: 该区牵一发动全身（r109 教训）- 仿真先行、单 boot 验收、四同框读数（applied/span/match/答案）。
+- 预算: 0 boots（纯读图）停止交还。生产健康（22:19 代际 probe 200）。ahead 111。
