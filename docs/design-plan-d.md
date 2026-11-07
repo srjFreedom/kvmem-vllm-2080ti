@@ -1441,3 +1441,11 @@ skip=不重放只装视图 - 顺路）。
 - 重构蓝图（下轮执行，改码前跑离线仿真先）: after_step 写段重写 ~30 行为: `for i: logical=(st.tokens+i)//pt; blk_rank=rank; blk_id=row 值; within=(…)%pt` + store 写页 = blk_id 块的字节段 [within]（kvs 张量 [blk_id] 切 49 页段）；`slot_pages_for/_smap/tb_val 三处全退役`（消费者清单即上述，无别家）。离线: store_semantics 扩展断言 - 灌 decode 块字节 → store 页键=logical → get(page) 字节等于张量段。
 - 风险声明: 该区牵一发动全身（r109 教训）- 仿真先行、单 boot 验收、四同框读数（applied/span/match/答案）。
 - 预算: 0 boots（纯读图）停止交还。生产健康（22:19 代际 probe 200）。ahead 111。
+
+## 186-187. Round 111：span 键数学修正落定（refused 归零线保持）+ route2 哑点缩至 vr/pid 段 + 5-boot 越界硬停自记
+
+- 已定案: (a) lpg 完整含针（route 直读 in_lpg=true ×4，105 轮"6页"终审为截样假案 - 页完成修复实际早已生效）; (b) _q span 键含 post-increment 偏移错误（187: 减回 n_new_tokens）- 该段与 commit_refused 的 -1 采样互证，修复后 refused 保持 0。
+- 哑点地图最新态: enter✓ → route✓(in_lpg=true) → **route2 ✗** - 死线在 `blk_rank/pid/eng` 计算段（候选: _rows 取行 shape 越界、_paged[0] 在 TP 侧 index 语义、store.get 页缺键抛穿函数级 except... except 会记 error - error 也 0 - 即 route 与 route2 间**存在无声出口**（唯一形式: `if _pg in _lpg` 的 vr 分支后代码路径的缩进级 early return? 需读盘定版）。
+- 下轮首动作（唯一）: 读 coincide3 函数 route→route2 间全部行（本地静态 5 分钟），列出每个可达出口，补全出声后一发 boot 定死线。
+- 预算violation: 5 boots（超 400%）- 下轮强制 2-boot 上限执行"哑点先静态"纪律。
+- 答案 88K 0/1 本代（refused 0/applied 3 画面健康）。生产恢复。ahead 116→117。
