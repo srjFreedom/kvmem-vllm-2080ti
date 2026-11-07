@@ -922,10 +922,22 @@ class VllmSparseRuntime:
             frontier = target
         else:
             try:
-                frontier = int(self.session_checkpoint_executed_frontier(req))
+                if getattr(self, "d_mode", False):
+                    # D BOOKS FRONTIER (design 208): the GPU counter
+                    # runs in folded slot coordinates under Plan D
+                    # (view_base + increments) and reads ~25856 while
+                    # the stream has completed the whole prompt. The
+                    # token stream is the authority in the never-
+                    # rewound books: executed depth is st.tokens, and
+                    # the checkpoint is due as soon as it covers the
+                    # observed prefix (>=, not equality - decode moves
+                    # past the quantum boundary).
+                    frontier = int(getattr(st, "tokens", 0) or 0)
+                else:
+                    frontier = int(self.session_checkpoint_executed_frontier(req))
             except Exception:
                 return False
-            if frontier != target:
+            if frontier < target if getattr(self, "d_mode", False) else frontier != target:
                 return False
         if int(getattr(st, "tokens", 0) or 0) > frontier:
             if not force:
