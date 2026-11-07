@@ -1557,3 +1557,10 @@ skip=不重放只装视图 - 顺路）。
 - 修复单（下轮）: (a) d_capture_direct 成功后调用 session_store 注册（与 _park_session 的 publish 段同源 - 找 park(...) 的调用直接复用）; (b) digest 块单位取当代 view.block_sizes[0]（旧档自动失效可加清道夫: 启动时丢弃 block 单位不同的档）; (c) prepare RPC 的 D 分支两 rank 都返回 bool 一致（d_mode 双侧 wiring 已一致 - 查 rank1 的 st.tokens 差异）。
 - T2 时长判据的最近路径: 三修同 boot 后第 3 发（T1 建档 T2/T3 消费）- 预期 T3 hit=141120 + 5-10s。
 - 预算 1 boot 停止交还。生产恢复。ahead 140→141。
+
+## 218-219. Round 124：publish 管线接通（D prepare 落同款 park 路径）+ 屏障 rank-set 病灶进入取证态
+
+- 已通: 218 形状对偶后 T1 走 `prepare→d_capture_direct(complete=true ×双rank)→_park_session publish` - retire 错误从 "did not all prepare"（返回 None 时代）推进到 "rank set is incomplete"（**记录确实双份到达 verify**）- 管线接通实锤。
+- 屏障病灶取证清单（静态穷尽后）: verify 需 records rank 集={0,1}；runtime 五处 "rank" 字段皆 tp_rank 源；事件里 `rank:1666` 是 view-rank 同名字段非记录字段；tp_size=2 绑定在 worker wiring（877-879 在位）。**静态到此为止 - 下轮第一刀=在 verify 前 dump records 摘要三字段 {rank,expected_ranks,request} 两行改动一发 boot 定死**（可能: rank_in_group 在某 worker 返 0 双份 / request 字段形状差异导致第二 record 被 None 顶替…不再纸上猜）。
+- parked_blocks 判据就绪: 屏障一过 store 出 91 块档 → T2 `resume_decided hit≈141120` → 时长 5-10s 终读。
+- 预算: 1 boot + 重度静态（越界自记）。生产恢复。ahead 142→120。
