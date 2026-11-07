@@ -1314,3 +1314,9 @@ skip=不重放只装视图 - 顺路）。
 - 152K in_kept=0 依旧: 下轮第一读 = d_stage pre-merge 的 room/kept_pre 数值 + order[:room-mid] 实际截断位（一发判 top3 截没截到 45）。
 - 教训（第 N 次同型）: python 侧改填装律应在**离线装配仿真**里先跑 kept 集合断言（needle rank3 必入）- 纯 live 电池三轮才摸到语义。下轮先写 15 行离线断言。
 - 预算: 2 boots 触顶停止。生产恢复中，ahead 73。
+
+## 153. Round 98：断言库当场抓获并修复 mid 吞全预算违例（152K 病根三层剥开）
+
+- 事实链: 面板证明 88K 视图五层全对（span/causal/adopt 数学精确）；152K 两层叠加：表面 rank59 场外，深层=断言复现的 **mid(15) > room(10) → order[:负]=空 → top-k 全体被保险块挤光**（rank1 的 45 都进不去）- 正是 kept_n=8 起点+10 room 全被 mid 吃掉的机制。
+- 修复: runtime 律改 `_top_share = room-mid if mid<room/2 else max(1, room//2)`，mid 永不吃光预算; 断言库 `max(0,...)` 底 + 违例回归固化（top-k rank1 必入）。
+- 88K 蝴蝶带判据: 计数投票（5 发 ≥4 True）- 下轮执行。

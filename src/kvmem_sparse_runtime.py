@@ -5478,9 +5478,16 @@ class VllmSparseRuntime:
                 # mid - order FIRST, mid limited to its reserved tail
                 # share. Full-order seq (my 149 attempt) let insurance
                 # crowd 88K (True->False regression, measured).
-                _seq = (list(order)[:max(0, room - len(_mid_blocks_q)
-                                        if _mid_blocks_q else room)]
-                        + list(_mid_blocks_q or []))
+                # r98 ASSERTION-CAUGHT FIX: `room - len(mid)` can go
+                # NEGATIVE when mid is bigger than the whole room
+                # (152K: mid=15, room=10 -> order[:0] - every top-k
+                # block, needle rank 1 included, was crowded out by
+                # insurance). The law floor: top-k keeps a guaranteed
+                # share = max(1, room - len(mid)); mid never eats the
+                # whole budget.
+                _mid_share = len(_mid_blocks_q or ())
+                _top_share = room - _mid_share if _mid_share < room // 2                     else max(1, room // 2)
+                _seq = list(order)[:max(0, _top_share)] +                     list(_mid_blocks_q or [])[:max(0, room - _top_share)]
                 _seqn = len(_seq)
                 _head = [int(x) for x in _seq[:8]]
                 if self.log is not None:
