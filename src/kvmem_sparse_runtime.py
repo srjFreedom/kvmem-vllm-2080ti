@@ -1405,42 +1405,51 @@ class VllmSparseRuntime:
             orch = self._orch.get(req)
             if orch is None:
                 return False
-            # FINAL HARVEST SWEEP (design 211c): the R reserve segment
-            # of the prompt (last ~gen_reserve tokens) is written by
-            # decode-time commits that never pass a knife harvest, so
-            # at terminal time those pages are resident on the GPU but
-            # absent from the host store (measured: pages 3898 <
-            # expected 4410, gap 512 pages = 16384 tokens = the R
-            # reserve exactly). Sweep the engine row for every view
-            # rank below the frontier whose page is missing and copy
-            # its block bytes into the store - same source (paged_kv)
-            # as every harvest, one bulk pass, no protocol change.
+            # FINAL HARVEST SWEEP v2 (design 212): the row only
+            # carries the CURRENT VIEW - unselected middle segments
+            # live outside it, so sweeping the row could never reach
+            # them (measured: pages 4192 < 4410 even after 735 swept).
+            # The full-page authority is the books: every logical
+            # page below the frontier that is resident (in st.row /
+            # _page_map) but missing from the host store gets copied
+            # block-wise from paged_kv. Pages with NO device evidence
+            # at terminal time are reported loudly - a true archive
+            # gap must fail the capture, not silently shrink it.
             try:
-                _rowt = [int(x) for x in (st.row or ())]
-                _lgv = [int(x) for x in (st.logical or ())]
-                _have = set(int(p) for p in orch.store.pages)
                 _pt = max(1, int(self.page_tokens))
-                _q = max(1, int(getattr(self, "block_pages", 0) or
-                                (orch.usable_pages().__len__() and 49)))
+                _have = set(int(x) for x in orch.store.pages)
                 _paged = self.view.paged_kv()
-                _missing = 0
-                for _r0 in range(min(len(_rowt), len(_lgv))):
-                    _pgv = _lgv[_r0]
-                    if _pgv in _have or _pgv * _pt >= 141120 + 16384:
+                _res = getattr(orch, "resident", set()) or set()
+                _swept = 0
+                _noev = 0
+                for _pgv in range(0, 141120 // _pt + 2):
+                    if _pgv in _have or _pgv not in _res:
                         continue
-                    _blkid = _rowt[_r0]
-                    if _blkid <= 0 or not _paged:
+                    _slotv = None
+                    _pm = getattr(self, "_page_map", {}).get(req, {})
+                    if _pm:
+                        _slotv = _pm.get(_pgv)
+                    if _slotv is None:
+                        _rowt = [int(x) for x in (st.row or ())]
+                        _lgv = [int(x) for x in (st.logical or ())]
+                        try:
+                            _slotv = _rowt[_lgv.index(_pgv)]
+                        except (ValueError, IndexError):
+                            _slotv = None
+                    if not _slotv or int(_slotv) <= 0 or not _paged \
+                            or int(_slotv) >= _paged[0].shape[0]:
+                        _noev += 1
                         continue
-                    if _blkid >= _paged[0].shape[0]:
-                        continue
-                    orch.store.put(int(_pgv), [t[_blkid].cpu().clone()
-                                               for t in _paged])
-                    _missing += 1
+                    orch.store.put(int(_pgv),
+                                   [t[int(_slotv)].cpu().clone()
+                                    for t in _paged])
+                    _swept += 1
                 if self.log is not None and getattr(self, "_fh_loud", 0) < 4:
                     self._fh_loud = getattr(self, "_fh_loud", 0) + 1
                     self.log({"kind": "d_final_harvest_sweep",
-                              "req": str(req)[-6:], "swept": _missing,
-                              "row": len(_rowt), "lg": len(_lgv)})
+                              "req": str(req)[-6:], "swept": _swept,
+                              "no_evidence": _noev,
+                              "resident": len(_res)})
             except BaseException as _fhs:
                 if self.log is not None:
                     self.log({"kind": "d_final_harvest_sweep_error",
