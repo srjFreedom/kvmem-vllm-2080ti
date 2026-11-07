@@ -1507,16 +1507,27 @@ class VllmSparseRuntime:
                       "complete": len(pages) >= expected})
             if not hashes or len(pages) < expected:
                 return False
+            _snap = getattr(self, "_dense_state_snap", {}).get(req)
             payload = {
                 "hashes": list(hashes),
                 "pages": list(pages),
                 "frontier": int(target),
-                "state": None,
+                "state": (_snap[1] if _snap and len(_snap) > 1 else None),
                 "d_direct": True,
                 "prompt_digest": None,
+                # SHAPE PARITY (design 218): the checkpoint dict now
+                # matches what the retired seal machine used to hand
+                # _park_session, so the NORMAL publish path runs
+                # unchanged - this fixes both consumer root causes at
+                # once: the store registration (park(...) publishes
+                # from here) and the TP abort (both workers take the
+                # same code path with the same evidence and return
+                # the same bool).
+                "sealed": True,
             }
             self._session_checkpoints[req] = {"payload": payload,
-                                              "frontier": int(target)}
+                                              "frontier": int(target),
+                                              "sealed": True}
             return True
         except BaseException as _dcx:
             if self.log is not None:
@@ -1532,11 +1543,12 @@ class VllmSparseRuntime:
                 self.after_step(req, pending, prefill=pending >= self.page_tokens)
                 self._prev_n[req] = 0
             if getattr(self, "d_mode", False):
-                # D takes the direct store path first; the retired
-                # seal machine path is not resurrected (design 209).
-                if self.d_capture_direct(req):
-                    return True
-                return None
+                # D takes the direct capture first (store-backed
+                # evidence), then falls through to the SAME publish
+                # path the legacy flow used - capture and publish are
+                # one pipeline, no resurrection of the seal state
+                # machine itself (design 218).
+                self.d_capture_direct(req)
             return self._park_session(req)
         except Exception as exc:
             self.log({"kind": "session_park_prepare_error", "req": req,
