@@ -3297,7 +3297,23 @@ class VllmSparseRuntime:
                 _cp0, _cvals = _cap
                 _sm_span = (_cp0, _cp0 + len(_cvals))
                 _pt = int(self.page_tokens)
-                _smap = {_cp0 + k: v // _pt for k, v in enumerate(_cvals) if v >= 0} or _smap
+                # DESIGN 180: after adoption the ENGINE row holds pool
+                # block ids, not page ids - `v // pt` mapped harvest onto
+                # wholly wrong pages (needle bytes never reached the store
+                # under its page key). The view page book (st.logical, view-
+                # rank space) is the authority; engine rank - off_pages is
+                # the view rank.
+                _lgv180 = [int(x) for x in (st.logical or ())]
+                _off180 = int(getattr(st, "off_pages", 0) or 0)
+                _smap = {}
+                if _lgv180:
+                    for _k2 in range(len(_cvals)):
+                        _vpg = _cp0 + _k2 - _off180
+                        if 0 <= _vpg < len(_lgv180):
+                            _smap[_cp0 + _k2] = _lgv180[_vpg]
+                else:
+                    _smap = {_cp0 + k: v // _pt
+                             for k, v in enumerate(_cvals) if v >= 0}
             for i in range(n_new_tokens):
                 logical = (st.tokens + i) // self.page_tokens
                 rank = (start + i) // self.page_tokens
