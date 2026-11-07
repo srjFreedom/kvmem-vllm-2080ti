@@ -1465,3 +1465,11 @@ skip=不重放只装视图 - 顺路）。
 - 对验收的含义（如实）: "稳定全对"当前不成立 - 88K 需要**把代际变量压成可控**。可作战线（adapter 外）: (1) 引擎块分配确定性（固定 pool 分配序 → fp8 归约路径恒定）: 查 vLLM kv allocator 分配序种子化钩子（fork 级小改）; (2) graph capture 尺寸桶一致性（同请求同桶）; (3) 若均不动，退而求其次=**验证重试语义**（同请求在答案不符预期时以新代际重发 - 产品层，非本目标）。
 - 战役阶段宣告: **adapter 代码线收官**（六层+store 字节线全判真）; 下一线=**引擎确定性专项**（design 193 开册）。
 - 预算 3 boots 触停止。生产恢复。ahead 120→121。
+
+## 193-195. Round 114：引擎确定性专项开册 - 块布局假说当日阵亡，新主嫌=指针对齐引发的 kernel 算法分叉
+
+- 指纹对撞（零 boot）: True 代 (kb312) 与 False 代 (kb311) 的首发面板**完全一致**（base26785/delta48590/rank529/pid 同）→ **块布局变量排除**。adapter 可读表内已无任何可辨代际差异 - 变量必在表下。
+- 新主嫌（静态推理+代码佐证）: cublas/cutlass 依**指针对齐**（16/32B）选 kernel 实现（split-k 与否、向量化宽度）- 池张量的相对对齐恒定（同 shape 同分配），但 **graph capture 时实际选中的 kernel 变体依赖运行期 workspace/内存状态** - 不同 boot 捕到不同变体 → 归约序不同 → 同代确定、跨代翻转。fused_moe use_atomic_add 默认 False（已排除 atomic 路径）。
+- 专项实验单（下轮，一发 boot 可判）: (1) `CUBLAS_WORKSPACE_CONFIG=:4096:8` + `VLLM_ATTENTION_BACKEND` 固定注入 /etc/default 后两连 boot 各 1 发 - 若两代结果**一致**（同 True 或先后 True/False 可复）→ 环境变量可锁变体，继续推向 100% True; (2) 若仍随机 → kernel 变体论降级，转向 graph capture 期固定化（capture 前 warmup 步数对齐 r112 时代）; (3) 全失败 → 按 design 192 (3) 产品层重试语义（答案不符→重放）。
+- 战役定性更新: adapter 代码线（六层+store）判真完成; 本专项=**榨干引擎非确定性的可控手段**，预算每轮 ≤2 boots。
+- 0 boots 本轮停止交还。生产健康。ahead 121。
