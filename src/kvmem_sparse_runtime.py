@@ -1432,6 +1432,27 @@ class VllmSparseRuntime:
                                 (getattr(orch, "resident", set()) or set()))
                 except Exception:
                     pass
+                # ROW AUTHORITY v4 (design 215): a page that left the
+                # view left every book, but its BYTES live on the
+                # engine row at whatever rank adoption placed them -
+                # the row is the only terminal ground truth for
+                # residency. Expand every positive row entry into its
+                # q page slots; a slot page key whose store entry is
+                # missing gets the block bytes. Page keys for row
+                # slots are their VIEW logical neighbours' +1 runs -
+                # under the identity book rank r of the row covers
+                # logical pages r*W..(r+1)*W-1 of the STREAM, exactly
+                # the arithmetic restore uses.
+                try:
+                    _row4 = [int(x) for x in (st.row or ())]
+                    _w4 = max(1, int(getattr(self, "block_pages", 0) or 49))
+                    for _j4, _b4 in enumerate(_row4):
+                        if _b4 <= 0:
+                            continue
+                        for _o4 in range(_w4):
+                            _res.add(_j4 * _w4 + _o4)
+                except Exception:
+                    pass
                 _swept = 0
                 _noev = 0
                 for _pgv in range(0, 141120 // _pt + 2):
@@ -1441,6 +1462,11 @@ class VllmSparseRuntime:
                     _pm = getattr(self, "_page_map", {}).get(req, {})
                     if _pm:
                         _slotv = _pm.get(_pgv)
+                    if _slotv is None:
+                        _rk = _pgv // max(1, int(getattr(self, "block_pages", 0) or 49))
+                        _rv = [int(x) for x in (st.row or ())]
+                        if 0 <= _rk < len(_rv) and _rv[_rk] > 0:
+                            _slotv = _rv[_rk]
                     if _slotv is None:
                         _rowt = [int(x) for x in (st.row or ())]
                         _lgv = [int(x) for x in (st.logical or ())]
