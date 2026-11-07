@@ -5517,8 +5517,14 @@ class VllmSparseRuntime:
                         # after the add - distinguishes a real add-path
                         # failure from a serialization bug in the
                         # d_final_kept event builder.
-                        if self.log is not None and                                 getattr(self, "_at_loud", 0) < 10:
-                            self._at_loud = getattr(self, "_at_loud", 0) + 1
+                        # per-(rid,stage) budget (design 176): MID knives burned
+                        # the old global 10-shot trace budget every generation.
+                        _atkey = (str(req)[-6:], bool(pressure))
+                        _atm = getattr(self, "_at_loud", None)
+                        if _atm is None:
+                            _atm = self._at_loud = {}
+                        if self.log is not None and _atm.get(_atkey, 0) < 4:
+                            _atm[_atkey] = _atm.get(_atkey, 0) + 1
                             self.log({"kind": "d_add_trace",
                                       "req": str(req)[-6:],
                                       "pressure": bool(pressure),
