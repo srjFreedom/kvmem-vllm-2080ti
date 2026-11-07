@@ -5443,8 +5443,8 @@ class VllmSparseRuntime:
                     # middle blocks after question top-k fills the LAST
                     # room slots with cross-view insurance and cannot
                     # displace any question pick
-                    _seq = (list(order)[:max(0, room - len(_mid_blocks_q))]
-                            + [b for b in _mid_blocks_q])
+                    _seq = (list(order)[:max(0, room - len(_mid_blocks_q or ()))]
+                            + [b for b in (_mid_blocks_q or ())])
                 if _mid_kept_blocks:
                     _seenq = set(order)
                     _mrest = [bb for bb in _mid_kept_blocks]
@@ -5501,8 +5501,8 @@ class VllmSparseRuntime:
                 # (my 153 fix) flipped the needle's neighbours 26/27
                 # out of the 88K view and lost the band lottery -
                 # restored to the form that was actually measured.
-                _seq = (list(order)[:max(0, room - len(_mid_blocks_q))]
-                        + [b for b in _mid_blocks_q])
+                _seq = (list(order)[:max(0, room - len(_mid_blocks_q or ()))]
+                        + [b for b in (_mid_blocks_q or ())])
                 _seqn = len(_seq)
                 _head = [int(x) for x in _seq[:8]]
                 if self.log is not None:
