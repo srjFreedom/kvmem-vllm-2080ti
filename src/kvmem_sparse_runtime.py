@@ -1525,6 +1525,40 @@ class VllmSparseRuntime:
                 # the same bool).
                 "sealed": True,
             }
+            # TP METADATA PARITY (design 220): the dump proved the
+            # direct payload lacked the barrier fields - records
+            # arrived at verify with rank=None and died. Fill the
+            # SAME field set the legacy capture stamped
+            # (covered/prefix_digest/kv_block_size/page_tokens/
+            # pages_per_block/capacity_pages/has_state/session_id/
+            # request/rank/expected_ranks).
+            try:
+                _owner20 = (self._session_ids.get(req)
+                            or getattr(self, "_park_owner", None)
+                            or ("", "__prefix_cache__"))
+                _bs20 = int(self.kv_block_size)
+                import hashlib as _qj
+                _dig20 = _qj.sha256(b"".join(
+                    int(t).to_bytes(4, "little", signed=False)
+                    for t in list(ids)[:_bs20])).hexdigest()
+                payload.update({
+                    "covered": int(target),
+                    "prefix_digest": _dig20,
+                    "kv_block_size": _bs20,
+                    "page_tokens": int(self.page_tokens),
+                    "pages_per_block": max(1, _bs20 // max(
+                        1, int(self.page_tokens))),
+                    "capacity_pages": int(expected),
+                    "has_state": payload.get("state") is not None,
+                    "session_id": list(_owner20),
+                    "request": str(req),
+                    "rank": int(getattr(self, "tp_rank", 0)),
+                    "expected_ranks": int(getattr(self, "tp_size", 1)),
+                })
+            except BaseException as _mf2:
+                if self.log is not None:
+                    self.log({"kind": "d_capture_meta_error",
+                              "err": str(_mf2)[:160]})
             self._session_checkpoints[req] = {"payload": payload,
                                               "frontier": int(target),
                                               "sealed": True}
