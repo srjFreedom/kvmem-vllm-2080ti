@@ -43,6 +43,14 @@ def retire_terminal_sessions(output_map, allowed_reasons, executor, tp_size, sto
             records = ([rank.get(req) for rank in prepared]
                        if isinstance(prepared, (tuple, list)) and
                        all(isinstance(rank, dict) for rank in prepared) else [])
+            if report is not None:
+                report({"kind": "tp_records_dump", "req": str(req),
+                        "tp_size": int(tp_size),
+                        "n_records": len(records) if isinstance(records, list) else -1,
+                        "ranks": [r.get("rank") if isinstance(r, dict) else repr(r)[:24]
+                                  for r in (records if isinstance(records, list) else [])],
+                        "expected_ranks": [r.get("expected_ranks") if isinstance(r, dict) else None
+                                           for r in (records if isinstance(records, list) else [])]})
             agreed[req] = verify_tp_checkpoint_records(records, tp_size, req)
         # The scheduler has not returned this terminal output yet: no new request can look up a
         # half-published checkpoint. Validate every rank/request before touching shared metadata.
