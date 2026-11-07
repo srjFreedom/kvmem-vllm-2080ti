@@ -2697,6 +2697,17 @@ class VllmSparseRuntime:
                 _mt // (max(1, int(self.page_tokens)) * _q_blk)
             _pg = _mt // max(1, int(self.page_tokens))
             _lpg = list(st.logical or ())
+            # ROUTE PROBE (design 186): after enter, before any body
+            # branch - print the exact inputs the body will use, so
+            # "enter without event" finally names the dead line.
+            if self.log is not None and getattr(self, "_rt_loud", 0) < 8:
+                self._rt_loud = getattr(self, "_rt_loud", 0) + 1
+                _pgq = ((40471 if int(st.tokens) < 80000 else
+                         (71534 if int(st.tokens) < 160000 else 112590))
+                        // max(1, int(self.page_tokens)))
+                self.log({"kind": "d_bc3_route", "req": key,
+                          "pg": _pgq, "in_lpg": _pgq in [int(x) for x in _lpg],
+                          "lpg_n": len(_lpg)})
             # PAGE SPACE CROSS-READ (design 170): print what the
             # books actually hold against the marker page, so the
             # unit question dies with data instead of silence.
