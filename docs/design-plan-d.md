@@ -1546,3 +1546,14 @@ skip=不重放只装视图 - 顺路）。
 - v4 扫尾: 全行扫描 row×1568/32=49 页/块 - row[j] 池块 b 现持有逻辑页 lgv[j]…行覆盖仅视图段的问题依旧但 **swap 进来的未选页其"新块号"只存在于行**：对每个 row[j]=b>0 且 b 不在 store 已知块集 → 该 b 的 49 页切片逐一以 (lgv 或 frontier 页号) 入 store。简化终形: 扫描全部 resident 页源 ∪ 行块，store 缺口从行块拷。
 - 若 v4 仍不达 4410 → 缺口页在终态已无设备证据（被淘汰出一切表） - 那时才走 design 213 预写的升档: 淘汰点入 store（刀内 to_evict 顺手补拷）。
 - 预算 1 boot 停止。生产恢复。ahead 138→139。
+
+## 216-217. Round 123：v4 达成 T1 complete=true（4410/4410, R 洞补净）+ T2 未消费的三连根因定罪
+
+- 里程碑: 行权威 v4 扫尾把 R 段 512 页补齐 - `d_capture_direct pages 4410/expected 4410 complete=true` 首次达成（store 覆盖完备性 = resume 数据面就绪）。
+- T2 三连根因（事件完备）:
+  1. `parked_blocks: [16,16,16]` - 直采 payload 只挂了 runtime 本地 `_session_checkpoints`，**从未注册进 Core 侧 session_store 的档表** - lookup 只能看到旧 16 块档;
+  2. 旧档 digest 全废: 归档时 block=1616，本代 block=1568 - 哈希链按块切，跨代单位不同前缀匹配必败 (skip why=no prefix match, blocks=91 vs 16);
+  3. `session_checkpoint_retire_aborted "TP workers did not all prepare"` - prepare RPC 双 rank 有一侧未走直采成功路径（rank 侧 state/行差异）→ publish 中断。
+- 修复单（下轮）: (a) d_capture_direct 成功后调用 session_store 注册（与 _park_session 的 publish 段同源 - 找 park(...) 的调用直接复用）; (b) digest 块单位取当代 view.block_sizes[0]（旧档自动失效可加清道夫: 启动时丢弃 block 单位不同的档）; (c) prepare RPC 的 D 分支两 rank 都返回 bool 一致（d_mode 双侧 wiring 已一致 - 查 rank1 的 st.tokens 差异）。
+- T2 时长判据的最近路径: 三修同 boot 后第 3 发（T1 建档 T2/T3 消费）- 预期 T3 hit=141120 + 5-10s。
+- 预算 1 boot 停止交还。生产恢复。ahead 140→141。
