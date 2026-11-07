@@ -1416,3 +1416,10 @@ skip=不重放只装视图 - 顺路）。
 - 分叉问题状态: 未定。早返针 + rid 隔离重读是同一动作，下轮第一步: boot 后按 chatcmpl rid 直取（禁行窗）: rbv_early.span_pages / fill enter / kept 三同框一案发。
 - 纪律违规自记: 固定行窗第三次造成混读 - 取证模板永久改为 rid 参数化 grep。
 - 预算 1 boot 4 读停止。生产恢复。ahead 103→104。
+
+## 175-176. Round 107 终局（读数定案版）：kept 在 fill 后（问刀终态缺针）+ 仪表预算烧尽案（修复脚本两连败, 转下轮首步）
+
+- 读码定案: d_final_kept(5568) 位于 fill 环(5509) 之后 - 本代问刀 kept=[0-6,48] 为 post-fill 终态 - 问场捕获近空（代际两极: 场满代 r96-99 含针 / 场空代 r107 缺针; 两极答案均 False - 场满代的解释待 coincide3 字节, 场空代的解释=场捕获代际摆）。
+- add_trace 全 pressure:true = 全局 10 预算被 MID×2TP 烧尽; per-(rid,stage)×4 改造脚本两次败于锚文本与缩进（write-before-parse 双挡死, 文件零污染）- 下轮首步落此小修（用 ast 级插入代替字符串锚）。
+- 下轮判据战（写死）: 预算修 → boot → rid 隔离直取四同框 {rbv_early.span_pages, add_trace(pressure=false), coincide3{eng,store,match}, 答案} - 一发定案: 残块修复后的场满代是否 True。
+- 本轮 1 boot + 5 离线读停止。生产 spec4/D=0 代际 21:4x probe 200。ahead 104。
