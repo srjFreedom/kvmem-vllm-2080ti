@@ -2663,6 +2663,14 @@ class VllmSparseRuntime:
                 getattr(self.view, "block_tokens", 0) else \
                 _mt // (max(1, int(self.page_tokens)) * _q_blk)
             _lpg = list(st.logical or ())
+            # PAGE SPACE CROSS-READ (design 170): print what the
+            # books actually hold against the marker page, so the
+            # unit question dies with data instead of silence.
+            if self.log is not None and getattr(self, "_bc3_loud", 0) < 6:
+                self.log({"kind": "d_bc3_pagespace", "req": key,
+                          "pg": _pg, "lpg_head": [int(x) for x in _lpg[:6]],
+                          "lpg_tail": [int(x) for x in _lpg[-4:]],
+                          "near": [int(x) for x in _lpg if abs(int(x) - _pg) < 60][:6]})
             _rows = self.view.block_table_rows()[0]
             _ri = int(getattr(st, "row_index", -1) or -1)
             if _ri < 0:
@@ -2676,6 +2684,8 @@ class VllmSparseRuntime:
                 _vr = -1
             _blk_rank = (_vr // _q_blk) if _vr >= 0 else -1
             _pid = _rowv[_blk_rank] if 0 <= _blk_rank < len(_rowv) else -1
+            if _vr < 0 and getattr(self, "_bc3_loud", 0) < 6:
+                self.log({"kind": "d_bc3_novr", "req": key, "pg": _pg})
             import hashlib as _h
             _eng = None
             if _pid > 0:
