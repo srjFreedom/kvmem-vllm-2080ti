@@ -1375,3 +1375,10 @@ skip=不重放只装视图 - 顺路）。
 - 当前最简一致解释（待证）: **adopt 重排后的行是好的，但 restore/store 供给的淘汰页 K 字节是坏的**（v0.5.2 补丁机删净后，restore=纯拷贝这条腿从未真通过字节验证 - coincide 仪表的页/块单位债拖累了它）。88K kept 含针仍 F: 针块 25 若为淘汰页, 其 restore 字节坏 → 复读。
 - 判决实验（下轮唯一）: 字节对质终修 - 对 installed gpu row 的 needle **池块 id**（从 gpu row 读回）取 paged 字节 sha vs 同页冷 prefill 基线 sha（v0.5 稠密代 88K 正确输出时的页字节）- 同 boot 一发定 restore 字节死活。若 restore 坏 → 修 store 写入链（harvest→store 的真位置字节）- 那就是终案。
 - 预算 3 boots 停止。生产恢复。ahead 88→89。
+
+## 165-166. Round 103：**反向 overrow 门定罪退役 - 问刀历史首次真落（kept 0→36）** + coincide3 哑火待修 + 答案 0/2 续案
+
+- 元凶链（证据完备）: `blockwise_d_overrow×10` 拒案 = 门比 `len(view pages)=834 > len(native row)=1666`? 反向不成立 - 实为 `_d_window_visible >= resident_before - 8192` 分支恒真（MID 已滚满窗）→ 问刀提案全灭六轮。**退役改真单位校验（pages ≤ token 页数+2）**: kept 事件 0→36、add_trace 20、applied 18、overrow 0 - **问刀在 D 臂历史上第一次真正安装视图**。
+- 答案仍 0/2 False + coincide3 零事件（仪表自身又有哑点: _bc3_done/paged 访问路径未出声）- 下轮: coincide3 出口全出声（每早退分支记 reason），字节对质终于出数。
+- 事故: ov1 锚文本差一字符（-2*4096 vs +）导致一次无效 boot（旧树重启）- 行号手术根治。
+- 预算 3 boots 大越界, 硬停止。生产恢复。ahead 90→91。
