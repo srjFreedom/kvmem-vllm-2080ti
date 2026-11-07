@@ -2640,7 +2640,17 @@ class VllmSparseRuntime:
         key = str(req)[-6:]
         if getattr(self, "_bc3_done", None) is None:
             self._bc3_done = set()
-        if key in self._bc3_done:
+        # LATCH DEFECT FIXED (design 168): the per-rid one-shot was
+        # armed by the FIRST (MID-stage) call - where the needle page
+        # is not yet in the view - so the question-stage call (the one
+        # that matters) always early-returned, leaving coincide3 silent
+        # while enter fired (enter precedes the latch check). Latch
+        # only on a call whose view actually contains the needle page.
+        _pg0 = ((40471 if int(st.tokens) < 80000 else
+                 (71534 if int(st.tokens) < 160000 else 112590))
+                // max(1, int(self.page_tokens)))
+        if key in self._bc3_done and _pg0 not in set(
+                int(x) for x in (logical_pages or ())):
             return
         try:
             _tk = int(st.tokens)
@@ -2653,8 +2663,7 @@ class VllmSparseRuntime:
                 getattr(self.view, "block_tokens", 0) else \
                 _mt // (max(1, int(self.page_tokens)) * _q_blk)
             _lpg = list(st.logical or ())
-            _rt3 = self.view.block_table_rows()
-            _rows = _rt3[0] if isinstance(_rt3, tuple) else _rt3
+            _rows = self.view.block_table_rows()[0]
             _ri = int(getattr(st, "row_index", -1) or -1)
             if _ri < 0:
                 return
