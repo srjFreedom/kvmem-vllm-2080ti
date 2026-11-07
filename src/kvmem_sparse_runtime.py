@@ -4638,7 +4638,7 @@ class VllmSparseRuntime:
             # entry 18 while positions run to 868 - out of book).
             # Deduplication belongs ONLY at the adopt call (block
             # space), done by _dedupe_blocks there.
-            return (_po, ordered, [], [])
+            return (_po, ordered, [], [], _bpo)
         return (ordered, ordered, [], [])
 
     def _reselect_remobilize(self, req, pressure=False):
@@ -4725,7 +4725,7 @@ class VllmSparseRuntime:
         if len(old_row) < q * n_blocks:
             pad = self._page_map.get(req, {})
             old_row = old_row + [int(pad.get(p, 0)) for p in range(len(old_row), q * n_blocks)]
-        phys_pages, logical_pages, _to_restore, _to_evict = \
+        phys_pages, logical_pages, _to_restore, _to_evict, _bpw = \
             self._rebuild_view(req, st, orch, kept, q, pt, n_pages)
         if _to_restore:
             try:
@@ -4806,8 +4806,12 @@ class VllmSparseRuntime:
             try:
                 if __import__("os").environ.get(
                         "KVMEM_D_NOINSTALL", "") not in ("1", "true", "yes"):
-                    self.d_install_row(req, _dedupe_blocks(
-                        phys_pages, self.page_tokens))
+                    self.d_install_row(req, [p // max(1, _bpw if "_bpw" in dir()
+                        else 1) * 0 + (p - (p % max(1, _bpw)))
+                        for i, p in enumerate(phys_pages)
+                        if i == 0 or (p - (p % max(1, _bpw)))
+                        != (phys_pages[i - 1]
+                            - (phys_pages[i - 1] % max(1, _bpw)))]
                 elif self.log is not None and getattr(self, "_ni_loud", 0) < 4:
                     self._ni_loud = getattr(self, "_ni_loud", 0) + 1
                     self.log({"kind": "d_noinstall_active",
@@ -5520,7 +5524,7 @@ class VllmSparseRuntime:
         # the original duct crime, and every page-addressed consumer
         # (store, byte confrontation, rolling writes) saw block-space
         # numbers instead. Swapping the names restores both books.
-        phys_pages, logical_pages, _to_restore2, _to_evict2 = \
+        phys_pages, logical_pages, _to_restore2, _to_evict2, _bpw2 = \
             self._rebuild_view(req, st, orch, kept, q, pt, n_pages)
         if _to_restore2:
             try:
@@ -5653,8 +5657,12 @@ class VllmSparseRuntime:
             try:
                 if __import__("os").environ.get(
                         "KVMEM_D_NOINSTALL", "") not in ("1", "true", "yes"):
-                    self.d_install_row(req, _dedupe_blocks(
-                        phys_pages, self.page_tokens))
+                    self.d_install_row(req, [p // max(1, _bpw if "_bpw" in dir()
+                        else 1) * 0 + (p - (p % max(1, _bpw)))
+                        for i, p in enumerate(phys_pages)
+                        if i == 0 or (p - (p % max(1, _bpw)))
+                        != (phys_pages[i - 1]
+                            - (phys_pages[i - 1] % max(1, _bpw)))]
                 elif self.log is not None and getattr(self, "_ni_loud", 0) < 4:
                     self._ni_loud = getattr(self, "_ni_loud", 0) + 1
                     self.log({"kind": "d_noinstall_active",
