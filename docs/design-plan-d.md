@@ -1306,3 +1306,11 @@ skip=不重放只装视图 - 顺路）。
 - 152K False 的定罪证据链完整: top6=[89,90,45,88,46,8] - needle 块 45 排场 #3 - **kept 装的是 [8,9,10]+尾块[88-91] 而 45/46 掉出** - room 竞争下中段高分块输给 recent 尾簇 - 属**场装配策略**（sink+recent+top 的填法），不再是地址病。修复方向（下轮）: 场装配保证"排名 ≤ budget-sink-recent 的块必入" 的简单稳定律 (top-k by score 直接取, 不做 interleave 让 recent 挤掉高位)。
 - 验收进度: 88K ✓✓✓ (3/3 视图) / 152K ✗(场质量) / 250K 未测 / resume 深度未测 / A/B 未测 / OFF 臂未统一。quad 仪表空文件（block_tables 索引 shape 异常被吞）暂不追。
 - 本地 ahead 70; 3 boots; 生产恢复。
+
+## 148-150. Round 97：span 首爆定罪页选择健康 + 律改动有副作用未隔离（诚实回退记录）
+
+- d_span_probe（修复 tokens 作用域后首发）: MID stage kept_has_needle=true、needle_pages_wanted=[1225..1228]、want_n=869 - **页选择/块展开/span 全健康**，场装配以下的地址层无罪定性。
+- 读数对撞: r96 三连 True 的 seq 形 = order[:room-len(mid)]+mid；本轮 r97"完全律"(order 全前置) → 88K 两发 False；"恢复 r96 形"写法引用 _mid_blocks_q 若绑定顺序错位会 NameError 被吞。**本轮两代际都 False，与 r96 的差异未完全隔离（候选: seq 表达式语义差、或真蝴蝶带 - r96 三发也可能是带内偏端）。** 不再叠加实验，交还。
+- 152K in_kept=0 依旧: 下轮第一读 = d_stage pre-merge 的 room/kept_pre 数值 + order[:room-mid] 实际截断位（一发判 top3 截没截到 45）。
+- 教训（第 N 次同型）: python 侧改填装律应在**离线装配仿真**里先跑 kept 集合断言（needle rank3 必入）- 纯 live 电池三轮才摸到语义。下轮先写 15 行离线断言。
+- 预算: 2 boots 触顶停止。生产恢复中，ahead 73。
