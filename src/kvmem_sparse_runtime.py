@@ -4547,7 +4547,7 @@ class VllmSparseRuntime:
             ordered = sorted(set(want))
             _bpo = max(1, int(q))
             _po = [pg - pg % _bpo for pg in ordered]
-            return (_po, ordered, [], [])
+            return (_po, ordered, [], [], _bpo)
         assign = {}
         used = set()
         for pg in want:
