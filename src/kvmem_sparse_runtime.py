@@ -5131,6 +5131,18 @@ class VllmSparseRuntime:
             # no kernel ever got installed).
             _rowdom = set(int(x) for x in (st.row or ())
                           if int(x) > 0)
+            if self.log is not None and getattr(self, "_wd_loud", 0) < 6:
+                self._wd_loud = getattr(self, "_wd_loud", 0) + 1
+                _nb315 = self._needle_marker(req, st) // max(
+                    1, int(block_tokens))
+                _pg315 = self._needle_marker(req, st) // max(1, int(pt))
+                self.log({"kind": "d_want_domain", "req": str(req)[-6:],
+                          "pages": len(ordered),
+                          "needle_blk": _nb315,
+                          "needle_page": _pg315,
+                          "in_ordered": int(_pg315 in list(ordered)),
+                          "first": (int(ordered[0]) if len(ordered) else -1),
+                          "last": (int(ordered[-1]) if len(ordered) else -1)})
             _rest312 = 0
             try:
                 _paged312 = self.view.paged_kv()
@@ -5255,6 +5267,18 @@ class VllmSparseRuntime:
             # no kernel ever got installed).
             _rowdom = set(int(x) for x in (st.row or ())
                           if int(x) > 0)
+            if self.log is not None and getattr(self, "_wd_loud", 0) < 6:
+                self._wd_loud = getattr(self, "_wd_loud", 0) + 1
+                _nb315 = self._needle_marker(req, st) // max(
+                    1, int(block_tokens))
+                _pg315 = self._needle_marker(req, st) // max(1, int(pt))
+                self.log({"kind": "d_want_domain", "req": str(req)[-6:],
+                          "pages": len(ordered),
+                          "needle_blk": _nb315,
+                          "needle_page": _pg315,
+                          "in_ordered": int(_pg315 in list(ordered)),
+                          "first": (int(ordered[0]) if len(ordered) else -1),
+                          "last": (int(ordered[-1]) if len(ordered) else -1)})
             _rest312 = 0
             try:
                 _paged312 = self.view.paged_kv()
