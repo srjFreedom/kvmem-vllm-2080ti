@@ -2162,6 +2162,13 @@ class VllmSparseRuntime:
                 if _tp is not None and int(_tp.numel()) >= n:
                     first = int(_tp[-n].item())
             sums = stats_from_bridge(bridge, range(stats.layers), first, n)
+            if not sums and self.log is not None and getattr(self, "_hv_br", 0) < 8:
+                # BRIDGE COVERAGE PIN (design 277): name who is empty
+                # when write_step will refuse: bridge rows or sums.
+                self._hv_br = getattr(self, "_hv_br", 0) + 1
+                self.log({"kind": "d_hv_bridge", "req": str(req)[-6:],
+                          "first": int(first), "n": int(n),
+                          "sums_empty": True})
             # DECISIVE per-call harvest result (uncapped for real requests;
             # ~35 events/request): distinguishes read-empty (sums 0 layers)
             # from write-refused (16 layers, wrote 0) from healthy - the
