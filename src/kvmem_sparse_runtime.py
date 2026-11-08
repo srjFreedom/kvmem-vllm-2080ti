@@ -4979,8 +4979,23 @@ class VllmSparseRuntime:
         for b in sorted(int(x) for x in kept):
             if b < 0:
                 continue
-            for o in range(q):
-                pg = b * q + o
+            # UNIT COURT-MARTIAL ROUND 2 (design 300): `kept`
+            # carries STATISTIC block numbers (block_tokens=64
+            # tokens wide), NOT engine blocks (q pages = 1568
+            # tokens). The old expansion b*q+o shifted every
+            # block's wanted page span by q-(block_tokens//pt)
+            # pages per block (block 23 -> pages 2254.. instead
+            # of 92..95) so the needle's canonical pages were
+            # never in `want`, nothing got restored (short=0),
+            # and every logical row stayed -1 (neg_rows==kept_n
+            # measured). Correct span of statistic block b:
+            # tokens [b*bt, (b+1)*bt) -> pages [b*bt/pt,
+            # (b+1)*bt/pt).
+            _bt300 = max(1, int(self.block_tokens))
+            _pt300 = max(1, int(pt))
+            _pg_lo = (b * _bt300) // _pt300
+            _pg_hi = ((b + 1) * _bt300 + _pt300 - 1) // _pt300
+            for pg in range(_pg_lo, _pg_hi):
                 if pg >= n_pages:
                     break
                 want.append(int(pg))
