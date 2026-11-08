@@ -1390,7 +1390,12 @@ class VllmSparseRuntime:
         resurrected; instead the store, which already holds every
         canonical page of the never-rewound stream, is archived
         directly with hashes computed from the prompt ids."""
-        if not getattr(self, "d_mode", False):
+        if not getattr(self, "d_mode", False) and str(req) not in \
+                getattr(self, "_d_rids", set()):
+            if self.log is not None:
+                self.log({"kind": "d_capture_gate", "gate": "not-d",
+                          "req": str(req)[-6:],
+                          "rids": len(getattr(self, "_d_rids", set()))})
             return False
         try:
             st = self._state.get(req)
