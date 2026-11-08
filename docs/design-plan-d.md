@@ -1740,3 +1740,10 @@ skip=不重放只装视图 - 顺路）。
 - 新断点定性: T2 在 _maybe_resume 的 waiting 循环内**某 continue 出圈** (shared_hit/skip/decided 三出口全零)。候选四门: _en false / len(store)==0 / block_size<=0 / num_computed!=0 / rid 已在 decided 集。publish 真形澄清: 档由 scheduler retirement 的 store.park(records) 注册 (payload owner=__prefix_cache__，因 worker 无 session map)，查询 owner=("",真 session) → 修通圈后必然要面对 owner 对齐 (230 fallback 在位可接) - **两案一并解**。
 - 下轮第一动作: waiting 循环入口与四个 continue 各一枚纯 log 针 (kind=resume_loop_gate, why=<n>)，一发 152K T1+T2 定圈 - 全链出口/门仪表在位，读数即终点。
 - 预算 1 boot+3 发+8 读触硬顶。ahead 189→190。引擎健康真 D 在跑。
+
+## 261-262. Round 140：**T2 lookup found:true 史级命中** + found→decided 间三道静默 gate 全部出声
+
+- 圈针读数: enter(ncomp:0,store:8) → pre-owner → **post-lookup{found:true, nh:91, owner:'', 'loops-v261''}** - 230 fallback+真 D publish 联合作用下 T2 首次命中 90 块档! decided 未现的元凶在 found 之后的静默段: 几何式 (pages*pt==hit) / executor None / proof 集不齐 - 本回合给前两道加声 (geometry 事件带 pages/pt/hit/cap/ppb 全数据)。
+- 时长注记: 本代 T1 204.3s (比 188 代 341.9 回落 - capture 开销差异待查不追), T2 346.9s (命中后走冷+额外 gate 时间)。
+- 下轮一发: T1+T2 → geometry/no-executor 事件点名第三道静默门 → 修通 → decided hit=141120 → resumed → **时长终读**。
+- 预算 1 boot + 2 发 + 静态。ahead 191→193。引擎健康。
