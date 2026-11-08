@@ -2514,6 +2514,42 @@ class VllmSparseRuntime:
             if int(st.tokens) <= int(self.budget_tokens) + 4096:
                 continue  # dense view already covers the whole prompt
             try:
+                # QUESTION-BAND CAPTURE (design 316, B2): the step
+                # that completes the prompt has the question's Q
+                # rows LIVE in the bridge right now. Stash them
+                # (tail window) on the orchestrator's retrieval
+                # index so EVERY later knife scores against the
+                # pinned question, not a decode-token query that
+                # drifts needle rank 10 -> 60 (measured score
+                # decay 16.5 -> 0.56 across 33 knives).
+                try:
+                    from vllm import kvmem_bridge as _kb316
+                    _arm316 = bool(getattr(_kb316, "ARMED", False))
+                    _src316 = _kb316.read_all() if _arm316 else None
+                    _orch316 = self._orch.get(rid)
+                    _ri316 = getattr(_orch316, "retrieval_index", None) if \
+                        _orch316 is not None else None
+                    if _src316 and _ri316 is not None:
+                        _lim316 = 512
+                        _qk = {}
+                        for _l316, _val316 in _src316.items():
+                            try:
+                                _q316, _p316 = _val316
+                                _qk[_l316] = (_q316[-_lim316:],
+                                               _p316[-_lim316:])
+                            except Exception:
+                                _qk[_l316] = _val316
+                        _ri316._q_rows = _qk
+                        _orch316._d_question_mode = True
+                        if self.log is not None and \
+                                getattr(self, "_qc_loud", 0) < 4:
+                            self._qc_loud = getattr(self, "_qc_loud", 0) + 1
+                            self.log({"kind": "d_question_capture",
+                                      "req": str(rid)[-6:],
+                                      "layers": len(_qk),
+                                      "rows": _lim316})
+                except Exception:
+                    pass
                 self._reselect_blockwise(rid, pressure=False)
                 # design 45: the R3.2b self-recursion replay is REMOVED -
                 # restore-to-cursor followed by a single completing step is
