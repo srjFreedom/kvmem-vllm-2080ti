@@ -1933,3 +1933,10 @@ skip=不重放只装视图 - 顺路）。
 - 三段皆实录: (1) rowdom 读 None 形参 → 全判冷 → copy 风暴 OOM 611.6s 零装; (2) 修 st.row 后 written=196 - **blk∈row 不代表字节在** (engine 同请求块复用, needle blk45 判热漏拷 live=0); (3) kept 全量补拷 (幂等纯拷贝=不变量 2 的诚实代价) - written=343 ✓ 拷贝线活了, 但 pages=834 的 ordered 人群**本就不含 needle 页** (want 由 kept 块展开, kept 又由分数人群裁 - 分数衰亡案 B2 此刻升为主犯: needle 块在打分窗漂移后出 kept → want 无它 → 补拷无从补起)。
 - 证人 d_want_domain{in_ordered, needle_page, first/last} 已落 (3 套件绿) - 下轮: (a) 读数确证 in_ordered=0 (want 域外) → (b) B2 动工: 打分 query 钉 prompt 完成时刻的题带 K 快照 (mean_checkpoint 已有, 缺"题带常驻 query 人群")。
 - 计数战: N152 冷 3/3 duct (identity 装对字节半案毕, 剩 want 域案)。3 boots+3 发+6 静态。ahead 248→249。引擎补拷代健康。
+
+## 316-317. Round 317: B2 全链落地 (题带捕获→frozen 常驻→limit0 兜底) - 三处同修一次代验证
+
+- 三点闭合: (1) runtime seam 在题完成步把 bridge live 的题带 Q 行 (tail 512) 存进 orch.retrieval_index._q_rows 并置 _d_question_mode; (2) orchestrator frozen 分支认 _d_question_mode 常驻 (不再一次性); (3) limit0 三源兜底 (`or 512`) - 前两轮差一步的教训: capture 落了 frozen 未落=白捕, frozen 落了 limit0=0=白冻 - 本轮三点同 commit (5 套件绿)。
+- 事故小账: assert 锚尾形 `or 0)` 与 `if _force_tail:` 分行错位一败 (零污染); edit 工具首用需 read 前置 (规矩入 body)。
+- 判决一发 (下轮 boot 后 152K): d_question_capture{layers} 出生 + 面板 needle_score **不跨刀衰** (首末刀对比) + kept 含块45 → want 含针页 → 补拷 → **152K 冷真**。若分仍衰: captured 行的 pos 域与 align_scores 的期望形不合 - d_query_trio 探针 (529 行既有) 直接点名 rows_pre/layers。
+- 2 boots(前案)+4 静态。ahead 251→252。引擎 capture 半修代在跑。
