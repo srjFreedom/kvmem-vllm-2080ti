@@ -6193,8 +6193,9 @@ class VllmSparseRuntime:
                           "kept_n": len(logical_pages),
                           "restore_n": len(_to_restore2 or ())})
             except Exception as _cfx:
+                import traceback as _tb297
                 self.log({"kind": "d_byte_confront_error",
-                          "err": str(_cfx)[:120]})
+                          "err": _tb297.format_exc(limit=3)[-320:]})
         if _to_restore2:
             try:
                 orch.restore_pages_batch(_to_restore2)
