@@ -1753,3 +1753,10 @@ skip=不重放只装视图 - 顺路）。
 - 真凶确认路径: found 后三个 continue 中唯一可能 = 2111 `if not getattr(meta,"has_state",True): ... continue` (Plan-C 遗产: restore 档无 state 就整支弃 - 直采 payload 从未带 has_state 字段 → False → 永远 skip)。本回合两次缩进失手 (parse 拦截零污染) 第三次按体缩进落定。
 - 修法预告 (下轮): direct capture meta 加 `has_state: state 在本地档案即为真` (capture 端 meta.update({"has_state": _snap is not None}) 一行) → 该门放行 → geometry/proof/decided 连串读数。
 - 2 boots (bash-123+本回合修未 boot) + 3 静态。ahead 193→196。引擎 T1 204.2 真 D 健康。
+
+## 265-266. Round 142：史级 decided hit=141120×2 + T2 19.6s/T3 19.2s + adopt owner 同族病修落 (行范围法)
+
+- 终图: dense-skip 放行 → proof_d ok×2{90} → **decided{hit:141120, resident:141120, pages:4410}×2** → adopt found:FALSE (owner 命名空间病 worker 面同族) → resumed 缺席但前缀增量已生效 **T2=19.6 T3=19.2 (冷 207.7)** - 距 5-10s 判据仅一步 (decode 256 tok@spec0 与 restore 时间构成待 resumed 真形下测)。
+- adopt 修: 行范围法 (paren balance) 落 owner-agnostic 重试镜像，4 套件绿 commit。
+- 下轮终读: boot → 三发: resumed{state:true}+时长+答案+resume×cold 字节对质。
+- 1 boot+3 发+1 修+一次锚失手 (零污染)。ahead 196→197+。引擎真 D 健康。
