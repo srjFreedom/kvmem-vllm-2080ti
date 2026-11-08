@@ -5125,7 +5125,12 @@ class VllmSparseRuntime:
             # their blocks recycled - copy the canonical bytes
             # back into the native slot before the kernel reads
             # it again. restore = pure copy, invariant (2).
-            _rowdom = set(int(x) for x in (row or ()) if int(x) > 0)
+            # THE ROW LIVES IN st.row - the `row` parameter is
+            # None at both call sites (design 313: empty rowdom
+            # judged EVERY page cold, the copy storm OOMed and
+            # no kernel ever got installed).
+            _rowdom = set(int(x) for x in (st.row or ())
+                          if int(x) > 0)
             _rest312 = 0
             try:
                 _paged312 = self.view.paged_kv()
@@ -5238,7 +5243,12 @@ class VllmSparseRuntime:
             # their blocks recycled - copy the canonical bytes
             # back into the native slot before the kernel reads
             # it again. restore = pure copy, invariant (2).
-            _rowdom = set(int(x) for x in (row or ()) if int(x) > 0)
+            # THE ROW LIVES IN st.row - the `row` parameter is
+            # None at both call sites (design 313: empty rowdom
+            # judged EVERY page cold, the copy storm OOMed and
+            # no kernel ever got installed).
+            _rowdom = set(int(x) for x in (st.row or ())
+                          if int(x) > 0)
             _rest312 = 0
             try:
                 _paged312 = self.view.paged_kv()
