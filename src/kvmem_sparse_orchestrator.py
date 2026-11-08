@@ -516,11 +516,11 @@ class SparseOrchestrator:
             # the same sentence). The runtime sets _force_captured_tail=N
             # on this call to demand the CAPTURED question tail instead.
             _force_tail = getattr(self, "_force_captured_tail", 0) or 0
-            if _force_tail:
+            if _force_tail or getattr(self, "_d_question_mode", False):
                 self._force_captured_tail = 0
                 frozen = True
                 limit0 = int(getattr(self, "_query_tail_rows", 0) or 0) \
-                    or int(_force_tail)
+                    or int(_force_tail) or 512
                 if True:  # uncapped while the wire is unproven
                     self._qt_logged = getattr(self, "_qt_logged", 0) + 1
                     try:
