@@ -5115,7 +5115,12 @@ class VllmSparseRuntime:
             # Deduplication belongs ONLY at the adopt call (block
             # space), done by _dedupe_blocks there.
             return (_po, ordered, [], [], _bpo)
-        return (ordered, ordered, [], [])
+        # ONE-ARM SHAPE (design 273): the identity exit must match
+        # the compressed exit's 5-tuple - OFF/pressure arms share a
+        # single execution model (objective semantics), and the
+        # in-pool duct poisoning came exactly from this split: 4 vs
+        # 5 unpack either silently misbinds st.row or raises.
+        return (ordered, ordered, [], [], q)
 
     def _reselect_remobilize(self, req, pressure=False):
         if getattr(self, "d_mode", False) and __import__("os").environ.get(
