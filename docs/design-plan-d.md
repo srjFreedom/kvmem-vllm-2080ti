@@ -1912,3 +1912,11 @@ skip=不重放只装视图 - 顺路）。
 - 仪表补刀: cmp 的 NEEDLE tag 算术错 (22*44→应 22*q) - 顺手修 (纯仪表)。
 - 判据账: N88 1/1 T；N152 0/3 (全在视图未到位期)；resume 机制绿；分叉树重开 (identity 装对后 250K/152K 的 needle 页应可进 kernel)。
 - 3 boots 严重超支硬停止。ahead 240→241。引擎 nb23 代健康。
+
+## 307. Round 155 反转全录: 首刀时序假说被 span 证人证伪 - 88K pressure 代 kept_has_needle=False 而答案 True 的先例确立"分数漏选≠判据"
+
+- 读数链: kept_has_needle False × 三窗口 (45056/49152/53248) 全程 - **该 tokens 字段是视图窗口宽非问题进度** - 问题带 (37441+) 在首刀时已在场 → 时序假说倒。
+- **对撞先例**: r147 cure 代 N88 同 N152 同树 - N88 pressure 真刀代 kept=[0..18] needle 块 23 **不在 kept** (in_kept=0 读数在案) 而答案 **True** (86.5-88.2s) - needle 文本 37464 < 窗口 45056 → 文本随窗口头驻留读到, 块保留非充要。**教训入律: in_kept/needle_rank 不是充分也不是必要判据 - 唯一判据=答案** (十年老 bug"压缩打分漏选页首轮可 miss"的当代复活仅限 needle 出窗场景)。
+- 152K 悬案现状: 页身份/单位/行宽三案已闭 (302/303/306), span 显示 want 恒含 needle 块页人群 (kept 有它时) 而答案仍坏 → **唯一开放案=真实 pool 场景 (needle 出窗 2254>1421) 的字节面**: 首读目标 = needle 出窗后的 install 行里它的 slot 指向哪 (d_rbv_early gate 卡死未出数 - 其条件 `getattr(self,"_ep_loud")` 恒 false 需查) + cmp NEEDLE tag 算术 (22*q→正确页域) 修。
+- 下轮双读: (1) d_rbv_early 门修亮出数 (phys_n vs want_n 的坍缩读数); (2) 真出窗代 (250K) cmp needle 页 live/canonical。任一有数即三分叉收窄。
+- 0 boot 5 深读触硬顶。ahead 241→242。引擎 nb23 代健康。
