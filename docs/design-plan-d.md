@@ -1727,3 +1727,9 @@ skip=不重放只装视图 - 顺路）。
 - 修复 (双上盘): capture 端 state 入 `_d_state_archive[chain_last_hash]` (payload.state=None)；apply 端 D 分支从本地档案按同一 key 取 (消费秩=捕获秩，TP2 双秩各自 capture+consume 同进程 - 零跨线)。7 套件绿。
 - 下轮一发 (真 D 第二次采样): T1 retired{blocks:86?} + T2 decided hit≈141120 + session_resumed + **时长 5-10s 终读** + 答案首真判据。
 - 预算: 0 boot + 2 发 + 双修。ahead 185→186。引擎健康。
+
+## 259b. Round 138 补全: 上一 commit 的"双修"实际只落一半 (apply 脚本死在锚前) - 本轮真双修: proof 门 D 豁免 + apply 本地档案 fetch
+
+- 事故小账: apply 脚本锚 `raise RuntimeError` 在 if 条件后行而断言取错邻行 - parse-before-write 守住零污染；capture 修单独 boot 过一次 (187 代) 无用但无害。
+- 真形: scheduler proof 有第 17 门 mamba-state (entry.state None 即拒) - 259 后 payload.state=None 是常态，D 模式豁免预检、apply 端按 chain 末 hash 从 `_d_state_archive` 本地取，取不到 raise (兜底冷跑)。7 套件绿后 boot (188 代=全套 259)。
+- 判据读数下轮: T1 retired{blocks} + T2 decided hit≈141120 + resumed{state:true} + 时长。
