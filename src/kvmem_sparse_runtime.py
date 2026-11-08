@@ -1719,6 +1719,12 @@ class VllmSparseRuntime:
                                     owner=bool(owner))
         found = self.session_store.lookup(tuple(hashes), owner_session_id=tuple(owner))
         if found is None:
+            # SHARED-SPACE MIRROR (design 265): worker-published
+            # archives carry the implicit prefix-cache owner;
+            # retry owner-agnostically like the scheduler side.
+            found = self.session_store.lookup(
+                hashes, prefix_digest=_digest(hit_tokens))
+        if found is None:
             probe = self.session_store.lookup(tuple(hashes))
             return self._proof_fail("store-lookup", want_blocks=len(hashes),
                                     owner=list(owner),
