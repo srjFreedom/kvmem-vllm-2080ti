@@ -1641,3 +1641,10 @@ skip=不重放只装视图 - 顺路）。
 - 下轮第一动作 (纯离线 5 分钟): 按 T2 rid 集齐 d_capture_direct{complete}/d_final_harvest_sweep{swept}/d_worker_park 三事件画像 - 若 complete=false → sweep 数学对 pt=16 代仍不足 (8820 页期望 vs 池 14140 - 查 usable_pages 过滤与 store 覆盖)；若 true 而无 park 事件 → publish 链最后一段。
 - 时长现状: T2 省 23s (250→227) - 判据 5-10s 还差 90 块深度这一档 (141120/142978=98.7% 前缀跳过)。
 - 预算 2 boots 触顶。工作树干净。引擎健康 (T1 True)。ahead 166。
+
+## 242. Round 133 终像: d_capture_direct 在盘且被挂, 但零事件 = 函数体内静默早退；16 块档来自 legacy bypass 分支
+
+- 画像: prepare 钩子 (1624) 与函数 (1387) 都在；窗口内 capture/sweep/park 三件套 0 事件而 T2 仍能 resumed 25856 - 说明该档由 `_park_session` 内 legacy `_maybe_capture` (205 bypass) 产出, 深度受它自己的 frontier 分支限制；direct 版在 return False 的静默路径上 (st/orch/ids/usability 四道无事件门)。
+- 下轮第一刀 (纯增量安全): d_capture_direct 每道 return False 加一行 `{kind:d_capture_gate, gate:<name>}` - 一发 boot 集齐五道门通过率画像 → direct 版复活 → 90 块档 (pt=16 代 8820 页) → decided 深度到 141120 → T2 时长 5-10s 判据终读。
+- 事故复盘补条: 多行表达式改动一律"按行内容删插"，replace 猜测禁用 (本回合三轮失手+一次 crash boot 的账单)。
+- 2 boots + 6 读触硬顶停止交还。工作树干净 ahead 167。引擎 T1-True 健康。
