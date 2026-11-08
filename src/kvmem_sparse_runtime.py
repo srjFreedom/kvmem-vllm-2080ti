@@ -6221,6 +6221,20 @@ class VllmSparseRuntime:
                               if int(lp) < 0)
                 _cf_p = [lp for lp in logical_pages
                          if int(lp) >= 0 and lp not in _cf_r][:4]
+                # NEEDLE-PAGE SAMPLING (design 304): the generic
+                # first-four pages only prove the resident head is
+                # healthy; force the needle block's own pages into
+                # the confrontation set so their live-vs-canonical
+                # means are read directly.
+                _mt304 = (37464 if int(tokens) <= 80000 else
+                          (71456 if int(tokens) <= 160000 else 122458))
+                _nb304 = _mt304 // max(1, int(q) * max(1, int(pt)))
+                for lp in logical_pages:
+                    if int(lp) >= 0 and \
+                            int(lp) // max(1, int(q)) == _nb304:
+                        _cf_p.append(int(lp))
+                        if len(_cf_p) > 8:
+                            break
                 _paged297 = self.view.paged_kv()
                 _rows297 = {int(pg): int(phys_pages[i])
                             for i, pg in enumerate(logical_pages)}
