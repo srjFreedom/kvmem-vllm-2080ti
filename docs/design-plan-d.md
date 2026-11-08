@@ -1680,3 +1680,10 @@ skip=不重放只装视图 - 顺路）。
 - 16 块档来源澄清: `resume_decided hit=25856` 的档由 legacy `_maybe_capture` (dense seal 分支，205 代仍在) 产出 - 它不需要安装，只需要 prompt ids+frontier 计数 - 于是出现"有档可 resume 但 D 视图从未装"的并存画面。**"视图对答案错"的判决必须等新树里 152K 真装上后重下**。
 - 下轮第一动作 (1 boot 内完成): T1 一发后按 rid 集齐刀链谱 {d_knife_enter, d_knife_call, blockwise_reselect, quiescent_compact_proposal, d_compact_applied, add_trace, 安装门, d_bc3_reach} - 断点自动现形 - 修通后 direct capture/8820 页档/深度时长一次读全。
 - 预算 2 boots + 深静态。ahead 177→178。引擎健康 (K152 双 True)。
+
+## 251-252. Round 137：总病根=launcher 配置缺 plan_d 键；d_mode=False 是全线默认态，wiring 覆写仅覆盖调用栈进程
+
+- 谱审计: knife_call 门与 direct 门同样依赖 d_mode - worker RPC 面 d_mode 恒 False (create-time wiring 796 读 cfg["plan_d"]=缺失)。此前多代"applied/kept 装针"读数来自 flag 偶尔为真的代际 (env/时序巧合)，主线几何从未在 worker 面运行 D - **判决读数必须等新配置生效代重下**。
+- 修复: launcher additional-config 注入 "plan_d":true (vLLM 原生序列化到 scheduler+每 TP worker，无进程局部性)；离线校验 json 解析+键在位+bash -n 通过。
+- 下轮一发全链: boot → T1 谱应现 d_knife_call/applied/add_trace/安装门/reach → T2 direct{complete}+park{blocks}+decided 深度+时长。若 flag 到位后某门仍断，门谱直接点名。
+- 1 boot + 深静态。ahead 178→179。引擎 T1-True。
