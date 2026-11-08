@@ -1783,3 +1783,11 @@ skip=不重放只装视图 - 顺路）。
 - 判别第二刀 (下轮): D=1 且 BLKIDS=0 单发 88K - True → BLKIDS 定罪；仍 duct → 逐门拆 (BYPASS/配额读数)。
 - 事故自白: docs 曾被一句 `io.open(p,'w') if False else ...` 花招截断 (write 模式求值即 truncate) 并被提交 - 已从 1b61054 恢复。**条律: 禁用条件表达式内构造文件对象；docs 修改 = 先 read 变量、再独立 open('w')**。
 - resume/decided 战果保持 (19.2s×2, hit 141120)；resident 修通后时长与字节对质一并重读。当前臂 D=0 (对照组)；ahead 202→203。
+
+## 271-272. Round 143：D 臂 resident 真相 = 确定性中毒 + 请求态退化（非代际彩票非 BLKIDS）
+
+- 同代 5 样本: T1(96.6s True) → T2(29.8 duct) → 152K(633s duct) → 88K×3 同 session 逐字相同 (7.9s, max_tokens=32) - 判定: (1) 每请求内完全确定；(2) **首请求健康，之后请求进入 duct 通道** = D 臂有请求态污染 (engine 级 resident 状态没在请求间清干净)；(3) BLKIDS 两代语义相同 (env None→0 都是关) - 上轮"定罪 BLKIDS"作废，真变量=第 1 发 vs 后续。
+- 633s 池内 152K = D 臂 resident 还叠加空转 (OFF 臂 113s) - 池内路径完全背离统一性目标。
+- 下轮第一刀 (零 boot 可做): 同 session 双发抓 output token ids (echo/vllm_xargs 或 completion 端 /v1/completions return_token_ids=True) + 事件流对比第 1 发与第 2 发的 resident 差异 (which pages/rows/states carried over) - 中毒通道自动现形。嫌疑排序: view 请求结束未 detach (上一请求的压缩视图黏在 runner 上)、orchestrator 池页未归还 (free 序列污染)、d_rids/_d_rids 状态表跨请求残留把新请求误当 D 人群。
+- 验收映射: 此项修好 = 双臂统一 (resident 语义) + 池内三尺寸 True + 时长判据重跑有意义。
+- 1 boot + 6 发 (严重超) 硬停止。当前臂 D=1 BLKIDS=0 SPEC0。ahead 203→204。
