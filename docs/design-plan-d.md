@@ -1898,3 +1898,9 @@ skip=不重放只装视图 - 顺路）。
 - 303 代读数 (1 boot): neg_rows 0/0/0 ✓✓、cmp live 104-127 vs canonical 108.6-109.3 同标度 ✓ (resident 头健康)、答案仍 duct 218.1s → 剩唯一问号 = **needle 块页的字节在场性** (cmp 未抽样到它) - 304 专针 (强制 needle 块页进对质集) 已落码 3 套件绿 commit。
 - 下轮一发: [nb304 pages live/canonical] 直接读数 - 分叉: live≈0 而 canonical 好 → store 该页从未写规范字节 (harvest 线补刀); live≈canonical 都坏 → 该段 harvest 写入时 GPU 源已错 (相位/写位案回归); 都好 → 视图行装对了但 kernel 读序/长度案 (row width law 对质 overrow 1421 vs want 882)。
 - 2 boots 触顶。ahead 236→237。引擎 303 代健康。
+
+## 304-305. Round 154: off-by-one 自撞实录 (nb=22 floor vs 针块 23) - 双块采样修正上膛；resident 头 (pages 0-3) 字节第三次确认同标度
+
+- 读数: 三代 CF cmp 恒 pages 0-3 (live 104-127 vs canonical 108-109 ✓✓) 而 needle 页缺席 - 定罪采样式 `//3136 floor=22` ≠ 面板 ceil 形 23 - 修: 采样覆盖 (22,23) 双块。针修正已 commit (纯仪表零风险)。
+- 排除进度: 视图行无 -1 ✓、resident 头字节健康 ✓、want 展开单位 ✓ (303 拆门) - 若下轮 needle 页 live≈0 → store 该页从未写规范字节 (harvest 覆盖线补刀)；若 live≈canonical 同坏 → harvest 源已错；若都好 → 转向视图装填后 kernel 读取面 (row 宽 law 1421 vs want 869)。
+- 1 boot+1 发+1 针修。ahead 238→239。引擎 304 代健康。
