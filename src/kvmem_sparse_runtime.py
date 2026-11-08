@@ -1737,8 +1737,13 @@ class VllmSparseRuntime:
         if int(entry.capacity_pages) != int(capacity_pages):
             return self._proof_fail("capacity", entry=int(entry.capacity_pages),
                                     want=int(capacity_pages))
-        if self.has_recurrent and entry.mamba_state is None:
+        if (self.has_recurrent and entry.mamba_state is None
+                and not getattr(self, "d_mode", False)):
             return self._proof_fail("mamba-state")
+        # design 259: under Plan D the state lives in the capturing
+        # worker's local archive (never on any wire); the scheduler
+        # pre-check waives the field and the apply step on the rank
+        # owns the fetch-and-restore verdict instead.
         orch = entry.orchestrator
         if len(orch.usable_pages(frontier)) < frontier // self.page_tokens:
             return self._proof_fail("usable", have=len(orch.usable_pages(frontier)),
@@ -1845,8 +1850,21 @@ class VllmSparseRuntime:
             except Exception:
                 pass
         if self.has_recurrent:
-            if (self.restore_state is None or entry.mamba_state is None
-                    or not self.restore_state(req, entry.mamba_state)):
+            _st259 = getattr(entry, "mamba_state", None)
+            if _st259 is None and getattr(self, "d_mode", False):
+                # LOCAL ARCHIVE FETCH (design 259): keyed by the last
+                # block hash of the chain - identical on the capture
+                # side; nothing crosses any process boundary.
+                try:
+                    _hk = (entry.block_hashes[-1]
+                           if entry.block_hashes else b"")
+                    _st259 = getattr(self, "_d_state_archive", {}).get(
+                        _hk if isinstance(_hk, bytes)
+                        else bytes.fromhex(str(_hk)))
+                except Exception:
+                    _st259 = None
+            if (self.restore_state is None or _st259 is None
+                    or not self.restore_state(req, _st259)):
                 raise RuntimeError("resumed GDN StateImage could not be fully restored")
         st.resume = None
         st.seq_len = len(pages) * self.page_tokens
