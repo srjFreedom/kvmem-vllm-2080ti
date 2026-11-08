@@ -2013,6 +2013,15 @@ def register():
                     if rid not in live:
                         _resume_decided.discard(rid)
                 for request in waiting:
+                    scheduler._rlg = getattr(scheduler, "_rlg", 0) + 1
+                    if scheduler._rlg <= 10:
+                        _append(_sched_cfg(scheduler).get("log")
+                                or "/tmp/kvmem_sparse.jsonl",
+                                {"kind": "resume_loop_gate", "why": "enter",
+                                 "rid": str(getattr(request, "request_id", ""))[-6:],
+                                 "sess": str(getattr(request, "session_id", ""))[:20],
+                                 "ncomp": int(getattr(request, "num_computed_tokens", -1)),
+                                 "store": len(store)})
                     rid = getattr(request, "request_id", None)
                     if rid is None or rid in _resume_decided:
                         continue
@@ -2029,6 +2038,13 @@ def register():
                     # without the (broken-by-default) header parks/resumes inside the
                     # implicit namespace, and correctness still comes from the block
                     # hashes + prefix digest, not from any claimed identity.
+                    if scheduler._rlg <= 10:
+                        _append(_sched_cfg(scheduler).get("log")
+                                or "/tmp/kvmem_sparse.jsonl",
+                                {"kind": "resume_loop_gate", "why": "pre-owner",
+                                 "rid": str(rid)[-6:],
+                                 "sess_id": str(_session_id)[:20],
+                                 "salt_len": len(str(_cache_salt or ""))})
                     if (not isinstance(_session_id, str) or not _session_id
                             or len(_session_id) > 1024
                             or (_cache_salt is not None and not isinstance(_cache_salt, str))
@@ -2066,6 +2082,14 @@ def register():
                                     or "/tmp/kvmem_sparse.jsonl",
                                     {"kind": "resume_shared_hit", "req": rid,
                                      "blocks": int(found[1])})
+                    if scheduler._rlg <= 10:
+                        _append(_sched_cfg(scheduler).get("log")
+                                or "/tmp/kvmem_sparse.jsonl",
+                                {"kind": "resume_loop_gate", "why": "post-lookup",
+                                 "rid": str(rid)[-6:],
+                                 "found": found is not None,
+                                 "nh": len(_hashes), "store": len(store),
+                                 "owner": str(owner_session_id)[:34]})
                     if found is None:
                         _append(_sched_cfg(scheduler).get("probe_log")
                                 or "/tmp/kvmem_sparse.jsonl",
