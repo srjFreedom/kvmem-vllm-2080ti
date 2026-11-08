@@ -1843,3 +1843,11 @@ skip=不重放只装视图 - 顺路）。
 - 下轮主刀 (先零 boot 静态审计): 单位制度量表 - 当代五数互证 (engine block_size / page_tokens=16 / q=98 / select_block_tokens=64 / statistics block_tokens=64) + _po=_bpo 出口用的单位是哪个 - court-martial 单位法在 pt=16+block64 混合代的 _po 公式很可能算错块号 (压缩出口 phys 错 → 行错 → 读垃圾)。审计后 273-式最小修 + 计数战第二轮 (152K 冷先行，冷 True 才有好档给 resume)。
 - resume 判据现状: 机制/深度/增量时长 (42.8s vs 413.6) 全部实证；字节一致与 5-10s 终读需在冷 True 后代重打 (decode 时长构成含刀代修复红利)。
 - 1 电池 (5 发) 零 boot。ahead 214→215。引擎 cure 代健康在跑。
+
+## 286-288. Round 147 深度账: 刀代病灶三段演化实录 (duct→编造→漏选) 与面板落点错位定形
+
+- 计数战全账 (cure 代): 88K 冷 2/2 True (87.1/88.2s) ✓✓ / 152K 刀代冷 False×3 (形态演进: duct→'archive entry states...' 编造→'on the archive, the access code for the acces' 半可读编造) / 250K False / resume: T2 42.8s 增量 9.7x 机制 ✓、命中继承 (源档坏) ✗。
+- 刀代病理定形: 同代两次快照 needle_blk=23 一次 in_kept=1 (top6 含 23) 一次 in_kept=0 - **打分器对同一输入跨代漂移** (engine 级非确定的又一形态) - 编造型答案 (模型读懂 filler 但 needle 页不在视图) 与 in_kept=0 完全自洽。
+- 面板落点错位 (本回合定形): d_final_score 的 gate 修只覆盖 remobilize 区 order 点 (5820) - **152K 刀走 blockwise 区 (order 站点 ~6060)** → panel events 0 - 下轮第一动作: 同款面板在 blockwise order 后复制落点 (纯 log)，读数直接给 needle_score/rank/qlo/top_spans - 若 rank 飘忽，打分窗覆盖 (query 位置 vs 段 K 覆盖) 定罪; 若 rank 稳定高而 kept 无 23 → room/kept 路径定罪。
+- 字节针 (286) 保留未验证 (面板 0 事件说明 restore 也没走到针点位 - 等刀代选页修通自然出数)。
+- 3 boots+5 发+6 静态 - 硬停止交还。ahead 217→218。引擎面板代在跑 (D=1)。
