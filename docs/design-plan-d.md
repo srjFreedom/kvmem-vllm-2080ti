@@ -1828,3 +1828,10 @@ skip=不重放只装视图 - 顺路）。
 - bisect 剧本 (下轮 2 boots 内定死): (1) `git checkout e52b576~4` 树 D0 单发 88K - True → 代码窗有罪，git bisect 二分四笔; duct → 引擎/系统态问题 (当天 3+ 重启/热/内存碎片)，与代码无关，重验 D 臂需干净环境日。
 - 判据账冻结待命: wrote0=0/n=1 收割治愈保持; decided 双尺寸保持; 答案计数停在"真 D 时代"起点等待定谳。
 - 严重超支硬停止: 2 boots + 7 发。ahead 211→212。
+
+## 282-283. Round 146/147: 定谳与真修 - 89600ed 有罪实证 (revert 后 D0 113.5s 分秒不差复健)，identity 出口"不动视图"修正上盘
+
+- 实验定谳: revert 89600ed + D0 → ZX-4417-QJ7 True (113.5s = 健康代原值)。机理: identity 出口一直把页号写进行位空间 (court-martial 单位法违背)，旧 4/5 形分裂时代 remobilize unpack ValueError → 外层静默回退 → 视图不被污染 (幸运保护)；273 统一形后该行被真装进视图 → 内核读垃圾 → duct - **一个病灶同时解释 D 臂三发全毒与 OFF 臂反转** (wrote0 治愈是并行真相但非毒源)。
+- 真修 (design 282): identity = DO-NOTHING - 返回 st.row 原生引擎块行 + st.logical 页序真值，不再重排; 形状保持 5 元组 (与压缩出口统一 - 目标语义不变)。
+- 验证剧本 (下轮 D1): 88K×3 同 session (应全 True) → 152K T1/T2 (decided 141120 + resumed 应现 + 时长) → 250K×1 - 计数战正式开张。
+- 2 boots+2 发+定谳。ahead 212→213。当前臂 D=0 (验证 OFF 复健后)，下轮 arm_boot D=1。
