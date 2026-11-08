@@ -1821,3 +1821,10 @@ skip=不重放只装视图 - 顺路）。
 - 判据现状: resume decided 72128/141120 双尺寸仍通 (机制账绿)；答案账红 (真 D 计数 0/5)；时长 T2=234s (未走 resumed 增量, 该链 resumed 仍缺席 - adopt fallback 后未读到, 待下代普查)。
 - 下轮第一刀 (内容 A/B, 零 boot 可做): 同一 88K prompt, 现在 D1 引擎取 output token ids + 若可, 同实例切 D0 对照 (或复用历史 D0 True 样本 sha) - 从第一层 attn 输入张量二分: RoPE 相位/slot 写位/K 值本身。d_knife_memo 与 byte confrontation 仪表群 (coincide 系) 在位可用。
 - 严重超支声明: 本回合 1 boot + 5 发 + 5 普查 - 硬停止。ahead 210→211。引擎 D 臂在跑 (毒代，等待内容 A/B)。
+
+## 281. Round 146 关键反转入账: **当代 D=0 同 duct (76.6s)** - 毒非 D 专属，是 273-278 代码窗或引擎态；bisect 计划写死
+
+- 对照表: 21:44 D0 代 88K=ZX-4417-QJ7 True (树@e52b576 前) / 当代 00:0x D0 同电池同 env 同模 = duct (树@4 笔后: identity 5-tuple / has_state / bridge pin / accept fold)。逐读四笔皆"不该碰 OFF" (_rebuild_view 调用点全在 D-only 区 5229/6092, fold 对 OFF n=1 无差, pin 纯 log, has_state 只在 capture) - **静态洗不清嫌疑，行为反转是事实**。
+- bisect 剧本 (下轮 2 boots 内定死): (1) `git checkout e52b576~4` 树 D0 单发 88K - True → 代码窗有罪，git bisect 二分四笔; duct → 引擎/系统态问题 (当天 3+ 重启/热/内存碎片)，与代码无关，重验 D 臂需干净环境日。
+- 判据账冻结待命: wrote0=0/n=1 收割治愈保持; decided 双尺寸保持; 答案计数停在"真 D 时代"起点等待定谳。
+- 严重超支硬停止: 2 boots + 7 发。ahead 211→212。
