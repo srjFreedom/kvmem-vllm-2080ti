@@ -4985,6 +4985,28 @@ class VllmSparseRuntime:
                     break
                 want.append(int(pg))
         want.sort()
+        # CROSSOVER REBUILD (design 302): res_slot above keyed
+        # PAGE ids against a row of ENGINE BLOCK ids - every
+        # lookup missed (resident_hit=0 measured with a fully
+        # populated view). Rebuild the map in the row's own
+        # unit: block b is resident when ANY member page of b
+        # appears in the incumbent logical book, and its slot
+        # is the row entry at b's rank.
+        _blk_of = {}
+        for i, lp in enumerate(lgv):
+            if lp >= 0:
+                _blk_of.setdefault(int(lp) // max(1, int(q)), int(i))
+        res_slot = {}
+        _res_blocks = {}
+        for _b302, _rank in _blk_of.items():
+            if _rank < len(row) and int(row[_rank] or 0) > 0:
+                _res_blocks[_b302] = int(row[_rank])
+        # page-level wanted set stays as built; residency is now
+        # decided per BLOCK (the row's unit).
+        _res_pages302 = set()
+        for _b302 in _res_blocks:
+            _res_pages302.update(range(_b302 * int(q),
+                                       (_b302 + 1) * int(q)))
         # HAND-SLOT LEDGER PIN (design 301): the empty-restore
         # crime scene - how many wanted pages found a handed
         # evict slot (enter to_restore) versus were skipped as
@@ -5043,7 +5065,14 @@ class VllmSparseRuntime:
             _vhead = want[0]
             want = list(range(_vhead)) + want
         sel = set(want)
-        if os.environ.get("KVMEM_D_BLKIDS", "") in ("1", "true", "yes"):
+        # SINGLE MODEL (design 303): identity physics is not an
+        # experimental arm - the never-rewound token stream makes
+        # each page's bytes live forever at its true engine slot;
+        # the env gate stayed false in production-shaped launches
+        # and silently fell back to the rewind-era pool allocator
+        # (measured: res_slot unit mismatch -> every logical row
+        # -1, restore never fires, needle pages read as garbage).
+        if True:
             # IDENTITY EARLY PATH (design 172): under BLKIDS the knife
             # is PURE rearrangement - every wanted page addresses its
             # own native engine block (pg - pg % q is that block's
@@ -5130,8 +5159,7 @@ class VllmSparseRuntime:
         # `duct` loop. Correct: a selected page lives in the engine
         # block ALREADY resident at that rank - the block id comes from
         # the current row copy, no re-allocation, no unit crossing.
-        if __import__("os").environ.get("KVMEM_D_BLKIDS", "") in (
-                "1", "true", "yes"):
+        if True:  # SINGLE MODEL (design 303): engine-row return
             # design 118: ENGINE-ROW UNIT - row slots address blocks of
             # block_tokens tokens (1568 = 49 pages at pt=32). Map each
             # selected page to its engine block id resident at that
