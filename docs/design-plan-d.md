@@ -1648,3 +1648,9 @@ skip=不重放只装视图 - 顺路）。
 - 下轮第一刀 (纯增量安全): d_capture_direct 每道 return False 加一行 `{kind:d_capture_gate, gate:<name>}` - 一发 boot 集齐五道门通过率画像 → direct 版复活 → 90 块档 (pt=16 代 8820 页) → decided 深度到 141120 → T2 时长 5-10s 判据终读。
 - 事故复盘补条: 多行表达式改动一律"按行内容删插"，replace 猜测禁用 (本回合三轮失手+一次 crash boot 的账单)。
 - 2 boots + 6 读触硬顶停止交还。工作树干净 ahead 167。引擎 T1-True 健康。
+
+## 243. Round 134：direct 未被调用的两候选收敛 (flag vs 对象身份) - 入口针一发裁决
+
+- 门普查: gates A/B/C 全零事件 + direct 零事件 + 门在位且钩子在位 + RPC wrapper runtime=runner.kvmem_runtime 与 wiring 静态同源 → 剩两种: d_mode 在 prepare 时刻为 False (wiring 时机/覆盖) 或 prepare 到达的是另一 runtime 实例。入口针 d_prep_enter{d_mode} 一发定案。
+- 时长现状: T1 247 T / T2 224.8 T (省 22s=25856 深) - 8820 页档建立即 5-10s 目标 - 只差这一枚针的定位。
+- 预算 1 boot (gate 代) + 3 发触顶。ahead 168→169。引擎健康。
