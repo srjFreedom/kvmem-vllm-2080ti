@@ -6012,6 +6012,21 @@ class VllmSparseRuntime:
                 _seq = (list(order)[:room - len(_mid_blocks_q)]
                         + [b for b in _mid_blocks_q])
                 _seqn = len(_seq)
+                if self.log is not None and getattr(self, "_law_loud", 0) < 8:
+                    # LAWFUL POSITION PIN (design 290): where the needle block
+                    # lands in the final seq for THIS knife, and whether the
+                    # negative-slice suffix semantics are in play (mid>room).
+                    self._law_loud = getattr(self, "_law_loud", 0) + 1
+                    _nb290 = (37464 if int(tokens) <= 80000 else
+                              71456 if int(tokens) <= 160000 else 122458)
+                    _nb290 //= max(1, int(block_tokens))
+                    self.log({"kind": "d_law_pin", "req": str(req)[-6:],
+                              "nb": _nb290, "in_seq": int(_nb290 in _seq),
+                              "pos": (_seq.index(_nb290) if _nb290 in _seq else -1),
+                              "room": int(room), "mid_n": len(_mid_blocks_q),
+                              "seqn": _seqn, "order_top1": (int(order[0])
+                                    if order and len(order) else -1),
+                              "suffix_mode": int(room - len(_mid_blocks_q) < 0)})
                 _head = [int(x) for x in _seq[:8]]
                 if self.log is not None:
                     try:
