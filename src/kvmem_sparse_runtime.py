@@ -1626,6 +1626,15 @@ class VllmSparseRuntime:
             if pending:
                 self.after_step(req, pending, prefill=pending >= self.page_tokens)
                 self._prev_n[req] = 0
+            if self.log is not None:
+                # ENTRY PIN (design 243): one line per prepare call
+                # with the LIVE d_mode value - settles whether the
+                # direct capture is skipped by a flag or by object
+                # identity (the last unresolved alternative on this
+                # RPC path).
+                self.log({"kind": "d_prep_enter", "req": str(req)[-6:],
+                          "d_mode": bool(getattr(self, "d_mode", False)),
+                          "reuse": bool(self.session_reuse)})
             if getattr(self, "d_mode", False):
                 # D takes the direct capture first (store-backed
                 # evidence), then falls through to the SAME publish
