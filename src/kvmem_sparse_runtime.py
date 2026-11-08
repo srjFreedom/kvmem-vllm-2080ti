@@ -4979,27 +4979,27 @@ class VllmSparseRuntime:
         for b in sorted(int(x) for x in kept):
             if b < 0:
                 continue
-            # UNIT COURT-MARTIAL ROUND 2 (design 300): `kept`
-            # carries STATISTIC block numbers (block_tokens=64
-            # tokens wide), NOT engine blocks (q pages = 1568
-            # tokens). The old expansion b*q+o shifted every
-            # block's wanted page span by q-(block_tokens//pt)
-            # pages per block (block 23 -> pages 2254.. instead
-            # of 92..95) so the needle's canonical pages were
-            # never in `want`, nothing got restored (short=0),
-            # and every logical row stayed -1 (neg_rows==kept_n
-            # measured). Correct span of statistic block b:
-            # tokens [b*bt, (b+1)*bt) -> pages [b*bt/pt,
-            # (b+1)*bt/pt).
-            _bt300 = max(1, int(self.block_tokens))
-            _pt300 = max(1, int(pt))
-            _pg_lo = (b * _bt300) // _pt300
-            _pg_hi = ((b + 1) * _bt300 + _pt300 - 1) // _pt300
-            for pg in range(_pg_lo, _pg_hi):
+            for o in range(q):
+                pg = b * q + o
                 if pg >= n_pages:
                     break
                 want.append(int(pg))
         want.sort()
+        # HAND-SLOT LEDGER PIN (design 301): the empty-restore
+        # crime scene - how many wanted pages found a handed
+        # evict slot (enter to_restore) versus were skipped as
+        # "already resident" by res_slot, versus had no slot to
+        # hand at all (evict pool empty). restore_n=0 with a
+        # cold view means the third or second branch fired for
+        # every single page.
+        if self.log is not None and getattr(self, "_hs_loud", 0) < 4:
+            self._hs_loud = getattr(self, "_hs_loud", 0) + 1
+            _cold301 = sum(1 for pg in want if pg not in res_slot)
+            self.log({"kind": "d_hand_slot", "req": str(req)[-6:],
+                      "want_n": len(want),
+                      "resident_hit": len(want) - _cold301,
+                      "cold_need_hand": _cold301,
+                      "evict_pool_ready": -1})
         # SPAN PROBE (design 149): which selected blocks actually
         # contribute pages to `want` - the needle block (page marker
         # // block_tokens) must appear; if it is in kept but never
@@ -6034,7 +6034,7 @@ class VllmSparseRuntime:
                     self._law_loud = getattr(self, "_law_loud", 0) + 1
                     _nb290 = (37464 if int(tokens) <= 80000 else
                               71456 if int(tokens) <= 160000 else 122458)
-                    _nb290 //= max(1, int(block_tokens))
+                    _nb290 //= max(1, int(q) * max(1, int(pt)))
                     self.log({"kind": "d_law_pin", "req": str(req)[-6:],
                               "nb": _nb290, "in_seq": int(_nb290 in _seq),
                               "pos": (_seq.index(_nb290) if _nb290 in _seq else -1),
