@@ -1687,3 +1687,10 @@ skip=不重放只装视图 - 顺路）。
 - 修复: launcher additional-config 注入 "plan_d":true (vLLM 原生序列化到 scheduler+每 TP worker，无进程局部性)；离线校验 json 解析+键在位+bash -n 通过。
 - 下轮一发全链: boot → T1 谱应现 d_knife_call/applied/add_trace/安装门/reach → T2 direct{complete}+park{blocks}+decided 深度+时长。若 flag 到位后某门仍断，门谱直接点名。
 - 1 boot + 深静态。ahead 178→179。引擎 T1-True。
+
+## 253. Round 137 终落: plan_d 正式入 native cfg (worker dict line 106)，launcher→deploy→worker 装配链勘明
+
+- 装配真相: additional-config 由 scripts/kvmem-vllm-worker.py 的 cfg dict 组装 (非 deploy 文本) - 注入 `"plan_d": env KVMEM_PLAN_D in (1,true,yes)` - vLLM 把它序列化到 scheduler 与每 TP worker - 进程局部性问题从根上消失。
+- 事故小账: pattern miss ×1 (dict 在 worker py 不在 sh)、grep 负行号 sed ×1 - 全被 assert/parse 挡住，零污染。
+- 下轮一发判决: boot → T1 全谱 (knife_call/applied/add_trace/安装门/reach 应齐现 - d_mode 将真) → T2 direct complete/park blocks/decided 深度/时长终读。此前"门谱"资产全部就位，读数即结论。
+- 1 boot + 深静态。ahead 179→180。引擎健康。
