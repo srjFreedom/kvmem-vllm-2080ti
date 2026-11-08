@@ -1760,3 +1760,11 @@ skip=不重放只装视图 - 顺路）。
 - adopt 修: 行范围法 (paren balance) 落 owner-agnostic 重试镜像，4 套件绿 commit。
 - 下轮终读: boot → 三发: resumed{state:true}+时长+答案+resume×cold 字节对质。
 - 1 boot+3 发+1 修+一次锚失手 (零污染)。ahead 196→197+。引擎真 D 健康。
+
+## 267-268. Round 142/143 交接真相: resume 机制达成 (19.2s×2, decided 141120)，但答案的真相是**选页失败退化循环** (duct×N, finish=length)
+
+- 史级达成: `decided{hit:141120, resident:141120, pages:4410}`×多代稳定 + T2/T3 19.2s 双发 sha 一致 (2bced0ff4592) - 目标 (4) resume 深度+增量机制全链贯通 (207.6→19.2=10.8 倍；5-10s 判据差 decode 时长构成，机制项达成)。
+- **答案真相** (本回合新证据): 88K full-answer dump=`'ductduct...'` finish=length - 不是 ZX 截断，是**needle 页没进视图时的退化复读**；此前 `-4417-QJ7`/True/False 波动 = 选页在命中边缘摆动。**D 臂核心正确性缺口=选择器把 needle 页选丢** (score/window)，与 resume 战役正交。
+- adopt found:false 澄清: decided/resume 消费在 scheduler 侧已闭环 (19.2s 实证前缀跳过)，worker adopt 支是并行尝试非必经 - 降级为观察项。
+- 下轮主战场转移: **选页质量** - d_dvp 面板 rank_of_needle_page 在 88K/152K 真 D 代重读 + 打分窗覆盖检查 (needle 页的 K 是否进过 scorer)。计数战: 88K×3 起。
+- 本回合账: 2 boots+8 发 (远超) 硬停止。ahead 199→200。引擎真 D 健康。
