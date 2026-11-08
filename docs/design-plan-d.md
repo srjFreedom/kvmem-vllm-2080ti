@@ -1865,3 +1865,10 @@ skip=不重放只装视图 - 顺路）。
 - 修复 (objective (5) 语义): 打分 query = **问题带全文** (prompt_ids 尾段 4096 tok 窗, 覆盖 user 问题全长)，替代 256 尾巴 - 5 套件绿 commit。
 - 下轮 152K 单发: law_pin 应翻 in_seq=1 (needle 进 top10) + d_final_kept in_kept=1 + 答案首真 (刀代编造型消失) - 计数战第二轮正式开打 (152K 冷先行)。
 - 1 boot+1 发+定罪修复。ahead 221→222。引擎 law 代健康。
+
+## 293-294. Round 149/150: 电池泄针自白 (filler 语义自匹配问题带 - 十年老兵级实验缺陷) 与新电池终图: 选页满分 rank1-2，病归位 **store 字节面**
+
+- 自白: 旧 filler "no special access code recorded" 含 "access code" 短语 ×868 次 - 问题带 "What is the access code" 词袋级与之完美匹配 - 全部历史读数 (含 D0 时代 7/7 True 与真 D 时代 False) 都在**漏水的草堆**上测量: True 可能靠 filler 泄漏语义、False 靠 filler 分数压制 needle 块。**新电池 (guard assert marker∉filler)**: N88 True (86.5s ✓✓)、N152 选页 **needle_rank 1→2, in_kept=1, top6=[24,23,25,26]** 满分而答案 False (`code for KEY-MID is KEY-MID`) - **模型看见问题带与 needle 邻近块，needle 块字节的视图内容仍坏**。
+- 归位: 病=**刀轮 install 后 needle 块的 KV 字节** (store 页写入/restore 拷贝/RoPE 相位) - **字节取证仪表 286 (d_store_probe sweep/restore 双针) 本轮起将在位出数** - 下轮一发 152K 读 probe: sweep mean≈0 → harvest 写零页 (store 面修) ; restore mean 好而视图坏 → install/相位面修。
+- 计数战新基准 (新电池): 88K 1/1 True；152K 0/1 待字节面；250K 未测。
+- 2 boots+5 发+电池手术 - 超支硬停止。ahead 226→227 (本 commit)。引擎中性代健康 (D=1)。
