@@ -20,7 +20,22 @@ def main():
     args = parser.parse_args()
     from transformers import AutoTokenizer
     tok = AutoTokenizer.from_pretrained(args.tokenizer, local_files_only=True)
-    filler = ("Chapter notes on river deltas: sediment settles where flow slows; "  "farmers built levees long before engines existed.  Each season the color of "  "the water changes with upstream rain, and the ferryman keeps a ledger of "  "crossings by lamp-light.  Tin roofs hum when hail arrives from the west; "  "the postman counts letters twice on foggy mornings.  A cart of glass bottles "  "rattles past the mill at dusk, and dogs bark at nothing in particular.  "  "Ledgers, almanacs, tide tables - the clerk copies columns with a blunt nib.  " "Nothing about codes or keys is written in these pages of ordinary weather.  "))
+    filler = ("Chapter notes on river deltas: sediment settles where flow slows; "
+              "farmers built levees long before engines existed. Each season the "
+              "color of the water changes with upstream rain, and the ferryman "
+              "keeps a ledger of crossings by lamp-light. Tin roofs hum when hail "
+              "arrives from the west; the postman counts letters twice on foggy "
+              "mornings. A cart of glass bottles rattles past the mill at dusk, "
+              "and dogs bark at nothing in particular. Ledgers, almanacs, tide "
+              "tables - the clerk copies columns with a blunt nib. Nothing here "
+              "is about codes, keys, or records of access. "
+    )
+    # NEEDLE GUARD (design 293): the haystack must never contain the
+    # marker - the old filler repeated "no special access code
+    # recorded ZX-4417-QJ7" thousands of times, so the model saw the
+    # needle in the distractors and every reading since (True AND
+    # False eras) was measured against a leaky haystack.
+    assert "ZX-4417-QJ7" not in filler and "KEY-MID" not in filler
     needle = "\nThe unique record KEY-MID has access code ZX-4417-QJ7.\n"
     question = "\nWhat is the access code for KEY-MID? Reply with only the exact code."
     system = "Read the archive and answer the question using its unique record."
