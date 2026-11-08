@@ -1512,6 +1512,20 @@ class VllmSparseRuntime:
                                    [t[int(_slotv)].cpu().clone()
                                     for t in _paged])
                     _swept += 1
+                    if self.log is not None and \
+                            getattr(self, "_sp_loud", 0) < 6:
+                        # BYTE PROOF A (design 286): what the sweep
+                        # actually stored for this page.
+                        self._sp_loud = getattr(self, "_sp_loud", 0) + 1
+                        try:
+                            _lay = orch.store.get(int(_pgv))
+                            _m0 = float(_lay[0].float().abs().mean())
+                            self.log({"kind": "d_store_probe",
+                                      "where": "sweep", "page": int(_pgv),
+                                      "layers": len(_lay),
+                                      "mean": round(_m0, 7)})
+                        except Exception:
+                            pass
                 if self.log is not None and getattr(self, "_fh_loud", 0) < 4:
                     self._fh_loud = getattr(self, "_fh_loud", 0) + 1
                     self.log({"kind": "d_final_harvest_sweep",

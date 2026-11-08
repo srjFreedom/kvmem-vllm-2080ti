@@ -1175,6 +1175,21 @@ class SparseOrchestrator:
             return 0
         pairs = [(int(pg), int(sl)) for pg, sl in items]
         probe = self.store.get(pairs[0][0])
+        if getattr(self, "_rp_loud", 0) < 6:
+            # BYTE PROOF B (design 286): mean of the first source
+            # page handed to this bulk restore.
+            self._rp_loud = getattr(self, "_rp_loud", 0) + 1
+            try:
+                _m2 = float(probe[0].float().abs().mean())
+                import json as _j2
+                with open("/tmp/kvmem_sparse.jsonl", "a") as _f2:
+                    _f2.write(_j2.dumps({"kind": "d_store_probe",
+                                         "where": "restore",
+                                         "page": pairs[0][0],
+                                         "layers": len(probe),
+                                         "mean": round(_m2, 7)}) + "\n")
+            except Exception:
+                pass
         if not isinstance(probe, (list, tuple)) or len(probe) != len(self.kvs):
             raise ValueError("store layout is not a per-layer stack")
         rows_host = []
