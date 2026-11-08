@@ -5117,6 +5117,35 @@ class VllmSparseRuntime:
                           "phys_n": len(_po), "nb": _nb,
                           "span_pages": len(_span), "q": int(q),
                           "tokens": int(st.tokens)})
+            # OUT-OF-WINDOW HANDOFF (design 312, A1): identity
+            # physics holds only while a page's native engine
+            # block is still inside THIS request's row domain.
+            # Pages past the window (needle rank 2205 with row
+            # width 1421, measured live=0 canonical=104) had
+            # their blocks recycled - copy the canonical bytes
+            # back into the native slot before the kernel reads
+            # it again. restore = pure copy, invariant (2).
+            _rowdom = set(int(x) for x in (row or ()) if int(x) > 0)
+            _rest312 = 0
+            try:
+                _paged312 = self.view.paged_kv()
+                for _pg312, _blk312 in zip(ordered, _po):
+                    if int(_blk312) in _rowdom:
+                        continue
+                    _lay312 = orch.store.get(int(_pg312))
+                    if not _lay312:
+                        continue
+                    for _lt, _tq in enumerate(_paged312):
+                        _tq[int(_blk312)].copy_(_lay312[_lt].to(
+                            _tq.device, dtype=_tq.dtype))
+                    _rest312 += 1
+            except Exception:
+                pass
+            if self.log is not None and getattr(self, "_ow_loud", 0) < 6:
+                self._ow_loud = getattr(self, "_ow_loud", 0) + 1
+                self.log({"kind": "d_oow_handoff", "req": str(req)[-6:],
+                          "pages": len(ordered), "written": _rest312,
+                          "rowdom": len(_rowdom)})
             return (_po, ordered, [], [], _bpo)
         assign = {}
         used = set()
@@ -5201,6 +5230,35 @@ class VllmSparseRuntime:
             # entry 18 while positions run to 868 - out of book).
             # Deduplication belongs ONLY at the adopt call (block
             # space), done by _dedupe_blocks there.
+            # OUT-OF-WINDOW HANDOFF (design 312, A1): identity
+            # physics holds only while a page's native engine
+            # block is still inside THIS request's row domain.
+            # Pages past the window (needle rank 2205 with row
+            # width 1421, measured live=0 canonical=104) had
+            # their blocks recycled - copy the canonical bytes
+            # back into the native slot before the kernel reads
+            # it again. restore = pure copy, invariant (2).
+            _rowdom = set(int(x) for x in (row or ()) if int(x) > 0)
+            _rest312 = 0
+            try:
+                _paged312 = self.view.paged_kv()
+                for _pg312, _blk312 in zip(ordered, _po):
+                    if int(_blk312) in _rowdom:
+                        continue
+                    _lay312 = orch.store.get(int(_pg312))
+                    if not _lay312:
+                        continue
+                    for _lt, _tq in enumerate(_paged312):
+                        _tq[int(_blk312)].copy_(_lay312[_lt].to(
+                            _tq.device, dtype=_tq.dtype))
+                    _rest312 += 1
+            except Exception:
+                pass
+            if self.log is not None and getattr(self, "_ow_loud", 0) < 6:
+                self._ow_loud = getattr(self, "_ow_loud", 0) + 1
+                self.log({"kind": "d_oow_handoff", "req": str(req)[-6:],
+                          "pages": len(ordered), "written": _rest312,
+                          "rowdom": len(_rowdom)})
             return (_po, ordered, [], [], _bpo)
         # IDENTITY MEANS DO-NOTHING (design 282): the court-martial
         # unit law holds - a rebuilt row must be ENGINE BLOCK IDS.
