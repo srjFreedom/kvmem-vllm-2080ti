@@ -3305,6 +3305,7 @@ def _install(cls, module_name, probe, smoke, state):
                             rt = self.kvmem_runtime
                         if rt is not None:
                             rt.d_mode = True
+                            _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",{"kind":"d_wire_id","rt_id":id(rt),"pid":os.getpid()})
                         # TRIPLE-TABLE RE-STAMP (design 133): the stamp
                         # onto wrapper-self was NOT visible to code that
                         # reads through the runner module's own `self`

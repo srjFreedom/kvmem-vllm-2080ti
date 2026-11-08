@@ -1638,6 +1638,8 @@ class VllmSparseRuntime:
                 # identity (the last unresolved alternative on this
                 # RPC path).
                 self.log({"kind": "d_prep_enter", "req": str(req)[-6:],
+                          "rt_id": id(self),
+                          "rids_has": str(req) in getattr(self, "_d_rids", set()),
                           "d_mode": bool(getattr(self, "d_mode", False)),
                           "reuse": bool(self.session_reuse)})
             if getattr(self, "d_mode", False) or str(req) in \
