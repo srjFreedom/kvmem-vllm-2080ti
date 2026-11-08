@@ -1694,3 +1694,10 @@ skip=不重放只装视图 - 顺路）。
 - 事故小账: pattern miss ×1 (dict 在 worker py 不在 sh)、grep 负行号 sed ×1 - 全被 assert/parse 挡住，零污染。
 - 下轮一发判决: boot → T1 全谱 (knife_call/applied/add_trace/安装门/reach 应齐现 - d_mode 将真) → T2 direct complete/park blocks/decided 深度/时长终读。此前"门谱"资产全部就位，读数即结论。
 - 1 boot + 深静态。ahead 179→180。引擎健康。
+
+## 254-255. Round 137 终杀: worker 过滤环境是 d_mode 假象的第二因子 - knife 开关并入 native cfg (d_knife:True)，wiring 改 cfg 优先
+
+- 证据: plan_d 已入 cfg 但 d_prep_enter{d_mode:false} 依旧 - wiring 的 AND 第二因子读 env `KVMEM_D_KNIFE`，而 vLLM spawn worker 用**过滤环境** (本模块头注自证) → worker 面永假。rt_id 双值 (两 worker 各一 runtime) 属正常非病灶。
+- 修复: worker dict `d_knife:True` (命令行装配不过滤) + wiring `cfg.get("d_knife") or env fallback` - 全进程统一真值。
+- 下轮一发: T1 谱 {knife_call/applied/add_trace/安装门/reach/direct} 应齐现; T2 decided 深度+时长终读。
+- 2 boots 触顶。引擎 N152-T1 True。ahead 181→182。
