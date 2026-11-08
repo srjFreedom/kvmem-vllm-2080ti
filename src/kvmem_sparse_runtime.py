@@ -1555,11 +1555,31 @@ class VllmSparseRuntime:
             # takes THAT handle; taking one at terminal time would be
             # polluted by decode-window drift.
             _snap = getattr(self, "_d_snaps", {}).get(req)
+            # LOCAL STATE ARCHIVE (design 259): the RPC from prepare
+            # serializes the returned payload - holding GPU-resident
+            # state tensors in it materialized 4GiB across IPC and
+            # CUDA-OOMed retirement (measured: retire_aborted
+            # OutOfMemoryError while capture itself reported
+            # complete=true). The consuming rank is the SAME worker
+            # that captured (TP2 both ranks capture+consume), so the
+            # state travels through a process-local archive keyed by
+            # the chain digest instead of through any wire.
+            _key259 = (hashes[-1] if hashes else b"")
+            try:
+                _key259 = _key259 if isinstance(_key259, bytes) else bytes(_key259)
+            except Exception:
+                _key259 = b""
+            _arch = getattr(self, "_d_state_archive", None)
+            if _arch is None:
+                _arch = self._d_state_archive = {}
+            if _snap is not None and len(_snap) > 1 and _snap[1] is not None:
+                _arch[_key259] = _snap[1]
             payload = {
                 "hashes": list(hashes),
+                "state_key_hex": _key259.hex() if _key259 else "",
                 "pages": list(pages),
                 "frontier": int(target),
-                "state": (_snap[1] if _snap and len(_snap) > 1 else None),
+                "state": None,      # moved to _d_state_archive (259)
                 "d_direct": True,
                 "prompt_digest": None,
                 # SHAPE PARITY (design 218): the checkpoint dict now
