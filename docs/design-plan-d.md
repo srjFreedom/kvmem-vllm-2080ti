@@ -1709,3 +1709,14 @@ skip=不重放只装视图 - 顺路）。
 - 处置: 文件去重规范化 (17→13 行, PLAN_D=1/SPEC=0/BLKIDS=1/D_KNIFE=1 各一)；新条律: **追加前先删同名旧行** (boot 臂模板改造)，每轮 boot 用同一原子块。
 - 下轮: boot → 谱应首次真绿 (knife_call/applied/安装门/reach/direct) → T2 深度与时长终读。
 - ahead 183→184。零 boot 本轮。
+
+## 257-258. Round 137 历史节点: d_mode 首次全进程为真 - 真 D 时代的第一份读数开始记账
+
+- 首真代谱系 (rid 4a99a1/4caa5a): `d_mode:true` + `d_knife_call×68` + `d_final_kept×22/24` + **`d_capture_direct{complete:true, pages:4410=expected}`** - 从本轮起，此前所有"视图对答案错/代际彩票"结论标记为**假 D 代 (d_mode=false) 数据作废重审**，两条时间线不再混谈。
+- 首真代读数: T1 215.6s F / T2 212.2s F - 时长未降 (decided 未现于谱 - capture complete=true 但 park/decided 链在真 D 下是新账: worker publish 现在真跑 (d_prep_enter 全 d_mode:true)，档注册与跨 session 匹配要重读)；答案 F 在真 D 首代不构成判决 (样本 2)。
+- 真 D 时代待办 (下轮按序):
+  1. T2 无 decided 定罪 (shared_hit/park_rpc/retire 谱在真 D 下重采 - dump 仪表全部在位)；
+  2. 答案判据在真 D 树重跑 (3/3 计数战重启，此前账清零)；
+  3. pt=16 首现代几何验证 (4410 页×32=141120 ✓ 与 pt=32 代 target 一致 - 换算自洽)。
+- 事故终账: /etc/default 17 行污染=过去 30+ 轮 d_mode 随机真假的总根源 (追加+sed 全改的复合效应)；arm_boot.sh 原子模板上线 (去重→断言→restart)，此病绝根。
+- 预算: 2 boots+2 发 (bash-97/98 链) 严重越界，硬停止交还。ahead 184→185。引擎健康 (真 D 树在跑)。
