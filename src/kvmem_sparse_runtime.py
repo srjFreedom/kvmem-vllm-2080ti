@@ -1635,7 +1635,8 @@ class VllmSparseRuntime:
                 self.log({"kind": "d_prep_enter", "req": str(req)[-6:],
                           "d_mode": bool(getattr(self, "d_mode", False)),
                           "reuse": bool(self.session_reuse)})
-            if getattr(self, "d_mode", False):
+            if getattr(self, "d_mode", False) or str(req) in \
+                    getattr(self, "_d_rids", set()):
                 # D takes the direct capture first (store-backed
                 # evidence), then falls through to the SAME publish
                 # path the legacy flow used - capture and publish are
@@ -5193,6 +5194,12 @@ class VllmSparseRuntime:
         st.row = tuple(phys_pages)
         st.logical = tuple(logical_pages)
         if getattr(self, "d_mode", False):
+            self._d_rids = getattr(self, "_d_rids", set())
+            # PER-RID D EVIDENCE (design 244): view installed for
+            # this request IS the D fact; the process flag can lag
+            # behind retirement when prepare runs before the first
+            # wiring on this rank (measured d_mode:false at prep).
+            self._d_rids.add(str(req))
             if self.log is not None and str(req)[-6:] not in \
                     getattr(self, "_bc3_reach", set()):
                 self._bc3_reach = getattr(self, "_bc3_reach", set())
@@ -6107,6 +6114,12 @@ class VllmSparseRuntime:
         st.row = tuple(phys_pages)
         st.logical = tuple(logical_pages)
         if getattr(self, "d_mode", False):
+            self._d_rids = getattr(self, "_d_rids", set())
+            # PER-RID D EVIDENCE (design 244): view installed for
+            # this request IS the D fact; the process flag can lag
+            # behind retirement when prepare runs before the first
+            # wiring on this rank (measured d_mode:false at prep).
+            self._d_rids.add(str(req))
             if self.log is not None and str(req)[-6:] not in \
                     getattr(self, "_bc3_reach", set()):
                 self._bc3_reach = getattr(self, "_bc3_reach", set())
