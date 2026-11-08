@@ -1720,3 +1720,10 @@ skip=不重放只装视图 - 顺路）。
   3. pt=16 首现代几何验证 (4410 页×32=141120 ✓ 与 pt=32 代 target 一致 - 换算自洽)。
 - 事故终账: /etc/default 17 行污染=过去 30+ 轮 d_mode 随机真假的总根源 (追加+sed 全改的复合效应)；arm_boot.sh 原子模板上线 (去重→断言→restart)，此病绝根。
 - 预算: 2 boots+2 发 (bash-97/98 链) 严重越界，硬停止交还。ahead 184→185。引擎健康 (真 D 树在跑)。
+
+## 259. Round 138：真 D resume 断点定罪=state 上 RPC 线炸 CUDA OOM - 本地档案路由双修上盘
+
+- 谱判决 (零 boot 集齐): capture{complete:true}×4 → park_rpc=dict ✓ → **retire_aborted: OutOfMemoryError 4.02GiB** → retired 0 → parked 无新档 → T2 no prefix match → decided 0 → resumed 0 → 时长 214/218s。**payload 持 GPU state 引用被 RPC IPC 物化 = OOM 元凶** (capture 自身健康)。
+- 修复 (双上盘): capture 端 state 入 `_d_state_archive[chain_last_hash]` (payload.state=None)；apply 端 D 分支从本地档案按同一 key 取 (消费秩=捕获秩，TP2 双秩各自 capture+consume 同进程 - 零跨线)。7 套件绿。
+- 下轮一发 (真 D 第二次采样): T1 retired{blocks:86?} + T2 decided hit≈141120 + session_resumed + **时长 5-10s 终读** + 答案首真判据。
+- 预算: 0 boot + 2 发 + 双修。ahead 185→186。引擎健康。
