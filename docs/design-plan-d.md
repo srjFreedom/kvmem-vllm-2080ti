@@ -1654,3 +1654,9 @@ skip=不重放只装视图 - 顺路）。
 - 门普查: gates A/B/C 全零事件 + direct 零事件 + 门在位且钩子在位 + RPC wrapper runtime=runner.kvmem_runtime 与 wiring 静态同源 → 剩两种: d_mode 在 prepare 时刻为 False (wiring 时机/覆盖) 或 prepare 到达的是另一 runtime 实例。入口针 d_prep_enter{d_mode} 一发定案。
 - 时长现状: T1 247 T / T2 224.8 T (省 22s=25856 深) - 8820 页档建立即 5-10s 目标 - 只差这一枚针的定位。
 - 预算 1 boot (gate 代) + 3 发触顶。ahead 168→169。引擎健康。
+
+## 245. Round 135 终落: per-rid D 证据链上盘 (安装两门记录 + prepare 消费)，判决读数在下轮 boot
+
+- 落码: 安装门 5195/6109 记 `_d_rids.add(req)` (视图装好=该请求 D 铁证)，prepare 决策 `d_mode OR rid∈_d_rids` - flag 时机 race 根除。一次锚文本失手 (rec1) 后按行内容定位法三轮全部落定，6 套件绿 (ahead 171)。
+- 下轮判决读数: T1 `d_capture_direct{complete:true, pages≈8820, hashes≈86}` + `d_worker_park{blocks:86}` → T2 `resume_decided hit≈135000` → **T2 时长 5-10s (验收项 2 终读)**。若 coverage 门出声 (hashes 深度 vs 8820 页在 pt=16 代的换算差) - 门 C 读数直接给下一步。
+- 1 boot + 1 发 + 修复全链。ahead 171。引擎健康 (T1 True)。
