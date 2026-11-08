@@ -6170,8 +6170,14 @@ class VllmSparseRuntime:
         if self.log is not None and getattr(self, "_cf_loud", 0) < 3:
             try:
                 _cf_r = set(int(x) for x in _to_restore2 or ())
-                _cf_p = [lp for i, lp in enumerate(logical_pages)
-                         if lp not in _cf_r][:4]
+                # design 299: THE -1 SENTINELS ARE THE CRIME SCENE -
+                # a logical row of -1 means the page had no valid
+                # slot at install (restore silently failed or the
+                # page was never handed one). Count them loudly.
+                _neg299 = sum(1 for lp in logical_pages
+                              if int(lp) < 0)
+                _cf_p = [lp for lp in logical_pages
+                         if int(lp) >= 0 and lp not in _cf_r][:4]
                 _paged297 = self.view.paged_kv()
                 _rows297 = {int(pg): int(phys_pages[i])
                             for i, pg in enumerate(logical_pages)}
@@ -6190,6 +6196,7 @@ class VllmSparseRuntime:
                 self._cf_loud = getattr(self, "_cf_loud", 0) + 1
                 self.log({"kind": "d_byte_confront",
                           "req": str(req)[-6:], "cmp": _cmp297,
+                          "neg_rows": _neg299,
                           "kept_n": len(logical_pages),
                           "restore_n": len(_to_restore2 or ())})
             except Exception as _cfx:
@@ -6198,7 +6205,13 @@ class VllmSparseRuntime:
                           "err": _tb297.format_exc(limit=3)[-320:]})
         if _to_restore2:
             try:
-                orch.restore_pages_batch(_to_restore2)
+                _rs299 = orch.restore_pages_batch(_to_restore2)
+                if self.log is not None and \
+                        int(_rs299 or 0) != len(_to_restore2):
+                    self.log({"kind": "d_restore_short",
+                              "req": str(req)[-6:],
+                              "done": int(_rs299 or 0),
+                              "wanted": len(_to_restore2)})
                 if self.log is not None and \
                         getattr(self, "_blk_loud", 0) < 8:
                     self._blk_loud = getattr(self, "_blk_loud", 0) + 1
