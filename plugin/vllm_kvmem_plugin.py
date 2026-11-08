@@ -2130,12 +2130,28 @@ def register():
                     pages = min(int(meta.capacity_pages or 0), hit // pt)
                     pages = (pages // ppb) * ppb
                     if pages <= 0 or pages * pt != hit:
+                        if getattr(scheduler, "_rlg", 0) <= 10:
+                            _append(_sched_cfg(scheduler).get("log")
+                                    or "/tmp/kvmem_sparse.jsonl",
+                                    {"kind": "resume_loop_gate",
+                                     "why": "geometry",
+                                     "rid": str(rid)[-6:],
+                                     "pages": int(pages), "pt": int(pt),
+                                     "hit": int(hit),
+                                     "cap": int(meta.capacity_pages),
+                                     "ppb": int(ppb)})
                         # V2 Mamba seeds its state cursor from the resident counter. A shortened
                         # resident prefix would read a different recurrent block than the saved
                         # logical-frontier StateImage.
                         continue
                     executor = _channel_state.get("executor")
                     if executor is None:
+                        if getattr(scheduler, "_rlg", 0) <= 10:
+                            _append(_sched_cfg(scheduler).get("log")
+                                    or "/tmp/kvmem_sparse.jsonl",
+                                    {"kind": "resume_loop_gate",
+                                     "why": "no-executor",
+                                     "rid": str(rid)[-6:]})
                         continue
                     try:
                         proofs = executor.collective_rpc(
