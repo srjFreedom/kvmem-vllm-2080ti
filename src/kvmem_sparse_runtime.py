@@ -2678,7 +2678,7 @@ class VllmSparseRuntime:
                 _eng_bs = _cand[0] if _cand else -1
             except BaseException:
                 pass
-            _true_pg = 37464 // max(1, _eng_bs) if _eng_bs > 0 else -1
+            _true_pg = (self._needle_marker(req, st) // max(1, _eng_bs)) if _eng_bs > 0 else -1
             _slot_at_true = (_rowv[_true_pg]
                              if _eng_bs > 0 and 0 <= _true_pg < len(_rowv)
                              else -3)
@@ -3072,9 +3072,7 @@ class VllmSparseRuntime:
         # that matters) always early-returned, leaving coincide3 silent
         # while enter fired (enter precedes the latch check). Latch
         # only on a call whose view actually contains the needle page.
-        _pg0 = ((37464 if int(st.tokens) < 80000 else
-                 (71456 if int(st.tokens) < 160000 else 122458))
-                // max(1, int(self.page_tokens)))
+        _pg0 = self._needle_marker(req, st) // max(1, int(self.page_tokens))
         # LATCH v3 (design 184): key by (rid, stage) - the MID view
         # ALSO contains the needle page after the page-completion fix,
         # so a rid-only latch let MID arm it first and the QUESTION
@@ -3087,8 +3085,7 @@ class VllmSparseRuntime:
             return
         try:
             _tk = int(st.tokens)
-            _mt = 37464 if _tk < 80000 else (71456 if _tk < 160000
-                                             else 122458)
+            _mt = self._needle_marker(req, st)
             _q_blk = max(1, int(getattr(self, "block_pages", None)
                                  or getattr(self, "pages_per_block",
                                             49) or 49))
@@ -3102,9 +3099,7 @@ class VllmSparseRuntime:
             # "enter without event" finally names the dead line.
             if self.log is not None and getattr(self, "_rt_loud", 0) < 8:
                 self._rt_loud = getattr(self, "_rt_loud", 0) + 1
-                _pgq = ((37464 if int(st.tokens) < 80000 else
-                         (71456 if int(st.tokens) < 160000 else 122458))
-                        // max(1, int(self.page_tokens)))
+                _pgq = self._needle_marker(req, st) // max(1, int(self.page_tokens))
                 self.log({"kind": "d_bc3_route", "req": key,
                           "pg": _pgq, "in_lpg": _pgq in [int(x) for x in _lpg],
                           "lpg_n": len(_lpg)})
@@ -6119,8 +6114,7 @@ class VllmSparseRuntime:
                 # with room 10->?; seq identity visible at last.
                 if self.log is not None:
                     try:
-                        _mtz = 37464 if int(tokens) <= 80000 else (
-                            71456 if int(tokens) <= 150000 else 122458)
+                        _mtz = self._needle_marker(req, st)
                         _nbz = _mtz // max(1, int(block_tokens))
                         self.log({"kind": "d_after_fill", "req": str(req)[-6:],
                                   "pressure": bool(pressure),
@@ -6153,8 +6147,7 @@ class VllmSparseRuntime:
             kept.append(nxt)
         if self.log is not None:
             try:
-                _mtk = 37464 if int(tokens) <= 80000 else (
-                    71456 if int(tokens) <= 150000 else 122458)
+                _mtk = self._needle_marker(req, st)
                 _nbk = _mtk // max(1, int(block_tokens))
                 _kl = sorted(int(x) for x in kept)
                 if True:  # design 289: blockwise truth panel - score vs incumbent
@@ -6456,7 +6449,7 @@ class VllmSparseRuntime:
         if self.log is not None and str(req)[-6:] not in _rcs:
             _rcs.add(str(req)[-6:])
             _ptq = max(1, int(self.page_tokens))
-            _pg0 = 37464 // _ptq
+            _pg0 = self._needle_marker(req) // _ptq
             _lgm = [int(x) for x in (st.logical or ())]
             self.log({"kind": "d_tql_coin", "site": "remobilize-install",
                       "req": str(req)[-6:], "needle_page": _pg0,
