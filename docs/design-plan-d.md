@@ -1673,3 +1673,10 @@ skip=不重放只装视图 - 顺路）。
 - 修复 (数据判据，无进程依赖): 安装门 `d_mode OR tokens>2*budget` 记 rids - 视图确实滚动的唯一人群就是长 prompt，判据零歧义；prepare 消费 `d_mode OR rid∈rids` 不变 → direct 应到门 coverage 出声。
 - 下轮一发: boot → T1 → 读 d_capture_gate 系列 + direct{complete} + worker_park{blocks} + decided 深度 + T2 时长。全链事件已在四道门武装完毕。
 - 1 boot + 4 静态修 + 3 套件。ahead 175→176。引擎 T1-True。
+
+## 249-250. Round 136 终局修正: 16 块档实为 legacy dense-seal 产物；**本代 152K 视图安装从未发生** (rids 门在位未触发) - 前判"视图对答案错"在该代几何上不成立
+
+- 读码判定链: 安装门 `d_mode OR tokens>2×budget(=73728)` 在位且 152K 条件满足，但 rids_has=false → 门从未执行 → **问刀的安装路径在 16tok-page 代没跑到** (此前世代 r135 前读到的 kept=18 装针对 152K 是压力代现象，本代事件谱里 install/applied 未见 152K 记录 - 待下轮事件谱确认哪段链断: 刀触发? merge? 提案?)。
+- 16 块档来源澄清: `resume_decided hit=25856` 的档由 legacy `_maybe_capture` (dense seal 分支，205 代仍在) 产出 - 它不需要安装，只需要 prompt ids+frontier 计数 - 于是出现"有档可 resume 但 D 视图从未装"的并存画面。**"视图对答案错"的判决必须等新树里 152K 真装上后重下**。
+- 下轮第一动作 (1 boot 内完成): T1 一发后按 rid 集齐刀链谱 {d_knife_enter, d_knife_call, blockwise_reselect, quiescent_compact_proposal, d_compact_applied, add_trace, 安装门, d_bc3_reach} - 断点自动现形 - 修通后 direct capture/8820 页档/深度时长一次读全。
+- 预算 2 boots + 深静态。ahead 177→178。引擎健康 (K152 双 True)。
