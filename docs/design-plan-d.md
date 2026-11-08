@@ -1807,3 +1807,10 @@ skip=不重放只装视图 - 顺路）。
 - 修复判据: wrote0 归零 + statistics frontier 每 decode 步 +n → 88K 三发 True → 压缩代全尺寸 True → resume 终读 (141120 已通)。
 - 战役定位: 这是方案 D 原点不变量 (2) "淘汰页 store 规范真位置" 的**写入面**缺口 - 收割线断，一切下游都是零。
 - 1 boot+3 发+8 静态读 严重超支硬停止。ahead 206→207。引擎 D 臂 heal 代健康。
+
+## 277-278. Round 145：store 饥饿的最后一环定罪 - spec0 下 accept 折叠把每步 decode harvest 归零（无人写 _accepted_rows）
+
+- 证据链闭环: statistics_final 的 skipped 键全形 `wrote 0 (... n 0)` → n=0 → 2135 `min(n, _accepted_rows=0)` - `_accepted_rows` 是 MTP accept 钩的产物，spec0 战役代无人写过 → **每个 decode 步 harvest 写 0 行 → store 无规范字节 → 刀轮 evict 空页 → install 读零 → duct 确定**。OFF 臂同病但无刀（不 evict 不 load），store 饥饿只在 D 臂曝光 - 又一处"双臂一个模型"缺口的具体形状。
+- 修复 (design 278): 无草稿时每步恒 1 accepted（`min(n,1)`），有草稿走 accept 且缺失时诚实回退 n。5 套件绿 commit。
+- 本代仪表收获: d_final_kept 升级后画像完美 (needle_blk=23, in_kept=1, top6=[23,...] - 选择器满分) - 毒全在字节面，与选页无关。**下一读即判据**: boot → 88K×3 同 session + 152K 双发 (resume) + 250K×1 - wrote0 应绝迹、答案应真、时长应落 5-10s。
+- 1 boot+2 发+5 静态（一次 pin 切块事故，外科手术清除零污染）。ahead 208→209。
