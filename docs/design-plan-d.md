@@ -1799,3 +1799,11 @@ skip=不重放只装视图 - 顺路）。
 - 下轮第一读 (零 boot): d_final_kept 事件的 in_kept 字段 (needle 块在不在 kept 集) × 三发 rid - in_kept=0 → 打分器漏选定罪; in_kept=1 仍 duct → 重建/install 内容定罪 (两案分叉清晰)。
 - 判据地图: 压缩质量修通 → 250K/152K/88K 全对 + 双臂统一 (rebuild 形已一) + resume 终读 (decided 141120 已在)。
 - 预算 1 boot+3 发+普查。ahead 205→206。引擎健康 (D 臂 heal 代)。
+
+## 276. Round 144 终案: duct 毒源定罪=统计核心 frontier 冻结 (74995) 而 harvest 读头随 decode 前进 (75503+) → wrote0×3060 → store 零页 → 刀轮装零页 → 确定性退化
+
+- 铁证链: (1) in_kept=1 36/36 - 选页正确; (2) d_harvest_wrote0 payload: first=75503..75504 > stats_frontier=74995, n=0 - write_step 因 first>core_len 拒绝; (3) gap=1 递增但 wrote0 持续 - 读头每次被 `_stats_next[req] = first` 重置回 (38 行) 而核心永不前进 → decode 段 KV **全部没进 store**; (4) 刀轮 harvest 后 evict 的页 = 零页/旧页 → 视图内容毒 → duct 逐字确定。
+- 核心问题 (下轮主刀): D 臂 decode 期统计核心 (StatisticsCore) 的 advance/frontier 移动机制在哪停摆 - `stats.write_step` 拒收后无人推进 core_len vs OFF 臂同函数正常 (D0 代 88K True 的 harvest 数据链完整) - 查 D BYPASS (1076) 与 statistics_final 后核心是否被冻结/换错实例 (id(self.stats_core) vs bridge 实例)。
+- 修复判据: wrote0 归零 + statistics frontier 每 decode 步 +n → 88K 三发 True → 压缩代全尺寸 True → resume 终读 (141120 已通)。
+- 战役定位: 这是方案 D 原点不变量 (2) "淘汰页 store 规范真位置" 的**写入面**缺口 - 收割线断，一切下游都是零。
+- 1 boot+3 发+8 静态读 严重超支硬停止。ahead 206→207。引擎 D 臂 heal 代健康。
