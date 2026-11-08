@@ -1879,3 +1879,9 @@ skip=不重放只装视图 - 顺路）。
 - 修复定形 (objective (2) 原文判据): 淘汰页的 restore 是**规范真位置的拷贝义务** - resident 判据必须查 `_slot_owner[slot]==req∧page` (或等价的页→slot 双向一致表), 判据失配一律走 restore_pages_batch - 改动在 _rebuild_view 的 resident/keep 分支与 harvest slot 认领线, 先离线用例 (synthetic: 页 harvest→slot 被他页占用→rebuild 必 restore) 后活体。
 - 判据账: N88 1/1 T / N152 选页 rank1-2 满分 0/1 (待此修) / resume 机制绿 / 计数战在修复打。
 - 1 发+5 深读 (零 boot - 中性树直接读探针)。ahead 227→228。引擎中性代健康。
+
+## 297-299. Round 151: 对质针自爆抓到犯罪现场 - 视图 logical 行里有 -1 哨兵 (restore 静默失败/页无槽) = 内容毒真形候选
+
+- 读数: d_byte_confront_error KeyError -1 @ store.get → enumerate(logical_pages) 出现 -1 → **install 视图带着无真位置的行** - kernel 读 -1 行 = 无效 slot = 内容毒 (答案形态随轮次变: river-deltas 综述 / The answer is 递归 - 都是读垃圾的表现)。针缺陷 (-1 未跳) 变福尔摩斯线索。
+- 落针三连: neg_rows 计数 + d_restore_short (done!=wanted) + 对质跳负 - 下轮一发 152K 三分叉: neg_rows>0 & short → restore 通道失败点定罪 (store 缺页/槽不够/orch raise 被吞); neg_rows>0 & short=0 → 页根本不在 _to_restore 人群 (hand-slot 分配漏); neg_rows=0 → -1 来自别处 (st.logical 上游)。
+- 判据账不变: N88 1/1 T; N152 0/2 (0/2 都是内容毒形态); resume 机制绿; 2 boots 触顶。ahead 230→231。引擎 confront2 代健康。
