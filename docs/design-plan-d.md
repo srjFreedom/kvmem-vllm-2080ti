@@ -1733,3 +1733,10 @@ skip=不重放只装视图 - 顺路）。
 - 事故小账: apply 脚本锚 `raise RuntimeError` 在 if 条件后行而断言取错邻行 - parse-before-write 守住零污染；capture 修单独 boot 过一次 (187 代) 无用但无害。
 - 真形: scheduler proof 有第 17 门 mamba-state (entry.state None 即拒) - 259 后 payload.state=None 是常态，D 模式豁免预检、apply 端按 chain 末 hash 从 `_d_state_archive` 本地取，取不到 raise (兜底冷跑)。7 套件绿后 boot (188 代=全套 259)。
 - 判据读数下轮: T1 retired{blocks} + T2 decided hit≈141120 + resumed{state:true} + 时长。
+
+## 260. Round 139：OOM 绝根+retired×3{90} 达成，但决策圈零事件 - 下轮=waiting 循环四 continue 出声针
+
+- 真 D 全套首测: T1 341.9 (capture/sweep 开销+90s 如实记账) / T2 207.9 / T3 204.6 (两者仍是冷形状); 谱: retired×3{blocks:90, ranks:[0,1]} + retire_aborted 0 + capture complete:true×6{4410 页} - **state 上线 OOM 病 259 修生效实锤**。
+- 新断点定性: T2 在 _maybe_resume 的 waiting 循环内**某 continue 出圈** (shared_hit/skip/decided 三出口全零)。候选四门: _en false / len(store)==0 / block_size<=0 / num_computed!=0 / rid 已在 decided 集。publish 真形澄清: 档由 scheduler retirement 的 store.park(records) 注册 (payload owner=__prefix_cache__，因 worker 无 session map)，查询 owner=("",真 session) → 修通圈后必然要面对 owner 对齐 (230 fallback 在位可接) - **两案一并解**。
+- 下轮第一动作: waiting 循环入口与四个 continue 各一枚纯 log 针 (kind=resume_loop_gate, why=<n>)，一发 152K T1+T2 定圈 - 全链出口/门仪表在位，读数即终点。
+- 预算 1 boot+3 发+8 读触硬顶。ahead 189→190。引擎健康真 D 在跑。
