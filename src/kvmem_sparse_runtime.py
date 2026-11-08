@@ -6159,6 +6159,42 @@ class VllmSparseRuntime:
         # numbers instead. Swapping the names restores both books.
         phys_pages, logical_pages, _to_restore2, _to_evict2, _bpw2 = \
             self._rebuild_view(req, st, orch, kept, q, pt, n_pages)
+        # CONFRONTATION PIN (design 297): right after the knife's
+        # rebuild, sample up to 4 KEPT pages that were treated as
+        # resident (no restore scheduled) and compare the slot's
+        # LIVE bytes against the store's canonical bytes.
+        # divergence -> the resident predicate lied: slot bytes were
+        # hijacked; restore must fire for them (slot-owner fix).
+        # equal -> the view bytes are right and the fault lives
+        # elsewhere (phase/row), closing the byte case either way.
+        if self.log is not None and getattr(self, "_cf_loud", 0) < 3:
+            try:
+                _cf_r = set(int(x) for x in _to_restore2 or ())
+                _cf_p = [lp for i, lp in enumerate(logical_pages)
+                         if lp not in _cf_r][:4]
+                _paged297 = self.view.paged_kv()
+                _rows297 = {int(pg): int(phys_pages[i])
+                            for i, pg in enumerate(logical_pages)}
+                _cmp297 = []
+                for pg in _cf_p:
+                    _sv = _rows297.get(int(pg), -1)
+                    if _sv < 0 or _sv >= _paged297[0].shape[0]:
+                        continue
+                    _lay = orch.store.get(int(pg))
+                    if not _lay:
+                        continue
+                    _live = float(_paged297[0][_sv].float().abs().mean())
+                    _can = float(_lay[0].float().abs().mean())
+                    _cmp297.append([int(pg), round(_live, 7),
+                                    round(_can, 7)])
+                self._cf_loud = getattr(self, "_cf_loud", 0) + 1
+                self.log({"kind": "d_byte_confront",
+                          "req": str(req)[-6:], "cmp": _cmp297,
+                          "kept_n": len(logical_pages),
+                          "restore_n": len(_to_restore2 or ())})
+            except Exception as _cfx:
+                self.log({"kind": "d_byte_confront_error",
+                          "err": str(_cfx)[:120]})
         if _to_restore2:
             try:
                 orch.restore_pages_batch(_to_restore2)
