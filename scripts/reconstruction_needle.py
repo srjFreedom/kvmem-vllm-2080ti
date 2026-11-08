@@ -11,7 +11,7 @@ import urllib.request
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tokenizer", required=True)
-    parser.add_argument("--model", default="Qwen3.5-Coder-NVFP4-MTP")
+    parser.add_argument("--model", default="Qwen3.8-27B-Coder390-FP8-MTP")
     parser.add_argument("--target-tokens", type=int, default=196608)
     parser.add_argument("--pool-tokens", type=int, required=True)
     parser.add_argument("--url", default="http://127.0.0.1:18200")
