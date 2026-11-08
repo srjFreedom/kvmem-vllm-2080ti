@@ -5134,12 +5134,17 @@ class VllmSparseRuntime:
             # Deduplication belongs ONLY at the adopt call (block
             # space), done by _dedupe_blocks there.
             return (_po, ordered, [], [], _bpo)
-        # ONE-ARM SHAPE (design 273): the identity exit must match
-        # the compressed exit's 5-tuple - OFF/pressure arms share a
-        # single execution model (objective semantics), and the
-        # in-pool duct poisoning came exactly from this split: 4 vs
-        # 5 unpack either silently misbinds st.row or raises.
-        return (ordered, ordered, [], [], q)
+        # IDENTITY MEANS DO-NOTHING (design 282): the court-martial
+        # unit law holds - a rebuilt row must be ENGINE BLOCK IDS.
+        # The old exit ordered pages into the row slot-space and the
+        # kernel read garbage; the 273 unification kept that poison
+        # and matched shapes made it live on BOTH arms (measured:
+        # reverting it restored the OFF arm to byte-exact health).
+        # Correct identity: keep the request's current native engine
+        # row and its true logical page sequence untouched.
+        _row282 = list(st.row or []) or list(ordered)
+        _log282 = list(getattr(st, "logical", ()) or ()) or list(ordered)
+        return (_row282, _log282, [], [], q)
 
     def _reselect_remobilize(self, req, pressure=False):
         if getattr(self, "d_mode", False) and __import__("os").environ.get(
