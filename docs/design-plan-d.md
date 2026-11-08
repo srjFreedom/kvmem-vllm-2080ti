@@ -1920,3 +1920,10 @@ skip=不重放只装视图 - 顺路）。
 - 152K 悬案现状: 页身份/单位/行宽三案已闭 (302/303/306), span 显示 want 恒含 needle 块页人群 (kept 有它时) 而答案仍坏 → **唯一开放案=真实 pool 场景 (needle 出窗 2254>1421) 的字节面**: 首读目标 = needle 出窗后的 install 行里它的 slot 指向哪 (d_rbv_early gate 卡死未出数 - 其条件 `getattr(self,"_ep_loud")` 恒 false 需查) + cmp NEEDLE tag 算术 (22*q→正确页域) 修。
 - 下轮双读: (1) d_rbv_early 门修亮出数 (phys_n vs want_n 的坍缩读数); (2) 真出窗代 (250K) cmp needle 页 live/canonical。任一有数即三分叉收窄。
 - 0 boot 5 深读触硬顶。ahead 241→242。引擎 nb23 代健康。
+
+## 310-311. Round 156/310 真针代终审: 双罪同庭实锤 - (A) needle 页 canonical 好 live=0 的写位案 ; (B) needle_score 跨刀单调衰亡 16.5→0.56 的 query 退化案
+
+- (A) 字节面终审: CF cmp 首次含 needle 页群 [2205..2209] live=0.0 canonical=104-107 - **store 规范字节健康 (harvest 写过且对)**, GPU 现槽是零 - 两择: 刀轮 evict 后 slot 归零未 restore (restore_n=0 在场!) 或 harvest 写进过又被清。**修法分叉 A1: restore_n 应等于出窗 cold 页数而非 0 - pool 线 (306 蓝图) 接回 store 拷贝是正解** - live=0 页=出窗 needle 页 - identity early 对出窗页给出 native slot 但 native slot 已被回收归零 (窗口 < 总页数的必然) - **identity 假设 (scheduler 永不回收 native 槽) 在视图窗口 < 全量时破了: 被回收的槽是 0 不是原字节 → 出窗页必须走 store restore** = 306 分流案的最后实证。
+- (B) 打分器衰亡: needle_score 33 刀 16.5→0.56 单调跌 (rank 10→60) - query 尾窗随 decode 移出问题带 (题 K 掉出 scoring query 人群) - 修向=题带 K 常驻打分 query (钉住 prompt_end 的 K 快照)。
+- 判决: 两罪并犯且互证 - 152K 真针代从"仪表假象"进入"具名双修"时代: A1 修 pool 分流 (蓝图 306 的 store-restore 支), B2 修 query 钉题带。计数战在双修后代重打。
+- 3 boots+2 发+11 静态 - 超支硬停止。ahead 244→245。引擎真针代健康。
