@@ -2109,6 +2109,13 @@ def register():
                     # DEFERRED: the entry survives untouched (no proof RPC, no discard)
                     # until the replay mode consumes it properly.
                     if not getattr(meta, "has_state", True):
+                        _append(_sched_cfg(scheduler).get("log")
+                                or "/tmp/kvmem_sparse.jsonl",
+                                {"kind": "resume_loop_gate",
+                                 "why": "dense-skip",
+                                 "rid": str(rid)[-6:],
+                                 "hit_blocks": int(blocks),
+                                 "has_state": bool(getattr(meta, "has_state", True))})
                         # Plan-C (C1) restore-type entries: pages-only, never
                         # skip-applied. DENSE-state entries (C2) apply normally -
                         # the worker adoption now derives the SAME implicit
