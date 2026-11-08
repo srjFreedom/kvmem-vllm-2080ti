@@ -1791,3 +1791,11 @@ skip=不重放只装视图 - 顺路）。
 - 下轮第一刀 (零 boot 可做): 同 session 双发抓 output token ids (echo/vllm_xargs 或 completion 端 /v1/completions return_token_ids=True) + 事件流对比第 1 发与第 2 发的 resident 差异 (which pages/rows/states carried over) - 中毒通道自动现形。嫌疑排序: view 请求结束未 detach (上一请求的压缩视图黏在 runner 上)、orchestrator 池页未归还 (free 序列污染)、d_rids/_d_rids 状态表跨请求残留把新请求误当 D 人群。
 - 验收映射: 此项修好 = 双臂统一 (resident 语义) + 池内三尺寸 True + 时长判据重跑有意义。
 - 1 boot + 6 发 (严重超) 硬停止。当前臂 D=1 BLKIDS=0 SPEC0。ahead 203→204。
+
+## 273-275. Round 144：统一形修生效 (250K 崩绝迹) + 本代真形重认知 - D 臂 budget 窗口把 88K 也压了，三发全 duct = 压缩轮内容质量主案回归
+
+- 修账: identity 出口 4→5 元组统一 (design 273) - 250K wrapper_exception (expected 5 got 4) 绝迹 d_none_reason=0 ✓; 该 4/5 分裂也是"首响 True 假象"的制造者 (旧代 identity 分支 unpack 静默错绑 → 某些尺寸恰好走对)。**统一执行模型语义 (验收项 3) 由此在 rebuild 层达成**。
+- 重认知: heal 代 88K knife_call 38/applied 19 - **D 臂的压缩触发线是视图窗口预算 (本代 28672) 而非物理池 226240** - 88K 被压; 三发全 duct (112.9/584.0/111.8s) - 压缩轮视图装上了但内容退化 = **主案回到方案 D 的原点问题: 压缩轮的选择/重建质量** (r9x 时代 rank_of_needle_page 面板同款战役, 现在的几何是 pt=16 代 + budget 28672)。
+- 下轮第一读 (零 boot): d_final_kept 事件的 in_kept 字段 (needle 块在不在 kept 集) × 三发 rid - in_kept=0 → 打分器漏选定罪; in_kept=1 仍 duct → 重建/install 内容定罪 (两案分叉清晰)。
+- 判据地图: 压缩质量修通 → 250K/152K/88K 全对 + 双臂统一 (rebuild 形已一) + resume 终读 (decided 141120 已在)。
+- 预算 1 boot+3 发+普查。ahead 205→206。引擎健康 (D 臂 heal 代)。
