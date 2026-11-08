@@ -1624,7 +1624,12 @@ class VllmSparseRuntime:
                     "pages_per_block": max(1, _bs20 // max(
                         1, int(self.page_tokens))),
                     "capacity_pages": int(expected),
-                    "has_state": payload.get("state") is not None,
+                    # design 264: state lives in the worker-local
+                    # archive now; its presence in the archive IS
+                    # has_state (the payload field stays None so no
+                    # wire ever carries tensors).
+                    "has_state": (_snap is not None and
+                                  len(_snap) > 1 and _snap[1] is not None),
                     "session_id": list(_owner20),
                     "request": str(req),
                     "rank": int(getattr(self, "tp_rank", 0)),
