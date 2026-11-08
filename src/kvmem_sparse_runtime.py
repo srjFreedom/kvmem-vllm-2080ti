@@ -1395,6 +1395,9 @@ class VllmSparseRuntime:
         try:
             st = self._state.get(req)
             if st is None:
+                if self.log is not None:
+                    self.log({"kind": "d_capture_gate", "gate": "st-none",
+                              "req": str(req)[-6:]})
                 return False
             ids = self._prompt_ids.get(req)
             if not ids:
@@ -1410,6 +1413,9 @@ class VllmSparseRuntime:
                 return False
             orch = self._orch.get(req)
             if orch is None:
+                if self.log is not None:
+                    self.log({"kind": "d_capture_gate", "gate": "orch-none",
+                              "req": str(req)[-6:]})
                 return False
             # FINAL HARVEST SWEEP v2 (design 212): the row only
             # carries the CURRENT VIEW - unselected middle segments
@@ -1525,6 +1531,11 @@ class VllmSparseRuntime:
                       "pages": len(pages), "expected": int(expected),
                       "complete": len(pages) >= expected})
             if not hashes or len(pages) < expected:
+                if self.log is not None:
+                    self.log({"kind": "d_capture_gate", "gate": "coverage",
+                              "req": str(req)[-6:],
+                              "hashes": len(hashes or ()),
+                              "pages": len(pages), "expected": int(expected)})
                 return False
             # STATE SOURCE (design 229): _dense_state_snap is bound by
             # the RETIRED seal machine - under Plan D it is never
