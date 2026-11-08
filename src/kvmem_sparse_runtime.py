@@ -2132,7 +2132,19 @@ class VllmSparseRuntime:
             # Decode: fold exactly the ACCEPTED rows of this step. The bridge kept them as rows
             # rather than bucket sums precisely because acceptance is decided after the step, and
             # each accepted token still has to land on the true frontier.
-            n = min(int(n), int(getattr(self, "_accepted_rows", 0) or 0))
+            # ACCEPT FOLD ONLY EXISTS WITH SPECULATIVE DRAFTS
+            # (design 278): _accepted_rows was written by the MTP
+            # accept hook; under spec0 nobody ever sets it, so the
+            # fold collapsed EVERY decode harvest to n=0 - the store
+            # silently starved, evicted pages carried no canonical
+            # bytes, and the installed view read zeros (the duct
+            # crime). Without drafts, every step is one accepted
+            # token by definition.
+            if getattr(self, "_draft_tokens", 0):
+                n = min(int(n), int(getattr(self, "_accepted_rows", 0)
+                                     or n) or n)
+            else:
+                n = min(int(n), 1)
         if int(getattr(self, "batch_size", 1) or 1) > 1:
             # One position offset is published per step; a batched step would attribute every
             # request's buckets to the same offset.
