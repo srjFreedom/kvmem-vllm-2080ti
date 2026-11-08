@@ -1885,3 +1885,9 @@ skip=不重放只装视图 - 顺路）。
 - 读数: d_byte_confront_error KeyError -1 @ store.get → enumerate(logical_pages) 出现 -1 → **install 视图带着无真位置的行** - kernel 读 -1 行 = 无效 slot = 内容毒 (答案形态随轮次变: river-deltas 综述 / The answer is 递归 - 都是读垃圾的表现)。针缺陷 (-1 未跳) 变福尔摩斯线索。
 - 落针三连: neg_rows 计数 + d_restore_short (done!=wanted) + 对质跳负 - 下轮一发 152K 三分叉: neg_rows>0 & short → restore 通道失败点定罪 (store 缺页/槽不够/orch raise 被吞); neg_rows>0 & short=0 → 页根本不在 _to_restore 人群 (hand-slot 分配漏); neg_rows=0 → -1 来自别处 (st.logical 上游)。
 - 判据账不变: N88 1/1 T; N152 0/2 (0/2 都是内容毒形态); resume 机制绿; 2 boots 触顶。ahead 230→231。引擎 confront2 代健康。
+
+## 300-301. Round 152: 单位法庭二轮自纠 (本代 3136 引擎块 - 原展开式自洽, 错修已 revert) + restore_n=0 断点钉到 hand-slot 分配线, 账针上膛
+
+- 读数链: CF{neg_rows=kept_n=1421/1568, restore_n=0, cmp=[]} + HARVEST{swept:2748, no_evidence:0, resident:81635} + overrow{pages:1568 visible:50176} → 本代 pt=32 q=98 引擎块宽 3136 tok → nb=23=71456//3136 与 pg=b*98+o 完全自洽 → **want 展开无罪**；罪在**非 resident 页的 hand-slot 分配产空** (restore_n=0) → to_restore 构造线读 evict 人群/槽池 - d_hand_slot 账针 (want_n/resident_hit/cold_need_hand) 已落码上膛。
+- 三分叉更新: cold_need_hand>0 而 restore_n=0 → hand 分配数学/池空定罪 (overrow 时代 evict 人群小于 cold 人群是明牌: 首刀无 incumbent 可 evict! resident 81635 tok=2551 页 vs want 4410 - 视图窗口只能容纳 1421-1568 页, **cold_need_hand 远超 hand 能力 = 容量真相**: 首刀人群 = res 集∩want, 其余页只能进 evict 后位… **这正是 D 窗口化的 R 页配额面** - 与 scheduler 页窗口协同缺失)。
+- 下轮: boot 账针代 → 152K 单发读 d_hand_slot 三数 → 定罪 hand 容量线 (修向=窗口化视图 want 人群裁到 hand 能力内 + 其余走 store 直读行?)。2 boots 触顶硬停止。ahead 233→235。引擎 fork 代健康。
