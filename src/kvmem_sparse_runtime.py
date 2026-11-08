@@ -5790,17 +5790,7 @@ class VllmSparseRuntime:
                 # The panel reports the cut point, the exclusion count and
                 # each top block's token span, so the effect is verifiable
                 # rather than inferred.
-                # QUERY WINDOW = WHOLE QUESTION (objective (5)):
-                # the user's full prompt text (question band)
-                # must take part in scoring with its true K -
-                # a 256-token tail window made an early needle
-                # block unrankable forever (measured qlo=46 vs
-                # needle block 23, top1=8, in_seq=0 with mid
-                # empty: the scorer simply never saw it).
-                _qlo_ids = getattr(self, "_prompt_ids", {}).get(req)
-                _qn = len(_qlo_ids) if _qlo_ids else 0
-                _q_lo_b = max(0, (int(_qn) - 4096) // _blk_real) \
-                    if _qn else max(0, (int(tokens) - 256) // _blk_real)
+                _q_lo_b = max(0, (int(tokens) - 256) // _blk_real)
                 _excl_n = 0
                 for gi, v in enumerate(core):
                     b = (gi * _sel_real) // _blk_real
