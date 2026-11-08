@@ -6230,8 +6230,8 @@ class VllmSparseRuntime:
                           (71456 if int(tokens) <= 160000 else 122458))
                 _nb304 = _mt304 // max(1, int(q) * max(1, int(pt)))
                 for lp in logical_pages:
-                    if int(lp) >= 0 and \
-                            int(lp) // max(1, int(q)) == _nb304:
+                    if int(lp) >= 0 and int(lp) // max(1, int(q)) \
+                            in (_nb304, _nb304 + 1):
                         _cf_p.append(int(lp))
                         if len(_cf_p) > 8:
                             break
