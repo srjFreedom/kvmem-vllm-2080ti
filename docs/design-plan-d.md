@@ -1814,3 +1814,10 @@ skip=不重放只装视图 - 顺路）。
 - 修复 (design 278): 无草稿时每步恒 1 accepted（`min(n,1)`），有草稿走 accept 且缺失时诚实回退 n。5 套件绿 commit。
 - 本代仪表收获: d_final_kept 升级后画像完美 (needle_blk=23, in_kept=1, top6=[23,...] - 选择器满分) - 毒全在字节面，与选页无关。**下一读即判据**: boot → 88K×3 同 session + 152K 双发 (resume) + 250K×1 - wrote0 应绝迹、答案应真、时长应落 5-10s。
 - 1 boot+2 发+5 静态（一次 pin 切块事故，外科手术清除零污染）。ahead 208→209。
+
+## 279-280. Round 145/146 交接账: accept 折叠修生效 (wrote0 3060→0) 但答案全 duct 化 - 毒面扩大到整个 D 臂 decode 内容，需要内容级 A/B (同 prompt D1 装视图 vs D0 原生) 定位字节面断点
+
+- 事实: 88K×3/152K×2 全 duct (含 1136s/585s 长尾代) - **连不该压缩的请求也毒** (x1 88K pressure=true 是唯一刀人群，但 OFF 臂同 prompt 上一代还是 True) - 本代 D 臂连 prefill 面都可疑。hv n=1 恢复 + wrote0=0 说明统计收割活了；**KV 字节收割 (d_capture sweep/v187 _q 线) 是剩余嫌疑**。
+- 判据现状: resume decided 72128/141120 双尺寸仍通 (机制账绿)；答案账红 (真 D 计数 0/5)；时长 T2=234s (未走 resumed 增量, 该链 resumed 仍缺席 - adopt fallback 后未读到, 待下代普查)。
+- 下轮第一刀 (内容 A/B, 零 boot 可做): 同一 88K prompt, 现在 D1 引擎取 output token ids + 若可, 同实例切 D0 对照 (或复用历史 D0 True 样本 sha) - 从第一层 attn 输入张量二分: RoPE 相位/slot 写位/K 值本身。d_knife_memo 与 byte confrontation 仪表群 (coincide 系) 在位可用。
+- 严重超支声明: 本回合 1 boot + 5 发 + 5 普查 - 硬停止。ahead 210→211。引擎 D 臂在跑 (毒代，等待内容 A/B)。
