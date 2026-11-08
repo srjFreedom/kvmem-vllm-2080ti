@@ -1701,3 +1701,11 @@ skip=不重放只装视图 - 顺路）。
 - 修复: worker dict `d_knife:True` (命令行装配不过滤) + wiring `cfg.get("d_knife") or env fallback` - 全进程统一真值。
 - 下轮一发: T1 谱 {knife_call/applied/add_trace/安装门/reach/direct} 应齐现; T2 decided 深度+时长终读。
 - 2 boots 触顶。引擎 N152-T1 True。ahead 181→182。
+
+## 256. Round 137 终案: /etc/default 17 条 KVMEM_PLAN_D=0 追加污染 (systemd 取末=0) - 真病根是配置卫生，不是 env 过滤理论
+
+- 铁证: 命令行 `"plan_d":false` + 文件 grep 显示 KVMEM_PLAN_D 出现 17 次全 =0 (每轮"boot 实验臂"的 >> 追加被每轮"恢复生产"的 sed 改成 0 - 追加行永远在最底部但 sed 把**全部**改成 0，包括最底行) → 末行=0 → systemd 取 0 → dict False → d_mode 全线 False。
+- **判决**: 过去多代"applied=14/kept 装针/3T 读数"来自 d_mode 偶真代 (早期 sed 只改首行的年代或 wiring execute_model 覆写路径抢跑)；cfg-channel 修复本身正确 (d_knife:true 已达命令行)，plan_d 只差一条干净的 1。
+- 处置: 文件去重规范化 (17→13 行, PLAN_D=1/SPEC=0/BLKIDS=1/D_KNIFE=1 各一)；新条律: **追加前先删同名旧行** (boot 臂模板改造)，每轮 boot 用同一原子块。
+- 下轮: boot → 谱应首次真绿 (knife_call/applied/安装门/reach/direct) → T2 深度与时长终读。
+- ahead 183→184。零 boot 本轮。
