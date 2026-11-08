@@ -1,0 +1,8 @@
+{
+  "tokenizer_prompt_tokens": 74994,
+  "pool_tokens": 60000,
+  "needle_prefix_tokens": 37464,
+  "needle_fraction": 0.4995599647971838,
+  "expected": "ZX-4417-QJ7",
+  "request": "tools/battery/needle_88k.request.json"
+}

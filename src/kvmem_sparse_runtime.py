@@ -2514,8 +2514,8 @@ class VllmSparseRuntime:
             return
         _seen[req] = _k + 1
         try:
-            _mt = 40471 if int(st.tokens) <= 80000 else (
-                71534 if int(st.tokens) <= 150000 else 112590)
+            _mt = 37464 if int(st.tokens) <= 80000 else (
+                71456 if int(st.tokens) <= 150000 else 122458)
             _pg = _mt // max(1, int(self.page_tokens))
             _lg = [int(x) for x in (st.logical or ())]
             _pos = _lg.index(_pg) if _pg in _lg else -1
@@ -2533,7 +2533,7 @@ class VllmSparseRuntime:
             # kernel actually addresses the needle page and where it
             # writes the newest tokens, using the engine's own
             # cache_config.block_size (never the worker pt assumption):
-            #   read:  engine block of token 40471 = 2529(bs16)//bs,
+            #   read:  engine block of token 37464 = 2529(bs16)//bs,
             #          slot row[that idx]; needle correct iff that
             #          slot value == 2529 (or 1264 at bs32).
             #   write: rank expected = (tokens // pt) as view rank ->
@@ -2556,7 +2556,7 @@ class VllmSparseRuntime:
                 _eng_bs = _cand[0] if _cand else -1
             except BaseException:
                 pass
-            _true_pg = 40471 // max(1, _eng_bs) if _eng_bs > 0 else -1
+            _true_pg = 37464 // max(1, _eng_bs) if _eng_bs > 0 else -1
             _slot_at_true = (_rowv[_true_pg]
                              if _eng_bs > 0 and 0 <= _true_pg < len(_rowv)
                              else -3)
@@ -2950,8 +2950,8 @@ class VllmSparseRuntime:
         # that matters) always early-returned, leaving coincide3 silent
         # while enter fired (enter precedes the latch check). Latch
         # only on a call whose view actually contains the needle page.
-        _pg0 = ((40471 if int(st.tokens) < 80000 else
-                 (71534 if int(st.tokens) < 160000 else 112590))
+        _pg0 = ((37464 if int(st.tokens) < 80000 else
+                 (71456 if int(st.tokens) < 160000 else 122458))
                 // max(1, int(self.page_tokens)))
         # LATCH v3 (design 184): key by (rid, stage) - the MID view
         # ALSO contains the needle page after the page-completion fix,
@@ -2965,8 +2965,8 @@ class VllmSparseRuntime:
             return
         try:
             _tk = int(st.tokens)
-            _mt = 40471 if _tk < 80000 else (71534 if _tk < 160000
-                                             else 112590)
+            _mt = 37464 if _tk < 80000 else (71456 if _tk < 160000
+                                             else 122458)
             _q_blk = max(1, int(getattr(self, "block_pages", None)
                                  or getattr(self, "pages_per_block",
                                             49) or 49))
@@ -2980,8 +2980,8 @@ class VllmSparseRuntime:
             # "enter without event" finally names the dead line.
             if self.log is not None and getattr(self, "_rt_loud", 0) < 8:
                 self._rt_loud = getattr(self, "_rt_loud", 0) + 1
-                _pgq = ((40471 if int(st.tokens) < 80000 else
-                         (71534 if int(st.tokens) < 160000 else 112590))
+                _pgq = ((37464 if int(st.tokens) < 80000 else
+                         (71456 if int(st.tokens) < 160000 else 122458))
                         // max(1, int(self.page_tokens)))
                 self.log({"kind": "d_bc3_route", "req": key,
                           "pg": _pgq, "in_lpg": _pgq in [int(x) for x in _lpg],
@@ -4871,8 +4871,8 @@ class VllmSparseRuntime:
                 self._sp_loud = getattr(self, "_sp_loud", 0) + 1
                 _bt_ok = max(1, int(q) * max(1, int(pt)))
                 _tk0 = int(st.tokens)
-                _mt_marker = (40471 if _tk0 <= 80000 else
-                              (71534 if _tk0 <= 160000 else 112590))
+                _mt_marker = (37464 if _tk0 <= 80000 else
+                              (71456 if _tk0 <= 160000 else 122458))
                 _nbx = _mt_marker // _bt_ok
                 _blk_pages = {b: [b * int(q) + o2 for o2 in range(int(q))
                                   if b * int(q) + o2 < n_pages]
@@ -4929,8 +4929,8 @@ class VllmSparseRuntime:
             # AFTER the return (a later writer of st.logical).
             if self.log is not None and getattr(self, "_ep_loud", 0) < 6:
                 self._ep_loud = getattr(self, "_ep_loud", 0) + 1
-                _nb = (40471 if int(st.tokens) <= 80000 else (
-                       71534 if int(st.tokens) <= 160000 else 112590)
+                _nb = (37464 if int(st.tokens) <= 80000 else (
+                       71456 if int(st.tokens) <= 160000 else 122458)
                        ) // (max(1, int(q)) * max(1, int(pt)))
                 _span = [pg for pg in ordered
                          if _nb * int(q) <= pg < (_nb + 1) * int(q)]
@@ -5686,13 +5686,13 @@ class VllmSparseRuntime:
                         # or 1616 by boot generation) - the "needle block
                         # 39/69, rank 22/52" story was a unit error IN THE
                         # PANEL. Marker token positions measured: 88K ->
-                        # 40471, 152K -> 71534, 250K -> ~112590. Divided
+                        # 37464, 152K -> 71456, 250K -> ~122458. Divided
                         # by the REAL block span, those land at 25/44/69-
                         # - exactly blocks 25 and 45 already visible as
                         # top1/top3 in the same events. Retrieval was
                         # never the failure on either size.
-                        _mt = 40471 if int(tokens) <= 100000 else (
-                            71534 if int(tokens) <= 160000 else 112590)
+                        _mt = 37464 if int(tokens) <= 100000 else (
+                            71456 if int(tokens) <= 160000 else 122458)
                         _nb2 = int(_mt) // _blk_real
                         _core0 = [int(b) for b in order[:8]]
                         _nz = sum(1 for _v in core if _v == _v)
@@ -5907,8 +5907,8 @@ class VllmSparseRuntime:
                 # with room 10->?; seq identity visible at last.
                 if self.log is not None:
                     try:
-                        _mtz = 40471 if int(tokens) <= 80000 else (
-                            71534 if int(tokens) <= 150000 else 112590)
+                        _mtz = 37464 if int(tokens) <= 80000 else (
+                            71456 if int(tokens) <= 150000 else 122458)
                         _nbz = _mtz // max(1, int(block_tokens))
                         self.log({"kind": "d_after_fill", "req": str(req)[-6:],
                                   "pressure": bool(pressure),
@@ -5941,8 +5941,8 @@ class VllmSparseRuntime:
             kept.append(nxt)
         if self.log is not None:
             try:
-                _mtk = 40471 if int(tokens) <= 80000 else (
-                    71534 if int(tokens) <= 150000 else 112590)
+                _mtk = 37464 if int(tokens) <= 80000 else (
+                    71456 if int(tokens) <= 150000 else 122458)
                 _nbk = _mtk // max(1, int(block_tokens))
                 _kl = sorted(int(x) for x in kept)
                 self.log({"kind": "d_final_kept", "req": str(req)[-6:],
@@ -6130,7 +6130,7 @@ class VllmSparseRuntime:
         st.spare = None
         # coin (design 36, rebuilt after an indent-damaged insert was
         # restored): membership of the needle page in the installed view,
-        # in PAGE coordinates (40471 // page_tokens), NOT block math - the
+        # in PAGE coordinates (37464 // page_tokens), NOT block math - the
         # first coin read 0 because it multiplied 39*64 as if logical pages
         # were block ids; corrected it reads needle_in_view=1 ALWAYS: the
         # blade has been innocent since long before this round.
@@ -6140,7 +6140,7 @@ class VllmSparseRuntime:
         if self.log is not None and str(req)[-6:] not in _rcs:
             _rcs.add(str(req)[-6:])
             _ptq = max(1, int(self.page_tokens))
-            _pg0 = 40471 // _ptq
+            _pg0 = 37464 // _ptq
             _lgm = [int(x) for x in (st.logical or ())]
             self.log({"kind": "d_tql_coin", "site": "remobilize-install",
                       "req": str(req)[-6:], "needle_page": _pg0,
