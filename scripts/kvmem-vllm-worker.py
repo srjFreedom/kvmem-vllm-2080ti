@@ -107,6 +107,7 @@ def build_config(a) -> dict:
         # process (scheduler + each TP worker) sees the same
         # truth - env vars alone reach the systemd process only.
         "plan_d": os.environ.get("KVMEM_PLAN_D", "") in ("1", "true", "yes"),
+        "d_knife": True,
         "install": True,
         "budget_tokens": a.kvmem_budget,
         "gen_reserve_tokens": a.kvmem_gen_reserve,

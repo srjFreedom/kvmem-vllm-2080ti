@@ -793,8 +793,16 @@ def _attach_sparse(runner, log_path):
             # creation: the publish guard inside quiescent_compact reads d_mode
             # from the first knife onward, and creation-time-only setting
             # raced with it (measured: tables=0 across a full battery).
-            runtime.d_mode = bool(cfg.get("plan_d")) and \
-                (os.environ.get("KVMEM_D_KNIFE", "") in ("1", "true", "yes", "on"))
+            # CONFIG-CHANNEL FLAG (design 254): vLLM spawns workers
+            # with a FILTERED environment (module header note) - the
+            # env AND-term could only ever be false on the worker
+            # RPC face, keeping d_mode off exactly where prepare/
+            # capture/knife gates run. additional_config reaches
+            # every process natively; env remains a fallback for
+            # the main process only.
+            runtime.d_mode = bool(cfg.get("plan_d")) and (
+                bool(cfg.get("d_knife")) or
+                os.environ.get("KVMEM_D_KNIFE", "") in ("1", "true", "yes", "on"))
             if runtime.prefill_pressure:
                 # prefix mode PROPOSES NOTHING to Core (retirement reporting only); the
                 # pressure watermark trigger needs the real blockwise proposal channel.
