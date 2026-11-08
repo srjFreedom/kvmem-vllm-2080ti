@@ -1904,3 +1904,11 @@ skip=不重放只装视图 - 顺路）。
 - 读数: 三代 CF cmp 恒 pages 0-3 (live 104-127 vs canonical 108-109 ✓✓) 而 needle 页缺席 - 定罪采样式 `//3136 floor=22` ≠ 面板 ceil 形 23 - 修: 采样覆盖 (22,23) 双块。针修正已 commit (纯仪表零风险)。
 - 排除进度: 视图行无 -1 ✓、resident 头字节健康 ✓、want 展开单位 ✓ (303 拆门) - 若下轮 needle 页 live≈0 → store 该页从未写规范字节 (harvest 覆盖线补刀)；若 live≈canonical 同坏 → harvest 源已错；若都好 → 转向视图装填后 kernel 读取面 (row 宽 law 1421 vs want 869)。
 - 1 boot+1 发+1 针修。ahead 238→239。引擎 304 代健康。
+
+## 305-306. Round 154/155 交接蓝图: 内容毒最终画面 - identity early 的 native-slot 假设只在窗口≥最大页 rank 时成立；超窗刀必须走 (已修好单位的) pool 重排线 - 按窗分流方案定形
+
+- 终像推导 (读码 5064-5080 + 三代读数): identity early 用 `pg - pg%q` (页的 native 引擎块) 当行槽 - 池内/全量视图成立 (88K True ✓)；152K: want 含 needle 页 rank≈2254 > 视图行宽 1421 → **行无该位 → 永不入 kernel** - cmp 只出 pages 0-3 正是"窗口只盖住低 rank 页"的投影。303 把 pool 线整弃 → 超窗人群无家可归 - **弃线弃错了对象: pool 分配正是超窗刀的执行体** (其 res_slot 单位病 302 已修)。
+- 定形修复 (下轮动土): _rebuild_view 按 `max(want) < 行宽` 分流 - 池内 identity early (现状)；超窗 → 修好的 pool 重排线 (want 序列→行 rank 顺排, slot 来自 evict/hand 池, restore 从 store 拷真字节) - 即不变量(2)原文"写地址滚动复用 + store 规范真位置"的双面执行。
+- 仪表补刀: cmp 的 NEEDLE tag 算术错 (22*44→应 22*q) - 顺手修 (纯仪表)。
+- 判据账: N88 1/1 T；N152 0/3 (全在视图未到位期)；resume 机制绿；分叉树重开 (identity 装对后 250K/152K 的 needle 页应可进 kernel)。
+- 3 boots 严重超支硬停止。ahead 240→241。引擎 nb23 代健康。
