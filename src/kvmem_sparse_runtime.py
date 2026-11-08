@@ -5817,7 +5817,7 @@ class VllmSparseRuntime:
                 # needle-bearing block RANKED at all (score path broken) or
                 # merely not SELECTED (room/kept path broken)? The question
                 # is exactly this split; measure, do not argue.
-                if (not bool(pressure)) and self.log is not None:
+                if self.log is not None:  # BOTH arms fire (287)
                     try:
                         _nb = int(tokens // 1024)  # needle-adjacent block guess
                         # INSTRUMENT RECALIBRATION (design 80): earlier
