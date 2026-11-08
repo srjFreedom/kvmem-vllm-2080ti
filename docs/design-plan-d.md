@@ -1747,3 +1747,9 @@ skip=不重放只装视图 - 顺路）。
 - 时长注记: 本代 T1 204.3s (比 188 代 341.9 回落 - capture 开销差异待查不追), T2 346.9s (命中后走冷+额外 gate 时间)。
 - 下轮一发: T1+T2 → geometry/no-executor 事件点名第三道静默门 → 修通 → decided hit=141120 → resumed → **时长终读**。
 - 预算 1 boot + 2 发 + 静态。ahead 191→193。引擎健康。
+
+## 264b. Round 141 终落: dense-skip 门 (has_state False 即弃) 出声修正上盘
+
+- 真凶确认路径: found 后三个 continue 中唯一可能 = 2111 `if not getattr(meta,"has_state",True): ... continue` (Plan-C 遗产: restore 档无 state 就整支弃 - 直采 payload 从未带 has_state 字段 → False → 永远 skip)。本回合两次缩进失手 (parse 拦截零污染) 第三次按体缩进落定。
+- 修法预告 (下轮): direct capture meta 加 `has_state: state 在本地档案即为真` (capture 端 meta.update({"has_state": _snap is not None}) 一行) → 该门放行 → geometry/proof/decided 连串读数。
+- 2 boots (bash-123+本回合修未 boot) + 3 静态。ahead 193→196。引擎 T1 204.2 真 D 健康。
