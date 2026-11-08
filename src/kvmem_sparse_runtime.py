@@ -1451,7 +1451,20 @@ class VllmSparseRuntime:
                 # the arithmetic restore uses.
                 try:
                     _row4 = [int(x) for x in (st.row or ())]
-                    _w4 = max(1, int(getattr(self, "block_pages", 0) or 49))
+                    # PAGES-PER-BLOCK FROM THE ENGINE (design 240): the
+                # hardcoded 49 was the pt=32 generation's arithmetic;
+                # under pt=16 the engine page is 1568/16=98 worker
+                # pages - with 49 the sweep under-populated the store
+                # (complete=false) so the 90-block archive never
+                # existed and decided fell to the stale 16-block
+                # archive (hit=25856, only 23s saved).
+                    _bpp4 = max(1, int(self.page_tokens))
+                    try:
+                        _ebs4 = int(self.view.block_sizes[0])
+                    except Exception:
+                        _ebs4 = _bpp4 * 49
+                    _bp4 = int(getattr(self, "block_pages", 0) or 0)
+                    _w4 = _bp4 if _bp4 > 0 else max(1, _ebs4 // _bpp4)
                     for _j4, _b4 in enumerate(_row4):
                         if _b4 <= 0:
                             continue
