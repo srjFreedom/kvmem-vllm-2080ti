@@ -5134,9 +5134,15 @@ class VllmSparseRuntime:
             _rest312 = 0
             try:
                 _paged312 = self.view.paged_kv()
+                # BLK-IN-ROW DOES NOT MEAN BYTES-INTACT (design
+                # 314): the engine reuses a request's own blocks
+                # for its newest pages - an old page's native
+                # block can stay inside st.row while its bytes
+                # were long overwritten (needle live=0 despite
+                # blk 45 << rowdom 1666). Canonical replay for
+                # ALL kept pages is idempotent pure copy - the
+                # honest cost of invariant (2).
                 for _pg312, _blk312 in zip(ordered, _po):
-                    if int(_blk312) in _rowdom:
-                        continue
                     _lay312 = orch.store.get(int(_pg312))
                     if not _lay312:
                         continue
@@ -5252,9 +5258,15 @@ class VllmSparseRuntime:
             _rest312 = 0
             try:
                 _paged312 = self.view.paged_kv()
+                # BLK-IN-ROW DOES NOT MEAN BYTES-INTACT (design
+                # 314): the engine reuses a request's own blocks
+                # for its newest pages - an old page's native
+                # block can stay inside st.row while its bytes
+                # were long overwritten (needle live=0 despite
+                # blk 45 << rowdom 1666). Canonical replay for
+                # ALL kept pages is idempotent pure copy - the
+                # honest cost of invariant (2).
                 for _pg312, _blk312 in zip(ordered, _po):
-                    if int(_blk312) in _rowdom:
-                        continue
                     _lay312 = orch.store.get(int(_pg312))
                     if not _lay312:
                         continue
