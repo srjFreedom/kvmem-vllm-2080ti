@@ -1858,3 +1858,10 @@ skip=不重放只装视图 - 顺路）。
 - 落针: d_law_pin{in_seq,pos,suffix_mode,room,mid_n,order_top1} 在 `_seqn = len(_seq)` 后 (法块终点)，3 套件绿 commit。
 - 下轮 (1 发 152K): law_pin 读数三分叉 - suffix_mode=1 且 pos=-1 → 法负切片挤出定罪 (修法=r96 语义下给 order 段保底真 top (room 与 mid 的分配以 in_seq 为判据重推)); pos≥0 → 法内其实有 needle 但 install 丢 → 字节面转回 restore; score 持续漂 → 打分窗钉住 query 尾修法上盘。
 - 1 boot+1 发+深静态。ahead 219→220。引擎 panel 代健康 (D=1)。
+
+## 291. Round 149：law 针三分叉一步定谳 - 纯 top10 里 needle 永不出头 = 打分 query 窗只有 256 tok 尾巴 (qlo=46 > nb=23)
+
+- 读数 (16 事件全一致): suffix_mode=0, mid_n=0 (无 incumbent 干扰), room=10, order_top1=8, in_seq=0 pos=-1 - **法无罪 (纯 order[:room] top-k)，打分器无罪 (按它可见的 query 打分)，罪在 query 覆盖**: `_q_lo_b=(tokens-256)//64=46` - 块 23 的 K 从来不在打分窗人群里 - rank 14-17 是 remobilize 面板另一条路径的数字，与此一致 (块23 只能吃泛化相似度分，永远争不过真相关块)。
+- 修复 (objective (5) 语义): 打分 query = **问题带全文** (prompt_ids 尾段 4096 tok 窗, 覆盖 user 问题全长)，替代 256 尾巴 - 5 套件绿 commit。
+- 下轮 152K 单发: law_pin 应翻 in_seq=1 (needle 进 top10) + d_final_kept in_kept=1 + 答案首真 (刀代编造型消失) - 计数战第二轮正式开打 (152K 冷先行)。
+- 1 boot+1 发+定罪修复。ahead 221→222。引擎 law 代健康。
