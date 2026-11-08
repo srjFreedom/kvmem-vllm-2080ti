@@ -1768,3 +1768,11 @@ skip=不重放只装视图 - 顺路）。
 - adopt found:false 澄清: decided/resume 消费在 scheduler 侧已闭环 (19.2s 实证前缀跳过)，worker adopt 支是并行尝试非必经 - 降级为观察项。
 - 下轮主战场转移: **选页质量** - d_dvp 面板 rank_of_needle_page 在 88K/152K 真 D 代重读 + 打分窗覆盖检查 (needle 页的 K 是否进过 scorer)。计数战: 88K×3 起。
 - 本回合账: 2 boots+8 发 (远超) 硬停止。ahead 199→200。引擎真 D 健康。
+
+## 269. Round 143 几何重核: 池=226240 - **88K/152K 都在池内 (resident 臂，零压缩)** - duct 退化是 resident D 臂 bug，与选页无关；池上场景只有 250K
+
+- 数据: device_pool pages 14140×pt16=226240 tokens - 88K(74994)/152K(142978) 均 <池 → 该代际**不触发压缩** (MEMORY"池内不压缩"定律) → needle 理应恒对 (纯 resident attention) - 实测 duct×N/`-4417-QJ7` = **resident 臂核心缺陷** (D=1 时的 1076 bypass 或 BLKIDS 表通道嫌疑)。
+- 验收重定位: ①needle 全对的池上测试 = 250K (唯一 >226240)；②88K/152K 在本机几何是**双臂统一性**测试 (OFF==D 同答案) - duct bug 正是统一性缺口的实证。
+- 判別实验 (下轮一发): 同 88K prompt，D=0 vs D=1 各一发 - D=0 True/D=1 duct → 定罪 D 臂 resident 改动；两皆 duct → 定罪引擎/模型代际 (与 D 无关)。
+- resume 战果保持: decided 141120 + 19.2s×2 sha 稳 (机制达成账不变)。
+- 0 boot+2 静态。ahead 200→201。
