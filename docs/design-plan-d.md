@@ -1872,3 +1872,10 @@ skip=不重放只装视图 - 顺路）。
 - 归位: 病=**刀轮 install 后 needle 块的 KV 字节** (store 页写入/restore 拷贝/RoPE 相位) - **字节取证仪表 286 (d_store_probe sweep/restore 双针) 本轮起将在位出数** - 下轮一发 152K 读 probe: sweep mean≈0 → harvest 写零页 (store 面修) ; restore mean 好而视图坏 → install/相位面修。
 - 计数战新基准 (新电池): 88K 1/1 True；152K 0/1 待字节面；250K 未测。
 - 2 boots+5 发+电池手术 - 超支硬停止。ahead 226→227 (本 commit)。引擎中性代健康 (D=1)。
+
+## 295-296. Round 150 字节毒机制定形: 刀轮 resident 判据过时 → needle 页免 restore → install 引用已被占用的 slot = 读他人字节
+
+- 探针终审席读数: sweep probe 0 + restore probe 0 同框 - 前者正常 (capture complete:true, store 4410 页由常规 harvest 写满, sweep 保险未入块) - **后者定罪: blockwise 刀对 kept 页的 "resident keep slot" 分支吃满了 restore_pages_batch 的全部人群, 而 prefill 期 needle 页的 slot 早在后续轮次被回收复用 - 页号在 usable 集合≠slot 还属于该页**。
+- 修复定形 (objective (2) 原文判据): 淘汰页的 restore 是**规范真位置的拷贝义务** - resident 判据必须查 `_slot_owner[slot]==req∧page` (或等价的页→slot 双向一致表), 判据失配一律走 restore_pages_batch - 改动在 _rebuild_view 的 resident/keep 分支与 harvest slot 认领线, 先离线用例 (synthetic: 页 harvest→slot 被他页占用→rebuild 必 restore) 后活体。
+- 判据账: N88 1/1 T / N152 选页 rank1-2 满分 0/1 (待此修) / resume 机制绿 / 计数战在修复打。
+- 1 发+5 深读 (零 boot - 中性树直接读探针)。ahead 227→228。引擎中性代健康。
