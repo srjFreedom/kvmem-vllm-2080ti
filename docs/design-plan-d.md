@@ -1633,3 +1633,11 @@ skip=不重放只装视图 - 顺路）。
 - 新 SOP（入档）: **任何大载荷代卡死，重启前必须 `py-spy dump` 双 worker 全栈** - 本回合因 py-spy 未装丢失现场（已装进 vLLM venv，下次可用）。
 - 验收计数: B88 1/1、B152 1/1（新电池）；B250 未测（该代池 226240 对 244982 仅超 8% - 换 pt=32 代再测）。
 - 2 boots+事故处置。ahead 164→165。
+
+## 240-241. Round 133：resume 消费确认活着 (resumed×2 state:true)，深度仍卡 16 块档 - 动态宽度落地但 90 块档画像未集齐
+
+- 事故主线: 字符串手术三轮切不中坏块 (多行 or/if/else 表达式)，一次坏文本被 commit+boot (服务 crash-loop 一次，无数据损失)；终以**精确行内容匹配**修复 (删 5 行插 7 行, parse 先于 write) - 5 套件绿 amend 覆盖 (9d50bf9)。教训入律: **多行表达式改动 = 直接按行内容删插，禁用 replace 猜测**。
+- 读数: T1 250.0s T；T2 226.7s T，`session_resumed{hit:25856, state:true}×2` - 消费链活着（236 代首次 resumed 复证），但深度还是 16 块旧档 - 90 块新档要么没建 (capture/sweep 事件未集齐，本回合时间盒) 要么注册链断。
+- 下轮第一动作 (纯离线 5 分钟): 按 T2 rid 集齐 d_capture_direct{complete}/d_final_harvest_sweep{swept}/d_worker_park 三事件画像 - 若 complete=false → sweep 数学对 pt=16 代仍不足 (8820 页期望 vs 池 14140 - 查 usable_pages 过滤与 store 覆盖)；若 true 而无 park 事件 → publish 链最后一段。
+- 时长现状: T2 省 23s (250→227) - 判据 5-10s 还差 90 块深度这一档 (141120/142978=98.7% 前缀跳过)。
+- 预算 2 boots 触顶。工作树干净。引擎健康 (T1 True)。ahead 166。
