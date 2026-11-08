@@ -1927,3 +1927,9 @@ skip=不重放只装视图 - 顺路）。
 - (B) 打分器衰亡: needle_score 33 刀 16.5→0.56 单调跌 (rank 10→60) - query 尾窗随 decode 移出问题带 (题 K 掉出 scoring query 人群) - 修向=题带 K 常驻打分 query (钉住 prompt_end 的 K 快照)。
 - 判决: 两罪并犯且互证 - 152K 真针代从"仪表假象"进入"具名双修"时代: A1 修 pool 分流 (蓝图 306 的 store-restore 支), B2 修 query 钉题带。计数战在双修后代重打。
 - 3 boots+2 发+11 静态 - 超支硬停止。ahead 244→245。引擎真针代健康。
+
+## 314-315. Round 157/315: A1 进化三段 (None 形参 OOM 风暴 → rowdom 假热 → 全量补拷) 终局读数 written 343 但 needle 页不在 ordered 人群 - want 域证人上膛
+
+- 三段皆实录: (1) rowdom 读 None 形参 → 全判冷 → copy 风暴 OOM 611.6s 零装; (2) 修 st.row 后 written=196 - **blk∈row 不代表字节在** (engine 同请求块复用, needle blk45 判热漏拷 live=0); (3) kept 全量补拷 (幂等纯拷贝=不变量 2 的诚实代价) - written=343 ✓ 拷贝线活了, 但 pages=834 的 ordered 人群**本就不含 needle 页** (want 由 kept 块展开, kept 又由分数人群裁 - 分数衰亡案 B2 此刻升为主犯: needle 块在打分窗漂移后出 kept → want 无它 → 补拷无从补起)。
+- 证人 d_want_domain{in_ordered, needle_page, first/last} 已落 (3 套件绿) - 下轮: (a) 读数确证 in_ordered=0 (want 域外) → (b) B2 动工: 打分 query 钉 prompt 完成时刻的题带 K 快照 (mean_checkpoint 已有, 缺"题带常驻 query 人群")。
+- 计数战: N152 冷 3/3 duct (identity 装对字节半案毕, 剩 want 域案)。3 boots+3 发+6 静态。ahead 248→249。引擎补拷代健康。
