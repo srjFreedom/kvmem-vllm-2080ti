@@ -1891,3 +1891,10 @@ skip=不重放只装视图 - 顺路）。
 - 读数链: CF{neg_rows=kept_n=1421/1568, restore_n=0, cmp=[]} + HARVEST{swept:2748, no_evidence:0, resident:81635} + overrow{pages:1568 visible:50176} → 本代 pt=32 q=98 引擎块宽 3136 tok → nb=23=71456//3136 与 pg=b*98+o 完全自洽 → **want 展开无罪**；罪在**非 resident 页的 hand-slot 分配产空** (restore_n=0) → to_restore 构造线读 evict 人群/槽池 - d_hand_slot 账针 (want_n/resident_hit/cold_need_hand) 已落码上膛。
 - 三分叉更新: cold_need_hand>0 而 restore_n=0 → hand 分配数学/池空定罪 (overrow 时代 evict 人群小于 cold 人群是明牌: 首刀无 incumbent 可 evict! resident 81635 tok=2551 页 vs want 4410 - 视图窗口只能容纳 1421-1568 页, **cold_need_hand 远超 hand 能力 = 容量真相**: 首刀人群 = res 集∩want, 其余页只能进 evict 后位… **这正是 D 窗口化的 R 页配额面** - 与 scheduler 页窗口协同缺失)。
 - 下轮: boot 账针代 → 152K 单发读 d_hand_slot 三数 → 定罪 hand 容量线 (修向=窗口化视图 want 人群裁到 hand 能力内 + 其余走 store 直读行?)。2 boots 触顶硬停止。ahead 233→235。引擎 fork 代健康。
+
+## 302-304. Round 153 里程碑: identity physics 成为唯一模型 (双 BLKIDS 门拆除) - neg_rows 根除、resident 字节同标度实证， needle 页专针上膛
+
+- 定罪链终章: 账针三数 (want:869 resident_hit:0) + 消费线 res_slot 单位错配 (page 键 × 块行) + **5068/5155 双 identity 门挂 KVMEM_D_BLKIDS env - 生产形启动旗标为假 → 全程走 rewind-era 池分配弃线 = -1 行的出生地**。design 100 的 identity physics 注释早已写明正道 (页字节永驻真引擎槽，restore 结构上不需要)，旗标化是历史遗留 - 按"不留兼容"拆除。
+- 303 代读数 (1 boot): neg_rows 0/0/0 ✓✓、cmp live 104-127 vs canonical 108.6-109.3 同标度 ✓ (resident 头健康)、答案仍 duct 218.1s → 剩唯一问号 = **needle 块页的字节在场性** (cmp 未抽样到它) - 304 专针 (强制 needle 块页进对质集) 已落码 3 套件绿 commit。
+- 下轮一发: [nb304 pages live/canonical] 直接读数 - 分叉: live≈0 而 canonical 好 → store 该页从未写规范字节 (harvest 线补刀); live≈canonical 都坏 → 该段 harvest 写入时 GPU 源已错 (相位/写位案回归); 都好 → 视图行装对了但 kernel 读序/长度案 (row width law 对质 overrow 1421 vs want 882)。
+- 2 boots 触顶。ahead 236→237。引擎 303 代健康。
