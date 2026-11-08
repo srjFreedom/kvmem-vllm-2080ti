@@ -1835,3 +1835,11 @@ skip=不重放只装视图 - 顺路）。
 - 真修 (design 282): identity = DO-NOTHING - 返回 st.row 原生引擎块行 + st.logical 页序真值，不再重排; 形状保持 5 元组 (与压缩出口统一 - 目标语义不变)。
 - 验证剧本 (下轮 D1): 88K×3 同 session (应全 True) → 152K T1/T2 (decided 141120 + resumed 应现 + 时长) → 250K×1 - 计数战正式开张。
 - 2 boots+2 发+定谳。ahead 212→213。当前臂 D=0 (验证 OFF 复健后)，下轮 arm_boot D=1。
+
+## 284-285. Round 147 计数战第一轮账 (零 boot): 88K 冷 2/2 True；刀代 152K/250K 冷 False；resume 机制 42.8s 增量已活；全 False 输出 sha 同值=确定退化文本
+
+- 账: x1 88.2 T / x2 87.1 T / x3 31.8 F (resume 命中继承坏档) / 152K 冷 413.6 F / 152K T2 42.8 F (9.7x 增量 ✓ 机制) / 250K 777.1 F - wrote0=0 保持 ✓ decided 72128/141120 保持 ✓。
+- 定性: **冷跑错 (刀代) + 命中轮继承** = 唯一主病=**刀轮 install 视图内容** (选页 in_kept=1 满分在前，字节面断点未愈)。identity do-nothing 治愈的是 ≤budget 人群 (88K 两发真阳)，>budget 刀人群仍病。
+- 下轮主刀 (先零 boot 静态审计): 单位制度量表 - 当代五数互证 (engine block_size / page_tokens=16 / q=98 / select_block_tokens=64 / statistics block_tokens=64) + _po=_bpo 出口用的单位是哪个 - court-martial 单位法在 pt=16+block64 混合代的 _po 公式很可能算错块号 (压缩出口 phys 错 → 行错 → 读垃圾)。审计后 273-式最小修 + 计数战第二轮 (152K 冷先行，冷 True 才有好档给 resume)。
+- resume 判据现状: 机制/深度/增量时长 (42.8s vs 413.6) 全部实证；字节一致与 5-10s 终读需在冷 True 后代重打 (decode 时长构成含刀代修复红利)。
+- 1 电池 (5 发) 零 boot。ahead 214→215。引擎 cure 代健康在跑。
