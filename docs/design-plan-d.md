@@ -1851,3 +1851,10 @@ skip=不重放只装视图 - 顺路）。
 - 面板落点错位 (本回合定形): d_final_score 的 gate 修只覆盖 remobilize 区 order 点 (5820) - **152K 刀走 blockwise 区 (order 站点 ~6060)** → panel events 0 - 下轮第一动作: 同款面板在 blockwise order 后复制落点 (纯 log)，读数直接给 needle_score/rank/qlo/top_spans - 若 rank 飘忽，打分窗覆盖 (query 位置 vs 段 K 覆盖) 定罪; 若 rank 稳定高而 kept 无 23 → room/kept 路径定罪。
 - 字节针 (286) 保留未验证 (面板 0 事件说明 restore 也没走到针点位 - 等刀代选页修通自然出数)。
 - 3 boots+5 发+6 静态 - 硬停止交还。ahead 217→218。引擎面板代在跑 (D=1)。
+
+## 289-290. Round 148：blockwise 真面板定罪数据到手 - needle rank 14→17 漂 + score 23.97→21.26 漂 + inc_has_needle=0 + 法块针下盘
+
+- 面板首读 (152K pressure 真代): needle_rank 14→17 (跨刀下飘)、needle_score 同步 23.97→21.26、kept 满员 18、incumbent_mid 无 needle、qlo=-1 - **两罪并存**: (1) 分数漂=打分窗随 decode/query 位移 (D 声明该稳); (2) rank 14-17 落 room 挤出边界 - r96 法 `order[:room-len(mid)]` 负切片在 mid(10-15)>room(8-10) 时代行为=suffix 段 (r96 实测形) - **needle 落位需直接观测**。
+- 落针: d_law_pin{in_seq,pos,suffix_mode,room,mid_n,order_top1} 在 `_seqn = len(_seq)` 后 (法块终点)，3 套件绿 commit。
+- 下轮 (1 发 152K): law_pin 读数三分叉 - suffix_mode=1 且 pos=-1 → 法负切片挤出定罪 (修法=r96 语义下给 order 段保底真 top (room 与 mid 的分配以 in_seq 为判据重推)); pos≥0 → 法内其实有 needle 但 install 丢 → 字节面转回 restore; score 持续漂 → 打分窗钉住 query 尾修法上盘。
+- 1 boot+1 发+深静态。ahead 219→220。引擎 panel 代健康 (D=1)。
