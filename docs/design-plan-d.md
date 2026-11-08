@@ -1666,3 +1666,10 @@ skip=不重放只装视图 - 顺路）。
 - 完整链: prepare 消费修复到位 (d_prep_enter 仍 false flag 但 OR 分支应放行) - 然而 direct 零事件零门 = **死在函数体内第一道无事件门 `if not d_mode: return False` (line 1393-1394)** - 该门不看 _d_rids。修复: 门0 认 per-rid 证据 + 出声 {not-d, rids}。
 - 三枚连环门 (0=flag/1=st/2=orch/C=coverage) 现已全部可观测且 0/2 尊重证据。下轮 boot 单发 152K 即可看 direct 走到哪格 + complete/pages 画像 + T2 探针看终尾 retire。判决在读数，不再推导。
 - 本回合账: 1 boot + 2 发 + 4 处静态修复全 commit (6 套件绿×3 轮)。引擎 T1/T2 True 健康。ahead 171→172。
+
+## 247-248. Round 136：进程局部性终像 - wiring 与 RPC prepare 可能不同进程，注册门改用长 prompt 数据判据
+
+- 铁链: d_prep_enter 新字段 (rt_id/rids_has) 未显示 = 事件流早于修复 boot；旧树同代画像: d_mode:false + rids 空 + direct 门0 拒 → 三解释合一: **_d_rids 注册在 execute_model 所在进程的 runtime；prepare RPC 到达另一进程 (其 runtime d_mode/rids 双空)** - wiring 单进程触发是 vLLM EngineCore/worker 布局的既定事实 (调度进程跑 execute_model? TP worker 各跑 - 事件 pid 群可复查)。
+- 修复 (数据判据，无进程依赖): 安装门 `d_mode OR tokens>2*budget` 记 rids - 视图确实滚动的唯一人群就是长 prompt，判据零歧义；prepare 消费 `d_mode OR rid∈rids` 不变 → direct 应到门 coverage 出声。
+- 下轮一发: boot → T1 → 读 d_capture_gate 系列 + direct{complete} + worker_park{blocks} + decided 深度 + T2 时长。全链事件已在四道门武装完毕。
+- 1 boot + 4 静态修 + 3 套件。ahead 175→176。引擎 T1-True。
