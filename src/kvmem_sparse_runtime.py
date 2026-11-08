@@ -5200,7 +5200,8 @@ class VllmSparseRuntime:
         _pre_off0 = int(getattr(st, "off_pages", 0) or 0)
         st.row = tuple(phys_pages)
         st.logical = tuple(logical_pages)
-        if getattr(self, "d_mode", False):
+        if getattr(self, "d_mode", False) \
+                or int(st.tokens) > 2 * max(1, int(self.budget_tokens)):
             self._d_rids = getattr(self, "_d_rids", set())
             # PER-RID D EVIDENCE (design 244): view installed for
             # this request IS the D fact; the process flag can lag
@@ -6120,7 +6121,8 @@ class VllmSparseRuntime:
         _pre_off0 = int(getattr(st, "off_pages", 0) or 0)
         st.row = tuple(phys_pages)
         st.logical = tuple(logical_pages)
-        if getattr(self, "d_mode", False):
+        if getattr(self, "d_mode", False) \
+                or int(st.tokens) > 2 * max(1, int(self.budget_tokens)):
             self._d_rids = getattr(self, "_d_rids", set())
             # PER-RID D EVIDENCE (design 244): view installed for
             # this request IS the D fact; the process flag can lag
