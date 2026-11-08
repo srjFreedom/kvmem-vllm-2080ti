@@ -1328,6 +1328,12 @@ class VllmSparseRuntime:
             self.log({"kind": "session_park_prepare_failed", "req": req,
                       "error": f"{type(exc).__name__}: {exc}"})
             return None
+        if getattr(self, "d_mode", False) and self.log is not None:
+            # PUBLISH PIN (safe form, design 236): pure log, never
+            # touches control flow.
+            self.log({"kind": "d_worker_park", "req": str(req)[-6:],
+                      "rank": int(getattr(self, "tp_rank", -1)),
+                      "blocks": len(hashes or ())})
         self._preparked_requests.add(req)
         self.log({"kind": "session_park_prepared", "req": req, "blocks": len(hashes),
                   "covered": covered, "pages": len(pages), "capacity": capacity,
@@ -1824,6 +1830,12 @@ class VllmSparseRuntime:
 
         found = self.session_store.lookup(
             hashes, owner_session_id=owner_session_id, prefix_digest=_digest)
+        if self.log is not None:
+            # READ PIN (safe form): observes the untouched lookup.
+            self.log({"kind": "d_adopt_lookup", "req": str(req)[-6:],
+                      "rank": int(getattr(self, "tp_rank", -1)),
+                      "found": found is not None,
+                      "owner": str(owner_session_id)[:34]})
         if found is None:
             self.log({"kind": "resume_miss", "req": req, "hit": hit_tokens})
             return None
