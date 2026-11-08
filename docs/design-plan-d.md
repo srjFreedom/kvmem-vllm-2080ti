@@ -1615,3 +1615,11 @@ skip=不重放只装视图 - 顺路）。
 - 剩余变量收敛为一个可测问题: **T2 worker 的 `_adopt_session` 本地 lookup 命中与否** - worker MetaStore 需要 worker 自己的 park（D 分支 218 的 fall-through publish 在 prepare RPC 时双 worker 各执行一次 ✓ 代码在场）→ 若命中则 apply→session_resumed 出现；v230 代 session_resumed=0 意味着 **worker publish 未发生或 lookup 键不齐** - 下轮第一刀=在 worker _park_session 与 adopt 各加一枚出声针 (d_worker_park/d_adopt_lookup 带 found 布尔与 owner) 一发定案。
 - 战役状态: 控制面八门全破 + 应用线三修 (state/owner flag) 上盘；时长判据的实现只差最后两枚针的定位。250K/A/B/双臂统一未启动（后续阶段）。
 - 预算触顶（1 boot+7 读）硬停止。生产 probe 200 健康。ahead 157→158。
+
+## 235. Round 235（事故档）：pins 代引擎无日志停滞 - 硬件排查清白，adopt 手术 revert 止血
+
+- 现象: 11-08 06:2x pins 代，152K T1 慢至 316s（平时 218），随后请求彻底停滞；用户 14:47 重启恢复。
+- 硬件排查（结论清白）: dmesg 运行时段零 Xid（仅开机常规 i2c/assert 两行）; GPU 33-34°C、功耗正常、无掉卡; 当前代际 smoke 1.8s 健康。
+- 软件定性: 卡死时段日志**零 Traceback/零 NCCL 报错** - 事件流无声停格 = 典型无限等待（RPC/屏障/GPU op），非崩溃。首要嫌疑=本回合对 `_adopt_session` 的 lookup 行号手术（替换了核心控制路径，离线套件不覆盖 adopt 运行时语义）；次要=大载荷 restore 路径的跨秩等待。小载荷复现尝试不触发（<1 块不产 park），152K 级复现单次成本 5-10 分钟，不赌。
+- 处置: pins commit **整体 revert**（adopt 恢复原形）；pins 的观测需求下轮以**纯增量函数内日志**方式重落（不动控制流语义）；事故恢复生产臂（D=0/spec4）。
+- 纪律更新（自记）: **任何触碰 adopt/decided 控制流的改动 = 必须有离线 adopt 用例先行 + 活体小载荷 session 双发冒烟通过才能进大载荷代** - 本事故即"行号手术改了语义但套件看不见"的账单。
