@@ -2637,8 +2637,7 @@ class VllmSparseRuntime:
             return
         _seen[req] = _k + 1
         try:
-            _mt = 37464 if int(st.tokens) <= 80000 else (
-                71456 if int(st.tokens) <= 150000 else 122458)
+            _mt = self._needle_marker(req, st)
             _pg = _mt // max(1, int(self.page_tokens))
             _lg = [int(x) for x in (st.logical or ())]
             _pos = _lg.index(_pg) if _pg in _lg else -1
@@ -4950,6 +4949,26 @@ class VllmSparseRuntime:
                       "seq_len": int(getattr(st, "seq_len", 0))})
         return True
 
+    def _needle_marker(self, req, st=None):
+        # MARKER BY PROMPT LENGTH (design 308): every instrument so
+        # far picked the needle marker from the CURRENT WINDOW stage
+        # (tokens <= 80000), so during a 152K request's early knives
+        # it watched the 88K battery's marker block (23) while the
+        # real needle sat at page 71401 - kept_has_needle=False was
+        # an instrument artifact, not physics. Values match the
+        # regenerated batteries (88K:37441, 152K:71401, 250K:122401).
+        try:
+            _pl = int(self._prompt_len.get(req, 0) or 0)
+        except Exception:
+            _pl = 0
+        if not _pl and st is not None:
+            _pl = int(getattr(st, "tokens", 0) or 0)
+        if _pl <= 100000:
+            return 37441
+        if _pl <= 200000:
+            return 71401
+        return 122401
+
     def _rebuild_view(self, req, st, orch, kept, q, pt, n_pages):
         """THE knife: pure page rearrange + selection + restore
         (design 87). Both earlier expansions were crippled variants:
@@ -5031,8 +5050,7 @@ class VllmSparseRuntime:
                 self._sp_loud = getattr(self, "_sp_loud", 0) + 1
                 _bt_ok = max(1, int(q) * max(1, int(pt)))
                 _tk0 = int(st.tokens)
-                _mt_marker = (37464 if _tk0 <= 80000 else
-                              (71456 if _tk0 <= 160000 else 122458))
+                _mt_marker = self._needle_marker(req)
                 _nbx = _mt_marker // _bt_ok
                 _blk_pages = {b: [b * int(q) + o2 for o2 in range(int(q))
                                   if b * int(q) + o2 < n_pages]
@@ -5096,9 +5114,7 @@ class VllmSparseRuntime:
             # AFTER the return (a later writer of st.logical).
             if self.log is not None and getattr(self, "_ep_loud", 0) < 6:
                 self._ep_loud = getattr(self, "_ep_loud", 0) + 1
-                _nb = (37464 if int(st.tokens) <= 80000 else (
-                       71456 if int(st.tokens) <= 160000 else 122458)
-                       ) // (max(1, int(q)) * max(1, int(pt)))
+                _nb = self._needle_marker(req, st) // (max(1, int(q)) * max(1, int(pt)))
                 _span = [pg for pg in ordered
                          if _nb * int(q) <= pg < (_nb + 1) * int(q)]
                 self.log({"kind": "d_rbv_early", "req": str(req)[-6:],
@@ -5874,8 +5890,7 @@ class VllmSparseRuntime:
                         # - exactly blocks 25 and 45 already visible as
                         # top1/top3 in the same events. Retrieval was
                         # never the failure on either size.
-                        _mt = 37464 if int(tokens) <= 100000 else (
-                            71456 if int(tokens) <= 160000 else 122458)
+                        _mt = self._needle_marker(req)
                         _nb2 = int(_mt) // _blk_real
                         _core0 = [int(b) for b in order[:8]]
                         _nz = sum(1 for _v in core if _v == _v)
@@ -6060,8 +6075,7 @@ class VllmSparseRuntime:
                     # lands in the final seq for THIS knife, and whether the
                     # negative-slice suffix semantics are in play (mid>room).
                     self._law_loud = getattr(self, "_law_loud", 0) + 1
-                    _nb290 = (37464 if int(tokens) <= 80000 else
-                              71456 if int(tokens) <= 160000 else 122458)
+                    _nb290 = self._needle_marker(req)
                     _nb290 //= max(1, int(q) * max(1, int(pt)))
                     self.log({"kind": "d_law_pin", "req": str(req)[-6:],
                               "nb": _nb290, "in_seq": int(_nb290 in _seq),
@@ -6145,8 +6159,7 @@ class VllmSparseRuntime:
                 _kl = sorted(int(x) for x in kept)
                 if True:  # design 289: blockwise truth panel - score vs incumbent
                     try:
-                        _mt289 = (37464 if int(tokens) <= 80000 else
-                                  71456 if int(tokens) <= 160000 else 122458)
+                        _mt289 = self._needle_marker(req)
                         _nb289 = _mt289 // max(1, int(block_tokens))
                         _bs289 = locals().get("block_scores")
                         _sc289 = (float(_bs289[_nb289])
@@ -6226,8 +6239,7 @@ class VllmSparseRuntime:
                 # healthy; force the needle block's own pages into
                 # the confrontation set so their live-vs-canonical
                 # means are read directly.
-                _mt304 = (37464 if int(tokens) <= 80000 else
-                          (71456 if int(tokens) <= 160000 else 122458))
+                _mt304 = self._needle_marker(req)
                 _nb304 = _mt304 // max(1, int(q) * max(1, int(pt)))
                 for lp in logical_pages:
                     if int(lp) >= 0 and int(lp) // max(1, int(q)) \
