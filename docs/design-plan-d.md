@@ -1660,3 +1660,9 @@ skip=不重放只装视图 - 顺路）。
 - 落码: 安装门 5195/6109 记 `_d_rids.add(req)` (视图装好=该请求 D 铁证)，prepare 决策 `d_mode OR rid∈_d_rids` - flag 时机 race 根除。一次锚文本失手 (rec1) 后按行内容定位法三轮全部落定，6 套件绿 (ahead 171)。
 - 下轮判决读数: T1 `d_capture_direct{complete:true, pages≈8820, hashes≈86}` + `d_worker_park{blocks:86}` → T2 `resume_decided hit≈135000` → **T2 时长 5-10s (验收项 2 终读)**。若 coverage 门出声 (hashes 深度 vs 8820 页在 pt=16 代的换算差) - 门 C 读数直接给下一步。
 - 1 boot + 1 发 + 修复全链。ahead 171。引擎健康 (T1 True)。
+
+## 246. Round 135 收官: 门0 才是真凶 (函数自身 d_mode 早退且无声)，现已尊重 per-rid 证据并出声
+
+- 完整链: prepare 消费修复到位 (d_prep_enter 仍 false flag 但 OR 分支应放行) - 然而 direct 零事件零门 = **死在函数体内第一道无事件门 `if not d_mode: return False` (line 1393-1394)** - 该门不看 _d_rids。修复: 门0 认 per-rid 证据 + 出声 {not-d, rids}。
+- 三枚连环门 (0=flag/1=st/2=orch/C=coverage) 现已全部可观测且 0/2 尊重证据。下轮 boot 单发 152K 即可看 direct 走到哪格 + complete/pages 画像 + T2 探针看终尾 retire。判决在读数，不再推导。
+- 本回合账: 1 boot + 2 发 + 4 处静态修复全 commit (6 套件绿×3 轮)。引擎 T1/T2 True 健康。ahead 171→172。
