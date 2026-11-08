@@ -6085,6 +6085,41 @@ class VllmSparseRuntime:
                     71456 if int(tokens) <= 150000 else 122458)
                 _nbk = _mtk // max(1, int(block_tokens))
                 _kl = sorted(int(x) for x in kept)
+                if True:  # design 289: blockwise truth panel - score vs incumbent
+                    try:
+                        _mt289 = (37464 if int(tokens) <= 80000 else
+                                  71456 if int(tokens) <= 160000 else 122458)
+                        _nb289 = _mt289 // max(1, int(block_tokens))
+                        _bs289 = locals().get("block_scores")
+                        _sc289 = (float(_bs289[_nb289])
+                                  if isinstance(_bs289, dict) and _nb289 in _bs289
+                                  else -1.0)
+                        _rk289 = (-1 if not isinstance(_bs289, dict)
+                                  else 1 + sum(1 for v in _bs289.values()
+                                                if v > _sc289))
+                        _inc = self._last_mid_pages.get(req) \
+                            if getattr(self, "_last_mid_pages", None) else None
+                        _ap289 = getattr(orch, "last_panel", None)
+                        if callable(_ap289):
+                            _ap289 = _ap289()
+                        _qlo289 = getattr(self, "_d_query_lo", {}).get(req, -1)
+                        self.log({"kind": "d_blockwise_panel",
+                                  "req": str(req)[-6:],
+                                  "pressure": bool(pressure),
+                                  "nb": _nb289, "needle_rank": _rk289,
+                                  "needle_score": round(_sc289, 5),
+                                  "score_panel": bool(_ap289),
+                                  "score_panel_len": (len(_ap289)
+                                        if isinstance(_ap289, dict) else -1),
+                                  "incumbent_mid_len": (len(_inc)
+                                        if _inc is not None else -1),
+                                  "inc_has_needle": int(bool(_inc))
+                                        if _inc is not None and _nb289 in
+                                           list(_inc) else 0,
+                                  "qlo": _qlo289, "kept_n": len(kept),
+                                  "budget": int(budget_blocks)})
+                    except Exception:
+                        pass
                 self.log({"kind": "d_final_kept", "req": str(req)[-6:],
                           "pressure": bool(pressure), "needle_blk": _nbk,
                           "in_kept": int(_nbk in kept), "kept": _kl[:24],
