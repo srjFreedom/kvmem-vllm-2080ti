@@ -3555,6 +3555,16 @@ def _install(cls, module_name, probe, smoke, state):
                             rt = self.kvmem_runtime
                         if rt is not None:
                             rt.d_mode = True
+                            # REGISTRY FOR THE RPC HOST (design
+                            # 369): the prepare wrapper answers in
+                            # this process (d_prep_rpc_in carries
+                            # the CORE pid); attach never ran here,
+                            # so the registry starts empty. Every
+                            # wiring that finds a live runtime
+                            # publishes it - the wrapper's fallback
+                            # chain then resolves rt:true.
+                            if not _CORE_RUNTIME_HOLDER.get("rt"):
+                                _CORE_RUNTIME_HOLDER["rt"] = rt
                             _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",{"kind":"d_wire_id","rt_id":id(rt),"pid":os.getpid()})
                         # TRIPLE-TABLE RE-STAMP (design 133): the stamp
                         # onto wrapper-self was NOT visible to code that
