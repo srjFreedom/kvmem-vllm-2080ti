@@ -2066,3 +2066,10 @@ skip=不重放只装视图 - 顺路）。
 - 修复 (351 上盘): runtime None 时回退 _ACTIVE_RUNTIME (模块级进程单例, worker 内刀/hv 均在它上面跑, 必非 None) - 若读数仍 rt:False, 则 worker 进程根本没跑过 attach (env 过滤杀 enabled) - 备刀: wrapper 内联 create (cfg from additional_config native serialization ✓ plan_d 已在)。
 - 下轮: boot 后 152K 双发 - 预期 rpc_in{rt:true} → prep_enter×2 → capture gates 全出声 → retired{90} → T2 decided → **首次全链真形终读**。
 - 1 boot 追加 (本回合共 2) 触戒。ahead 291→292。引擎双针代健康。
+
+## 352. Round 177-352: 架构终定案 - 收割面 100% 在 Core 进程 (pid 普查 539 vs 0), retirement 就地 prepare+park, worker RPC 降级为 fallback
+
+- 铁证: hv/knife/pressure_gate pid=EngineCore(124203), rpc_in pid=Worker(124351/2) rt:False 三代 - **ask 一个空手邻居要东西** 的荒谬协议正式退役: retire_terminal_sessions(core_runtime=...) 就地跑 prepare (capture/rids/park 全链 Core 完成), 事件同谱名 retired{inprocess:true} 让下游 decided/lookup 无缝。
+- 取 runtime 三源回退 (scheduler 属性/_kvmem dict/_ACTIVE_RUNTIME) - Core 进程内必有一个命中 (539 事件的持有者)。
+- 下轮判决双发: retired{inprocess}×1 → capture gates 在 Core 出声 (Core 的 d_mode/rids 历代表现在此进程统一!) → T2 decided→resumed→时长。若 Core prepare 的 rids 空 (Core 无 execute_model wiring): d_mode gate 的 _d_rids 记录点也在 Core (install 门 302 线) ✓ 应通。
+- 0 boot 追加 (本回合共 0: bash-428 是上轮 boot 的读数) + 2 修。ahead 293→294。引擎 rt 修代健康。
