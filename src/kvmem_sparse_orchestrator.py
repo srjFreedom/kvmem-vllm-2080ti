@@ -561,6 +561,16 @@ class SparseOrchestrator:
                 limit = int(getattr(self, "_query_tail_rows", 0) or 0)
                 source = {int(k): (v[-limit:] if (limit > 0 and v.shape[0] > limit) else v, None)
                           for k, v in saved.items()}
+            # SHAPE NORMALIZATION (design 321): read_all() hands
+            # back BARE tensors per layer, while the captured
+            # _q_rows are (q, positions) tuples - the unpacking
+            # loop below crashed on the tensor form since forever
+            # (d_core_exc 'tuple' has no numel ×52 knives, every
+            # score since is _last_core residue, not fresh math).
+            # One contract: always a pair from here on.
+            source = {int(k): (v if isinstance(v, tuple)
+                               else (v, None))
+                      for k, v in source.items()}
             for layer, (q, _pos) in source.items():
                 if q is None or q.numel() == 0:
                     continue
