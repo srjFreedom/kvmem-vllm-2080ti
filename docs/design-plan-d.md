@@ -1986,3 +1986,10 @@ skip=不重放只装视图 - 顺路）。
 - 余病两枚: (1) dom=0 恒 - 账针在 st.row 覆盖前取样 (时序) 或 rowdom 语义应读 phys 自身 - 拷贝判据若仍按 rowdom, 真块页全被判冷 → **拷暴** (T1 441.5s = 441 秒里有相当比例是重复拷贝, 343→更多); 修=OOW 冷判据改用"pg 在 pmap 即热 (slot 现属该页), 不在才冷"。 (2) adopted 半段: decided 有 resumed 无 - d_adopt_lookup 读数下轮取 (owner fallback 代)。
 - 下轮双修一甲: 冷判据 pmap 化 + 账针取样挪到覆盖后, 一发看 T1 回落 (~220s) + led dom=1 + resumed 出生。判据链: 全修代 152K 冷真? 若仍是 duct 而 dom 热拷对, 则回到相位/装填后 kernel 面 (coincide 仪表群候场)。
 - 1 boot+2 发触戒律。ahead 268→269。引擎 true-map 代健康。
+
+## 331-332. Round 164/332 判决账: HOT-by-stale-map 判空失真 (written 0) 且 dom 恒 0 与 T1 能背 filler 互矛盾 - 真相=行内读位错桶号域, 修=live 行新鲜账本 (pg→row[pg]→块相等才热)
+
+- 读数: T1 418.5s + head 精确背 filler ("ferryman's notes on river deltas: sediment settles...") = 模型确实读到了视图字节的头段; written=0 与 369 页全判热 + dom1:0 并存 - 只有"kernel 行=真块域 (st.row 装对了!) 而热判据拿死图 slot//pt 与桶号 _po 比较永不等"能同时解释三者 - **phys 装填其实已进真域, 唯账目域错位**。
+- 修 (332 上盘): 热判据读 live block_table_rows[req row][pg] = slot, slot//pt == _po's bucket-block 才跳拷 - 语义=页现值就在它将被读的那个块, 跳拷合法; 不等 = 冷, 补拷 store 到 _po 块。5 套件绿 commit。
+- 下轮判决: (a) T1 回落+written≈冷数; (b) dom 与热账同步; (c) needle 页若在 kept 且冷补拷到位 → **152K 冷可能首真**; (d) T2 若 resumed 仍缺席, adopt found:false 另案 (owner 域同形不中=档侧 owner 写成 str repr? 查 d_worker_park owner 字段)。
+- 2 boots+2 发触戒。ahead 271→272。引擎 hot-v330 代在跑。
