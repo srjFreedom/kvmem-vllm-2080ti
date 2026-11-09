@@ -2214,3 +2214,10 @@ skip=不重放只装视图 - 顺路）。
 - 终形: 收养主支 = selfderive 标 → pending 非 None → hashes/owner/digest 全行 (2112-2126) → 若某环断 (hashes 空) 2118-line miss 无 reason 字段 - 6 发 = 双 rank×3 轮同型 - retrieval-miss (702, 带 reason) 零发 = 主支根本没进 miss 子支 ✓✓ - 412 修: adopt_knife_pending + 当场挥刀全在 return 前主支尾, 收养一步不放过。
 - 下轮三连: d_adopt_knife{tokens} 出生 (预期 tokens>0 = 行已绑) → T2 panels 谱 → duct 终结或视图覆写二次判 (行绑定时序) → resumed → 计数战。
 - 本回合 2 boots+6 发+10 查。ahead 353→354。引擎 411 代待换 412。
+
+## 413-414. Round 196 终幕: 收养权收归 Core (harvest 宿主) - decided 现场直接 note_resume+_reselect 双动作, worker 收养机器全线静默三处的终解
+
+- 证据终形: K412 - adopt_knife 0 (三个挂靠点全哑) + selfderive 2 出生 (MetaStore 换本战果保住) + T2 从不进 adopted 主支 = worker 的 _ensure 对 T2 从未见过 client rid (它的 live 是 engine 域 id) - **Core 才是收养的正确法庭** (decided/note_resume/harvest 三牌齐)。
+- 413 手术: decided 算术后直接 _rt413.note_resume(rid,hit,..) + _reselect_blockwise(rid,pressure=True) - Core runtime 上 rid 就是 client 域 (scheduler.requests 的键) ✓ 收养/刀/视图一步同城 - d_core_resume{laid} 证人自报。
+- 下轮三连分案: laid:true + T2 内容修复 → resumed 谱名搬迁 (Core 侧发) → 计数战; err 现形 → 按名修; laid 恒 false → Core 无 execute 视图 (row 表空) → 回到 spill-entry 协议大手术 (页字节入 shm)。
+- 本回合 2 boots+7 发+13 查。ahead 355→356。引擎 413 代在跑。
