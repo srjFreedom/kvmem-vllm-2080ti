@@ -111,6 +111,11 @@ check("restore_only=False" in _rr and "not restore_only and capacity * self.page
       "restore publish waives the full-resident contract only for restore mode")
 check('"kvmem_resume_deferred"' in _rs and 'not getattr(meta, "has_state", True)' in _rs and 'd_mode' in _rs,
       "Core defers restore-type hits only; dense entries apply")
+# updated 419: the core-side view-knife experiment was excised
+# after it poisoned cold steps; assert it does NOT come back
+check("CORE IN-PROCESS RESUME" not in _rs and
+      "d_core_resume" not in _rs,
+      "the core-side adoption knife stays excised (worker owns the row)")
 _rr2 = _rr
 check('owner_session_id = ("", "__prefix_cache__")' in _rr2.split("def _adopt_session")[1].split("def ")[0],
       "worker adoption uses the implicit namespace (Core/worker agreement)")
