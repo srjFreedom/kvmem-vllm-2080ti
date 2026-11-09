@@ -3287,7 +3287,8 @@ def _install(cls, module_name, probe, smoke, state):
         # the process holding the model. Attach HERE, once, on
         # THIS runner, when the native config says sparse.
         if (not _CORE_RUNTIME_HOLDER.get("rt")) and \
-                getattr(self, "kvmem_runtime", None) is None:
+                getattr(self, "kvmem_runtime", None) is None and \
+                not getattr(self, "_host_attach_failed", False):
             try:
                 _cfg374 = getattr(
                     getattr(self, "vllm_config", None),
@@ -3307,6 +3308,7 @@ def _install(cls, module_name, probe, smoke, state):
                                  "rt_id": id(_rt374),
                                  "pid": os.getpid()})
             except Exception as _e374:
+                self._host_attach_failed = True
                 _append("/tmp/kvmem_sparse.jsonl",
                         {"kind": "d_host_attach_err",
                          "err": f"{type(_e374).__name__}: "
