@@ -2193,10 +2193,27 @@ def register():
                                      "rid": str(rid)[-6:]})
                         continue
                     try:
-                        proofs = executor.collective_rpc(
-                            "check_kvmem_session_checkpoint", timeout=15,
-                            args=(owner_session_id, tuple(meta.block_hashes), hit,
-                                  meta.prefix_digest, meta.capacity_pages))
+                        # IN-PROCESS PROOF (design 354): the harvest
+                        # host answers its own proof; the RPC to
+                        # empty-handed workers stays only as the
+                        # fallback when no local runtime exists.
+                        _rt360 = getattr(scheduler, "kvmem_runtime", None)
+                        if _rt360 is not None:
+                            proofs = [
+                                _rt360.check_session_checkpoint(
+                                    owner_session_id,
+                                    tuple(meta.block_hashes), hit,
+                                    meta.prefix_digest,
+                                    meta.capacity_pages)
+                                for _ in range(2)]
+                        else:
+                            proofs = executor.collective_rpc(
+                                "check_kvmem_session_checkpoint",
+                                timeout=15,
+                                args=(owner_session_id,
+                                      tuple(meta.block_hashes), hit,
+                                      meta.prefix_digest,
+                                      meta.capacity_pages))
                     except Exception:
                         proofs = None
                     if (not isinstance(proofs, (tuple, list))
@@ -2456,6 +2473,38 @@ def register():
                         for o in (getattr(_eco, "outputs", None) or ()):
                             if o.request_id in _inv:
                                 o.request_id = _inv[o.request_id]
+                # RETIREMENT HERE, NOT IN THE FRONT-END (design
+                # 354): the harvest host is this process (pid census
+                # 539 vs 1); the front-end hook could only ask
+                # empty-handed workers. One in-process prepare parks
+                # the checkpoint into THIS MetaStore, where
+                # _maybe_resume already reads it (shared_hit host).
+                try:
+                    _rt354 = getattr(self.scheduler, "kvmem_runtime", None)
+                    if _rt354 is not None and outputs:
+                        from vllm.v1.engine import FinishReason
+                        from kvmem_session_store import get_meta_store
+                        from kvmem_session_retirement import (
+                            retire_terminal_sessions as _rts354)
+                        _omap = {}
+                        for _eco in (outputs[0] or {}).values():
+                            for o in (getattr(_eco, "outputs", None)
+                                      or ()):
+                                _omap[o.request_id] = o
+                        _rts354(_omap,
+                                (FinishReason.STOP, FinishReason.LENGTH),
+                                None, 1, get_meta_store(),
+                                report=lambda event: _append(
+                                    _sched_cfg(self.scheduler).get(
+                                        "probe_log")
+                                    or "/tmp/kvmem_sparse.jsonl",
+                                    {"pid": os.getpid(), **event}),
+                                core_runtime=_rt354)
+                except Exception as _r354:
+                    _append("/tmp/kvmem_sparse.jsonl",
+                            {"kind": "d_retire354_error",
+                             "err": f"{type(_r354).__name__}: "
+                                    f"{_r354}"[:180]})
                 return outputs
             step_c._kvmem_rid_map_patched = True
             EngineCore.step = step_c
