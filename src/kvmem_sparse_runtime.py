@@ -2055,6 +2055,15 @@ class VllmSparseRuntime:
 
     def _adopt_session(self, req):
         """Take the parked session for `req` out of the store, if EngineCore asked for a resume."""
+        if (__import__("os").environ.get("KVMEM_D_NOADOPT", "")
+                in ("1", "true", "yes")):
+            # DIAGNOSTIC GATE (432, bisect-verified tree): refuse
+            # adoption entirely; paired with KVMEM_D_NOSKIP on the
+            # Core side the request runs pure cold. The skip and
+            # the restore must live or die together - a skip
+            # without a restorable adoption hands the attention
+            # pool garbage (duct).
+            return None
         pending = self._resume.pop(req, None)
         if pending is None:
             # CORE DECIDES, WORKER HARVESTS (design 390): the
