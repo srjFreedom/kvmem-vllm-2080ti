@@ -31,7 +31,33 @@ def retire_finished_worker_requests(runtime, scheduler_output):
 
 
 def retire_terminal_sessions(output_map, allowed_reasons, executor, tp_size, store,
-                             report=lambda event: None):
+                             report=lambda event: None, core_runtime=None):
+    # IN-PROCESS PREPARE (design 352): the harvest surface (knife,
+    # hv, sweep, books) lives ENTIRELY in this process - the TP
+    # workers hold no state worth asking (measured: every arrival
+    # answered rt:False for three generations). When a core_runtime
+    # is provided, prepare + park run here directly; the multi-rank
+    # RPC protocol stays as the fallback for builds that do carry
+    # worker-side capture.
+    if core_runtime is not None:
+        released = []
+        for req, out in list(output_map.items()):
+            reason = getattr(out, "finish_reason", None)
+            if reason not in allowed_reasons:
+                continue
+            try:
+                ck = core_runtime.prepare_session_checkpoint(req)
+            except Exception as exc:
+                report({"kind": "session_park_prepare_error",
+                        "req": str(req),
+                        "error": f"{type(exc).__name__}: {exc}"[:200]})
+                continue
+            if not ck:
+                continue
+            released.append(str(req))
+            report({"kind": "session_checkpoint_retired",
+                    "req": str(req), "inprocess": True})
+        return released
     request_ids = terminal_checkpoint_requests(output_map, allowed_reasons)
     # EXISTENCE PIN (design 350): Core announces the retirement set
     # BEFORE any gate; paired with the worker-side arrival echo, a

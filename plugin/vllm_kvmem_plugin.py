@@ -2558,7 +2558,12 @@ def register():
                         report=lambda event: _append(
                             _sched_cfg(core.scheduler).get("probe_log")
                             or "/tmp/kvmem_sparse.jsonl",
-                            {"pid": os.getpid(), **event}))
+                            {"pid": os.getpid(), **event}),
+                        core_runtime=(
+                            getattr(core.scheduler, "kvmem_runtime", None)
+                            or (getattr(core.scheduler, "_kvmem", None)
+                               and core.scheduler._kvmem.get("sparse"))
+                            or _ACTIVE_RUNTIME))
 
                 def _quiescent_compaction(core):
                     """Opt-in: compact at the Core boundary, between steps, on the main thread.
