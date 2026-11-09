@@ -610,6 +610,53 @@ class VllmSparseRuntime:
                 orch.slots = []
                 orch.steps_since_reselect = 0
                 self._orch[req] = orch
+                # RESUME BYTE PAIR (design 384): the adopted books
+                # were just cleared with the promise "rebuilt on
+                # demand" - but demand may NEVER write the skipped
+                # prefix's pages back, leaving the engine to attend
+                # to pool garbage (the duct answers). Compare, for
+                # the needle neighborhood, the canonical store
+                # bytes against whatever the device row currently
+                # holds at the very first post-adopt step.
+                def _resume_pair384():
+                    try:
+                        stx = self._state.get(req)
+                        orx = self._orch[req]
+                        if stx is None or orx is None:
+                            return None
+                        rows = self.view.block_table_rows()
+                        row0 = rows[0] if rows else ()
+                        ptx = max(1, int(orx.page_tokens or 32))
+                        nbx = (self._needle_marker(req, stx)
+                               // ptx) // max(1, len(row0) or 1)
+                        pairs = []
+                        for pos in range(len(row0)):
+                            blk = int(row0[pos])
+                            pg = nbx * max(1, len(row0)) + pos
+                            for want in (nbx - 1, nbx, nbx + 1):
+                                if blk <= 0 or (pg // max(1, len(row0))) != want:
+                                    continue
+                                lz = orx.store.get(int(pg))
+                                if not lz:
+                                    continue
+                                cz = float(lz[0].float().abs().mean())
+                                pk = self.view.paged_kv()
+                                sz = int(blk)
+                                vz = (float(pk[0][sz].float().abs()
+                                            .mean())
+                                      if sz < pk[0].shape[0] else -2.0)
+                                pairs.append([int(pg), round(vz, 6),
+                                              round(cz, 6)])
+                            if len(pairs) >= 6:
+                                break
+                        return pairs[:6]
+                    except Exception:
+                        return None
+                if getattr(self, "_rp_loud", 0) < 4:
+                    self._rp_loud = getattr(self, "_rp_loud", 0) + 1
+                    self.log({"kind": "d_resume_pair",
+                              "req": str(req)[-6:],
+                              "pair": _resume_pair384()})
                 self._owned_slots[req] = set()
                 st = _ReqState()
                 st.resume = (entry, hit_tokens, visible_tokens)
