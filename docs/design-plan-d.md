@@ -2163,3 +2163,9 @@ skip=不重放只装视图 - 顺路）。
 - 裁决: 390 表一锤 - note_resume 的 Core 标记确实到不了 worker 的 self._resume 对象 (pid 分表物理隔离), d_adopt_lookup×2 在 W 域 ✓ 通道候选成立; 但 SD390 代 selfderive×0 与 resume_miss×4 并存 - miss 在 adopted!=None 分支内 = adopt 以某路径成功 (旧标存活或 note_resume 有 worker 调用点未查) - selfderive 的 lookup 参数 (owner kw 缺失/prefix_digest 空) 可能静默 miss 未及运行。
 - 下刀两枚 (1 发定案): ①2998 消费口到货证人 d_bs_gate{has_resume,row}; ②selfderive 失败原因出声 (lookup None 时 log why) - 两针下去 duct 链的每一环都有名字。
 - 计数账: SD390 双 F (duct 带内确定 sha 2bced0ff)。1 boot+3 发。ahead 329→330。引擎 390 代健康。
+
+## 392-393. Round 192-193: 悖论解构 - adopt 走的是"进程内存里活 orch"旧路 (bs_gate has_resume:false×32 = marker 从未挂), 393 修: miss 现场丢弃死收养逼共享 store 路重入
+
+- 终形: d_bs_gate×32 (has_row:true 门铃一直响!) + selfderive×0 = _ensure 的 req not in _orch 未触发 (T2 rid 首见即有 orch? - worker 域 orch 是 harvest 时建的活体, adopted 分支的 orch 与 Core decided 无涉) - 收养成功是"真收养", 但页字节在 T1 收工时随 sweep 归还 (store 空) - restore 拷空页 = duct 恒等 sha 2bced0ff。
+- 393 修 (re-adopt 逼供): index-None 的 miss 分支现在 pop orch/state - 下一 step _ensure 重入 selfderive (MetaStore 权威) - 配合 388 pid wrap, 终读窗: d_resume_selfderive 出生 + restore 走 shm entry 页 (若 entry 无字节则 d_resume_pair 出 [pg, 0.0, cz] 定 spill 立项)。
+- 本回合 2 boots+2 发+4 修。ahead 332→333。引擎 393 代在跑。
