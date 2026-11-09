@@ -1979,3 +1979,10 @@ skip=不重放只装视图 - 顺路）。
 - 波及面审查 (同族错): install 线的 st.row 初值来源 (engine 给的行=真块 ✓), 装填覆盖 st.row=phys_pages (桶号!) - 即刀后 kernel 的行整体搬错域 - 一处修 (phys 改真映射) 全链归位。
 - 下轮主刀: _rebuild_view identity 分支的 _po 改 _page_map 查询 + 冷页 pool 分配接口 (orch.pick_free_block 类) - 先离线 synthetic 用例 (mock 离散 row → 断言 phys 全是 row 域内块) 再活体。判据: N152 冷首真。
 - 1 boot+1 发+账读。ahead 266→267。引擎 ledger 代健康。
+
+## 329. Round 163: true-map 上盘实证 - phys 从桶号换到真块域 (led blk 6), 但账目与拷贝两处余病
+
+- 战果: _page_map 接线后 phys 序列进入真实分配域 (page0-3→blk 6, 不再是 pg-pg%49 的 0) - 328 定罪修复生效于装填面; decided 141120 保持; **T2=18.9s** = 深度命中轮的历史最快 (冷 441 的 1/23, 距 5-10s 判据一步: resumed 事件仍缺位=adopt 消费半段未闭合)。
+- 余病两枚: (1) dom=0 恒 - 账针在 st.row 覆盖前取样 (时序) 或 rowdom 语义应读 phys 自身 - 拷贝判据若仍按 rowdom, 真块页全被判冷 → **拷暴** (T1 441.5s = 441 秒里有相当比例是重复拷贝, 343→更多); 修=OOW 冷判据改用"pg 在 pmap 即热 (slot 现属该页), 不在才冷"。 (2) adopted 半段: decided 有 resumed 无 - d_adopt_lookup 读数下轮取 (owner fallback 代)。
+- 下轮双修一甲: 冷判据 pmap 化 + 账针取样挪到覆盖后, 一发看 T1 回落 (~220s) + led dom=1 + resumed 出生。判据链: 全修代 152K 冷真? 若仍是 duct 而 dom 热拷对, 则回到相位/装填后 kernel 面 (coincide 仪表群候场)。
+- 1 boot+2 发触戒律。ahead 268→269。引擎 true-map 代健康。
