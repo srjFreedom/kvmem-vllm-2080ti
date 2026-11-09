@@ -5252,6 +5252,20 @@ class VllmSparseRuntime:
                 # blk 45 << rowdom 1666). Canonical replay for
                 # ALL kept pages is idempotent pure copy - the
                 # honest cost of invariant (2).
+                if self.log is not None and getattr(self, "_pl_loud", 0) < 4:
+                    # PER-PAGE LEDGER (design 326): first 12 ordered pages -
+                    # store presence, blk domain, and the copy decision,
+                    # so "written 343 of 840" gets an itemized audit.
+                    self._pl_loud = getattr(self, "_pl_loud", 0) + 1
+                    _led = []
+                    for _p326 in list(ordered)[:12]:
+                        _b326 = _po[list(ordered).index(_p326)]
+                        _led.append([int(_p326), int(_b326),
+                                     1 if orch.store.get(int(_p326)) else 0,
+                                     1 if int(_b326) in _rowdom else 0])
+                    self.log({"kind": "d_oow_ledger", "req": str(req)[-6:],
+                              "ordered_n": len(ordered), "po_n": len(_po),
+                              "led": _led})
                 for _pg312, _blk312 in zip(ordered, _po):
                     _lay312 = orch.store.get(int(_pg312))
                     if not _lay312:
