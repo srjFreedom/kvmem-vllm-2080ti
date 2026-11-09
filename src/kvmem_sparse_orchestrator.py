@@ -490,13 +490,17 @@ class SparseOrchestrator:
         """
         stats = getattr(self, "statistics", None)
         if stats is None:
+            _probe_write({"kind": "d_core_gate", "gate": "no-stats"})
             return None
         try:
             from vllm import kvmem_bridge as bridge
             from kvmem_recall import KvmemRecall, align_scores
-        except Exception:
+        except Exception as _gex:
+            _probe_write({"kind": "d_core_gate", "gate": "import",
+                          "err": str(_gex)[:90]})
             return None
         if not getattr(bridge, "ARMED", False):
+            _probe_write({"kind": "d_core_gate", "gate": "not-armed"})
             return None
         layer_rows, rows = {}, 0
         try:
