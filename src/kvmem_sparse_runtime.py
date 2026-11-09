@@ -752,18 +752,14 @@ class VllmSparseRuntime:
                     self.attach_statistics(req)
                 except Exception:
                     pass
-                # ADOPTION TAIL KNIFE (design 405): every earlier
-                # strike site lost the row to the engine's own
-                # append-only layout - here the adoption wiring is
-                # complete (statistics, retrieval, slots) and the
-                # pressure lane re-lays the view exactly like the
-                # cold path's pressure pass.
-                try:
-                    self._reselect_blockwise(req, pressure=True)
-                except Exception as _e405:
-                    self.log({"kind": "d_adopt_knife_err",
-                              "err": f"{type(_e405).__name__}: "
-                                     f"{_e405}"[:150]})
+                # ADOPTION FLAGS THE KNIFE (design 406): at this
+                # instant st.tokens=0 - the pressure lane rides the
+                # harvested window and would self-exit on an empty
+                # hood (measured: K405 strike vanished). Defer the
+                # strike to the first before_step that carries a
+                # row: exactly the cold path's first pressure
+                # cadence point, where the view is real.
+                st.adopt_knife_pending = True
                 return
             kv_tensors = self.view.paged_kv()
             session = None
@@ -3110,6 +3106,17 @@ class VllmSparseRuntime:
         # --kvmem-inrequest-compaction off). Retrieval statistics can still be collected.
         if not bool(getattr(self, "inrequest_compaction", False)):
             return None
+        if bool(getattr(st, "adopt_knife_pending", False)) and \
+                row_index is not None:
+            st.adopt_knife_pending = False
+            try:
+                self._reselect_blockwise(req, pressure=True)
+                self.log({"kind": "d_adopt_knife", "req": str(req)[-6:],
+                          "tokens": int(st.tokens)})
+            except Exception as _e406:
+                self.log({"kind": "d_adopt_knife_err",
+                          "err": f"{type(_e406).__name__}: "
+                                 f"{_e406}"[:150]})
         if getattr(self, "_bs_loud", 0) < 8:
             # CONSUME GATE WITNESS (design 392): announces that
             # before_step reached the resume consumption gate and
