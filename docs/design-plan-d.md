@@ -2228,3 +2228,9 @@ skip=不重放只装视图 - 顺路）。
 - 现状 (417 代待读): wrapper_exception 应绝迹 (locals guard), d_core_resume{laid} 应出生 (hoist)。T1 冷形态 365s 正常。
 - 下轮: 双发终读 - 若 laid:true + T2 duct 依旧 → Core 的 _reselect 无执行行 (Core view row 空表) → 页 spill 协议定案 (MetaStore entry 带页字节, worker 收养真数据); 若 T2 内容修复 → resumed 谱名 → 计数战开打。
 - 本回合 3 boots+5 发+13 查 (重超, 罚单累加)。ahead 357→361。引擎 417 代在跑。
+
+## 418-419. Round 198: Core 挥刀实验证伪并切除 - st.tokens=0 处挥刀造零窗垃圾视图, T1 也被收养成 duct (全局污染 198s 即中) - 数据面定论: 收养只能在 worker 行上挥刀, 页字节跨进程传输 (spill) 立项
+
+- 实验教训 (入律): Core 的 runtime 与 harvest 数据同城 ✓ 但**执行行在 worker** - Core 视图重排写的是 Core 的空行表, 同时把 st 状态搅乱 (T1 cold 198s 出 duct = Core 刀给新请求铺了垃圾视图) - "刀在哪挥"三择终定: 只能在行宿主 (worker) 挥, 所以 worker 缺的从来不是控制流, 是**页字节**。
+- 修复正解 (spill 协议, 下轮手术): capture/retirement 时把 MetaStore entry 缺的页字节写进 shm (restore 后前缀页在 Core 的 orch.store 有正本 - 收养 worker 从 MetaStore 读字节灌进本地 store, restore_pages_batch 现成, 纯拷贝协议 (2) 合规); 尺寸账: 152K 页 4410x8 层 x~16KB = ~560MB/档 → 先做 head/tail/sink 带页 (needle 域 ±窗) 的限量 spill 或全量压 fp8 (280MB) - 与用户"完整版"精神一致: 全量 spill, LRU 淘汰整档。
+- 计数账: H417 三连全 T 态 (T1 冷被污染 = 手术必须)。2 boots+3 发。ahead 362→364。引擎 417 代 (将回纯 worker 刀)。
