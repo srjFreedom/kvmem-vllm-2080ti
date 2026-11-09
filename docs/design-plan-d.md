@@ -2013,3 +2013,10 @@ skip=不重放只装视图 - 顺路）。
 - 判决链: TAILCF 代 CF=0 - 采样门 `lp//q in (nb304, nb304+1)` 中 nb304 由 q*pt 域算 (45) 而 lp//q 是页→块域 (2231//49=45)... 数值看着同, 但 pt 若≠页宽即错位; 更硬的证据是 needle **页** 2231 的块=45 而 ordered 里 needle 页段 [2205..2253]//49∈{45} 应命中... CF=0 说明末刀根本走到? _tail334 判定 `st.tokens ≥ 0.93×prompt_len` 且 pressure - 末刀 pressure=True tokens=143000+ ✓... 唯一剩: cmp=[] 空且事件 0 = **if 外层 `self.log is not None and (_tail334 or loud<2)` 的 else 分支 try 里 _paged312 崩** (无 except 声?) - 探针自身炸光 (except 吞) - ±1 窗+单位注释已重上, 下轮再看; 若仍 0, 给 CF 块加异常出声再审。
 - 策略层预备 (分数稀释案): 若 needle 页 CF 双好而答案仍输 - 选择策略补刀 = **top 桶配额保底题带邻近块** (v0.19 官方 softmax 之外, 属 D 的选择增强, 与不变量不冲突: 仍是纯页重排+选择)。
 - 1 boot+1 发+2 修触戒。ahead 276→277。引擎 CF 修代待 boot。
+
+## 340-341. Round 170: 黑盒解剖完成 - ext API 全形现出 (build/python 离库可载), 头号嫌疑=head_dim 参数与 K 半维不符 (128 维被切两半, 半桶失真分数)
+
+- 解剖学: vllm_kvmem_ext 在 build/python (离线可 import); query_scores(keys, layer_rows, rows, query_heads, kv_heads, head_dim, blocks, max_aggregation, frame) - **head_dim 独立参数**: 本模型 kv_lora 64×2 heads=128 全维, 若 runtime 传 head_dim=64 (kv_heads 拆分口径) 而 store 桶按 128 存 (或反) - needle 桶的相似度被切成"真 64 维 cos + 64 维零填充 cos≈0"两半相加 → 满分腰斩, 输给全维对齐的 filler 海洋是数学必然。
+- 下轮双查: (1) 传参审计: runtime/orchestrator 调 query_scores 的 head_dim 来源 vs statistics 写桶的 n_embd_k 来源 - 两处必须同一维度口径; (2) 合成判据用例: RawKvStore(2层,128,bt64)+write_layer_mean_sum 填 needle 桶 (与 Q 同向) vs filler 桶 (正交) → query_scores 排名 needle 应居首 - 若居首=ext 无罪传参有罪; 若不居首=帧/聚合语义案。
+- 计数账不变: N88 1/1 环代 T 待复证; N152 0/4 全内容毒形态; resume 机制账绿 (18-20s 增量)。
+- 0 boot+3 静态解剖。ahead 281→282。引擎 pair 代健康。
