@@ -2208,10 +2208,21 @@ class VllmSparseRuntime:
                                 self._prompt_len.get(req, 0) or 0)
                             pending = (hit390,
                                        pl390 if pl390 else hit390)
+                            # DIRECT FORGE (design 436): the
+                            # shared-store hit IS the entry - the
+                            # legacy path below would re-look it
+                            # up against the source session's
+                            # namespace and never find it (miss x6
+                            # with pending already live). Adopt
+                            # the forged entry on the spot; the
+                            # keepalive claim runs right after.
                             self.log({"kind": "d_resume_selfderive",
                                       "req": str(req)[-6:],
                                       "hit": hit390,
-                                      "blocks": n390})
+                                      "blocks": n390,
+                                      "forged": True})
+                            return e390, hit390, \
+                                (pl390 if pl390 else hit390)
                 except Exception as _e392:
                     self.log({"kind": "d_selfderive_err",
                               "err": f"{type(_e392).__name__}: "
