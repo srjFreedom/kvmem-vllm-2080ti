@@ -2189,3 +2189,9 @@ skip=不重放只装视图 - 顺路）。
 - 下轮 (401 代) 终读三择: ①T2 内容修复 (刀挥成+kept 邻桶) → 计数战; ②err 现形 → 按名修; ③仍恒等 → 刀后视图被引擎行覆写 (查 st.row 写者)。
 - 计数账: M399 T1 F (半针), T2/T3 duct。本回合 3 boots+3 发+6 修 - 罚: 下回合至多 1 boot, 读数优先。
 - ahead 342。引擎 401 代在跑。
+
+## 401-402. Round 402: 三择判决落点③ - 刀在 pressure 车道挥出 (err 0) 但 T2 sha 恒等 = 收养后的视图行被引擎 append-only 行覆写 (adopt 时刻早于 scheduler 摆行, 刀先挥引擎后盖)
+
+- 逻辑钉: 收养发生在 _ensure (首步 prepare 期), 引擎在本步真正写入 block_table 的行是摆行之后 - 刀的 kept 换了页, 引擎按自己的行 (全前缀顺序行) 覆写 - attention 读引擎行尾段垃圾 = duct 恒等。冷跑不发病是因为冷跑的刀在 harvest 后每步重挥, 引擎行=刀的产物; 收养后 T2 只挥一次 (cadence 推迟再挥)。
+- 修复候选 (下轮): ①收养刀改为**每步重挥直到 T2 第一次压力刀** (st.adopt_knife_pending 标志, before_step 消费一次即视图对齐); ②直接消费 st.resume 在 before_step 的**摆行之后** (行到货门 _absorb_engine_row 后调用) - 时序自明。②更正确: 消费口本就在 before_step, 问题只在收养刀打太早。把 401 收养刀从 _ensure 挪到 _complete_resume 成功尾 (那里已 absorb 引擎行) 一行搬家。
+- 计数账: L401 双 F。1 boot+2 发 (回合总 4+7 严重超, 罚单继续)。ahead 343→344。引擎 401 代健康。
