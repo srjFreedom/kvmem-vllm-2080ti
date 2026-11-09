@@ -984,9 +984,19 @@ class VllmSparseRuntime:
                 _hp437 = self._session_hashes(req)
                 _pool437 = getattr(self, "_spill_stores", {})
                 for _kk437 in reversed(list(_hp437 or ())):
-                    _ss437 = _pool437.get(str(_kk437))
-                    if _ss437 is not None:
+                    _gv437 = _pool437.get(str(_kk437))
+                    if _gv437 is not None:
+                        _ss437 = (_gv437[0]
+                                  if isinstance(_gv437, tuple)
+                                  else _gv437)
                         orch.store = _ss437
+                        if isinstance(_gv437, tuple) and _gv437[1]:
+                            # the parked life harvested this many
+                            # tokens; the adoption ledger rebuilds
+                            # from the store, no engine re-skip
+                            # (the Core side already skipped the
+                            # prefix in its own books).
+                            self._resume_ok[req] = int(_gv437[1])
                         self.log({"kind": "d_keepalive_graft",
                                   "req": str(req)[-6:],
                                   "key": str(_kk437)[:16]})
@@ -1590,7 +1600,10 @@ class VllmSparseRuntime:
             if _h424:
                 _pool424 = self._spill_stores = getattr(
                     self, "_spill_stores", {})
-                _pool424[str(_h424[-1])] = _orch424.store
+                _tk424 = int(getattr(
+                    self._state.get(req), "tokens", 0) or 0)
+                _pool424[str(_h424[-1])] = (_orch424.store,
+                                            _tk424)
                 while len(_pool424) > max(2, int(self.sessions)):
                     _pool424.pop(next(iter(_pool424)), None)
         if not self.session_reuse or self.session_store is None:
@@ -2250,6 +2263,8 @@ class VllmSparseRuntime:
                                     "forged": True})
                                 return e390, hit390, vis436
                             pending = (hit390, vis436)
+                            self._sd_fallback = (str(req),
+                                                 hit390, vis436)
                             self.log({"kind": "d_resume_selfderive",
                                       "req": str(req)[-6:],
                                       "hit": hit390, "blocks": n390,
