@@ -760,6 +760,15 @@ class VllmSparseRuntime:
                 # row: exactly the cold path's first pressure
                 # cadence point, where the view is real.
                 st.adopt_knife_pending = True
+                # COLD-PATH PARITY (design 407): the harvest site
+                # wires orch.inrequest_compaction before any step
+                # runs; the adopted orch skipped that wiring, so
+                # before_step's lane gate returned None on EVERY
+                # resumed step - the deferred knife never got its
+                # moment. Same source of truth, same value.
+                orch.inrequest_compaction = bool(
+                    getattr(self, "inrequest_compaction", False))
+                st.inrequest_compaction = orch.inrequest_compaction
                 return
             kv_tensors = self.view.paged_kv()
             session = None
