@@ -1635,6 +1635,20 @@ def register():
                     # proposal traffic prove harvest actually
                     # runs). Take whatever this process registered.
                     runtime = _CORE_RUNTIME_HOLDER.get("rt")
+                    if runtime is None:
+                        # NO-RUNTIME WITNESS (design 372): three-chain
+                        # resolution measured rt:false again; instead of a
+                        # fake fourth fallback, announce the absence with
+                        # the arrival set so the host map closes honestly.
+                        try:
+                            with open("/tmp/kvmem_sparse.jsonl", "a") as _f372:
+                                _f372.write(json.dumps({
+                                    "kind": "d_prep_no_runtime",
+                                    "n": len(request_ids or ()),
+                                    "reqs": [str(r)[-6:] for r in
+                                             (request_ids or ())[:3]]}) + "\n")
+                        except Exception:
+                            pass
                 if runtime is None and runner is not None:
                     # LAZY ATTACH (design 365): register()'s env
                     # gate dies silently in the filtered worker
