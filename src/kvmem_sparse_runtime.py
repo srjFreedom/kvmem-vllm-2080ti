@@ -698,6 +698,14 @@ class VllmSparseRuntime:
                         # marker from the MetaStore authority.
                         self._orch.pop(req, None)
                         self._state.pop(req, None)
+                        # RE-SEED the marker (394): the pop above
+                        # also erased the freshly set st.resume -
+                        # the note_resume channel DOES reach this
+                        # process (miss×4 proves pending was
+                        # live); hand it back so the next _ensure
+                        # adopts through the shared-store path.
+                        self._resume[req] = (int(hit_tokens),
+                                             int(visible_tokens))
                         # FALL THROUGH (design 386): the old
                         # `return` here also skipped the resume
                         # consumption point 200 lines below -
