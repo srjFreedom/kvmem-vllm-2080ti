@@ -2182,3 +2182,10 @@ skip=不重放只装视图 - 顺路）。
 - K397 读数: 397 刀 err 0 (未运行=miss pop 掉 st, 刀随 state 死), duct sha 4af1433f 恒等 (T2 用未重排引擎行=池垃圾) - resume_miss×4 是"活 orch 收养"被 retrieval-gate 打回再 reseed 的死循环, 398 给 give-up counter 封环。
 - 分案预期: give-up 后 T2 走冷 (T2 时长回落 ~300s = 机制诚实但 resume 未成) 或 收养真通过 (session_resumed 出生 → 396/397 刀挥 → 内容修复)。两种读数都推进: 前者证明 give-up 通道, 后者直接终读。
 - 计数账: K397 T1 F (半针形态, kept 13 连续带=邻桶工作), T2/T3 duct 恒等。2 boots+3 发+3 修。ahead 337→340。引擎 398 代待命。
+
+## 399-401. Round 194-401 收束账: pop 血脉解剖 (marker 谋杀定案) + miss 刀上盘 + 刀道切换 pressure 车道 - 三回合五 boot 深超, 数据线仍全绿
+
+- 终形: 399 代 knife err 0 但 duct 恒等 = 刀被 ablation 门 (pressure=False→NOKNIFE no-op) 静默拒 - 401 修: 收养刀走 pressure=True (检索视图正形)。give-up 0/收养一次不重入/worker 无二次 ensure 三事实入卷。
+- 下轮 (401 代) 终读三择: ①T2 内容修复 (刀挥成+kept 邻桶) → 计数战; ②err 现形 → 按名修; ③仍恒等 → 刀后视图被引擎行覆写 (查 st.row 写者)。
+- 计数账: M399 T1 F (半针), T2/T3 duct。本回合 3 boots+3 发+6 修 - 罚: 下回合至多 1 boot, 读数优先。
+- ahead 342。引擎 401 代在跑。
