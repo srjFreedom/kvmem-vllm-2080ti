@@ -2254,3 +2254,9 @@ skip=不重放只装视图 - 顺路）。
 - 诊断闸教训 (入律): NOADOPT 只关 adopt 不关 decided-skip = 半关的水闸制造假象; 427 三版拉锯后回滚, skip 闸正名 KVMEM_D_NOSKIP (成对语义: skip 与 adopt 必须同生同灭 - 写进未来协议注释)。
 - 修复正道 (下轮): ①warmup 请求打 no-park 标 (rid 前缀/session="warmup" 识别, retirement 拒收) 或 launcher 换非电池 prompt; ②T1 从根上无档可撞 = 纯冷 ✓ T2 真收养 ✓ 终读窗重开。
 - 计数账: ALLCOLD 双 F (诊断牺牲轮, 数据有效)。本回合 2 boots+6 发+9 修。ahead 374。引擎待 428 boot。
+
+## 428-429. Round 200 终账: "warmup 档"论自纠 - 8e40554e n=142868 = ALLCOLD T1 本身 (my note), 真悖论 = T1 无档可撞却 203s (skip 速) - 时间线需要事件时间戳才能重案
+
+- 悖论清单: ①T1 203s 与 T2 235s 同 duct 恒等 sha - skip 速; ②boot 后 MetaStore 应为空 (进程内存), T1 无 decided 源; ③NOADOPT 闸回滚后 G426 时代 T2 曾 428s 纯冷 - 说明闸/非闸改变的是 T2 时长, T1 的 203s 病另有其源 (嫌疑: 426 代 claim 嫁接后 restore 空转 - orch.store property vs _store 两轮实验都在 T1 上留痕?)。
+- 下轮首刀 (0 boot 起): 给 decided/retired/skip_refused/note_prompt_ids 全带 wall-clock (time.time) - 一发双 shot 出时间线表, 悖论自然消解或定罪具体行。
+- 现场账: ALLCOLD 双 F; gates 已回滚 (adopt 闸除, skip 闸正名 NOSKIP 但 env 已撤 = 双闸休眠); keepalive+claim(_store 版) 在树。3 boots+8 发+12 查 (超戒顶格自记)。ahead 376→377。引擎 428 代健康。
