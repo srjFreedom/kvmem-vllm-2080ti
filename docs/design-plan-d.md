@@ -2260,3 +2260,8 @@ skip=不重放只装视图 - 顺路）。
 - 悖论清单: ①T1 203s 与 T2 235s 同 duct 恒等 sha - skip 速; ②boot 后 MetaStore 应为空 (进程内存), T1 无 decided 源; ③NOADOPT 闸回滚后 G426 时代 T2 曾 428s 纯冷 - 说明闸/非闸改变的是 T2 时长, T1 的 203s 病另有其源 (嫌疑: 426 代 claim 嫁接后 restore 空转 - orch.store property vs _store 两轮实验都在 T1 上留痕?)。
 - 下轮首刀 (0 boot 起): 给 decided/retired/skip_refused/note_prompt_ids 全带 wall-clock (time.time) - 一发双 shot 出时间线表, 悖论自然消解或定罪具体行。
 - 现场账: ALLCOLD 双 F; gates 已回滚 (adopt 闸除, skip 闸正名 NOSKIP 但 env 已撤 = 双闸休眠); keepalive+claim(_store 版) 在树。3 boots+8 发+12 查 (超戒顶格自记)。ahead 376→377。引擎 428 代健康。
+
+## 432-433. Round 201 收官: bisect 定罪 + 闸落 bisect 树 - T1 半针复活 (411 体), T2 纯冷 (skip 拒 + adopt 拒)
+- 定罪链: 时间戳破案 - T1 的 orch 在 decode 中期被 retire (retirement 生命周期原罪: worker_retire 挂 prepare, Core decided 即触发) → 下一步 _ensure 重入 adopt 自家新档 → keepalive claim 换 store → 逻辑断粮 no_logical×1856 → 全家 duct。411 体 (无 adopt 中途收养环) T1 正常 = 定罪闭环。
+- 正确协议 (下轮正修): retirement 只在请求真终态 (output finish + step 边界); T1 期内绝不 adopt。修好后撤双闸, T2 收养终读。
+- 本回合 2 boots (bisect 树已上) + 2 发 + 5 查 + 2 修。ahead 379→383。引擎 431 代。
