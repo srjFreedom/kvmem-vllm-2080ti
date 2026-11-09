@@ -5283,6 +5283,13 @@ class VllmSparseRuntime:
         return 122401
 
     def _rebuild_view(self, req, st, orch, kept, q, pt, n_pages):
+        # _bpo/_po DEFAULTS (design 415): both are bound deep in
+        # the spill/handoff branches; the identity exits and the
+        # cold-first call shapes could reach the return before
+        # any binding ran (UnboundLocalError measured on the
+        # core-side resume call). Pre-bind harmless identities.
+        _po = list(kept) if kept is not None else []
+        _bpo = max(1, int(q or 1))
         """THE knife: pure page rearrange + selection + restore
         (design 87). Both earlier expansions were crippled variants:
         remobilize's was resident-only (absent pages silently dropped,
