@@ -173,7 +173,19 @@ class VllmSparseRuntime:
         self.install_row = True
         self.install_seq = True
         self.install_pos = True
-        self.log = log or (lambda record: None)
+        _sink388 = log or (lambda record: None)
+        import os as _os388
+        def _log388(record, _f=_sink388, _pid=_os388.getpid()):
+            # EVERY runtime event carries its host process - the
+            # store/adopt split stayed blind for three generations
+            # because witnesses shipped without pid.
+            try:
+                if isinstance(record, dict) and "pid" not in record:
+                    record = {**record, "pid": _pid}
+            except Exception:
+                pass
+            _f(record)
+        self.log = _log388
         self._adv_logged = set()
         # `advance_tokens` (execute_model entry) is the single owner of token accounting; the
         # post-block must not add the same tokens again.
