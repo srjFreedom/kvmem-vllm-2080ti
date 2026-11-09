@@ -2020,3 +2020,10 @@ skip=不重放只装视图 - 顺路）。
 - 下轮双查: (1) 传参审计: runtime/orchestrator 调 query_scores 的 head_dim 来源 vs statistics 写桶的 n_embd_k 来源 - 两处必须同一维度口径; (2) 合成判据用例: RawKvStore(2层,128,bt64)+write_layer_mean_sum 填 needle 桶 (与 Q 同向) vs filler 桶 (正交) → query_scores 排名 needle 应居首 - 若居首=ext 无罪传参有罪; 若不居首=帧/聚合语义案。
 - 计数账不变: N88 1/1 环代 T 待复证; N152 0/4 全内容毒形态; resume 机制账绿 (18-20s 增量)。
 - 0 boot+3 静态解剖。ahead 281→282。引擎 pair 代健康。
+
+## 342. Round 171 合成判据核弹: ext 打分器在 softmax 份额制下分辨率归零 (5σ 同向 needle vs 正交 filler: 0.0101 vs 0.0100, margin 1e-4) - 回归用例上盘
+
+- 定罪升级: 传参案/线车案全洗清 - **合成对照证明 ext.scores 本身把强方向差压成万分之一份额** (score=share of softmax over the frame; 100 桶人均 0.01, needle 只 +0.0001) - 真实 2233 桶 + 语义近 filler, needle 掉出 top18 是**分辨率数学必然** - v0.19 官方 scorer 对单句 needle 天生弱, 与 335 的稀释案完全闭环。
+- 用例: tests/recall_resolution_test.py (rank0 断言 + margin>1e-6 分辨率地板) - 现值 margin≈1e-4 通过地板但真实海洋会淹没它 - 修复方向 (策略级, 不变量安全): **题带关键词预筛保底** - 在 score 之外对"与 query 词面强重合的块"进 kept 保底名额 (仍是纯页重排+选择, 不动 kernel/token 流) - 或 ext 侧温度放大 (C++ 侵入, 后选)。
+- 下轮: 保底名额设计落码 (kept = sink ∪ recent ∪ top(room-2) ∪ 词面强合 2 块) + 152K 判据。
+- 0 boots+5 静态解剖。ahead 282→283。引擎 pair 代健康。
