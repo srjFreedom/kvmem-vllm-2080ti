@@ -2165,6 +2165,17 @@ def register():
                                  "prompt": int(getattr(request, "num_prompt_tokens", 0) or 0)})
                         continue
                     hit = int(blocks) * block_size
+                    if getattr(scheduler, "_rlg", 0) <= 10:
+                        _append(_sched_cfg(scheduler).get("log")
+                                or "/tmp/kvmem_sparse.jsonl",
+                                {"kind": "d_hit_gate", "rid": str(rid)[-6:],
+                                 "hit": int(hit),
+                                 "pt": int(getattr(meta, "page_tokens",
+                                                   -1) or -1),
+                                 "ppb": int(getattr(meta, "pages_per_block",
+                                                    -1) or -1),
+                                 "cap": int(getattr(meta, "capacity_pages",
+                                                   -1) or -1)})
                     pt = int(meta.page_tokens or 0)
                     ppb = max(1, int(meta.pages_per_block or 1))
                     if pt <= 0:
@@ -2487,6 +2498,14 @@ def register():
                 try:
                     _rt354 = (getattr(self.scheduler, "kvmem_runtime", None)
                               or _CORE_RUNTIME_HOLDER.get("rt"))
+                    if getattr(self, "_st362", 0) < 6:
+                        self._st362 = getattr(self, "_st362", 0) + 1
+                        _append("/tmp/kvmem_sparse.jsonl",
+                                {"kind": "d_step362",
+                                 "has_rt": _rt354 is not None,
+                                 "outs": bool(outputs),
+                                 "holder": bool(
+                                     _CORE_RUNTIME_HOLDER.get("rt"))})
                     if _rt354 is not None and outputs:
                         from vllm.v1.engine import FinishReason
                         from kvmem_session_store import get_meta_store
