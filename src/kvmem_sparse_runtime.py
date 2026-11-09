@@ -642,6 +642,19 @@ class VllmSparseRuntime:
                 orch.slots = []
                 orch.steps_since_reselect = 0
                 self._orch[req] = orch
+                # ADOPTED FULL PROBE (design 442): orchestrator
+                # identity, live store page count, resume marker,
+                # hit depth - the four facts of the adoption.
+                try:
+                    _pg442 = getattr(getattr(orch, "store", None),
+                                     "_pages", {})
+                    self.log({"kind": "d_adopted_state",
+                              "req": str(req)[-6:],
+                              "orch_id": id(orch),
+                              "store_pages": len(_pg442),
+                              "hit": int(hit_tokens)})
+                except Exception:
+                    pass
                 # RESUME BYTE PAIR (design 384): the adopted books
                 # were just cleared with the promise "rebuilt on
                 # demand" - but demand may NEVER write the skipped
