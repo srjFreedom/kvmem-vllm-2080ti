@@ -2034,3 +2034,10 @@ skip=不重放只装视图 - 顺路）。
 - 定案策略: **邻桶保底** - kept 选定块 b 后无条件补 b+1 (预算内的结构补全, 仍是纯页重排+选择 - 不变量(3) 合规; 语义: 文档答案极少单独成桶, 与题句桶物理相邻是普遍结构) - 码值桶 71401+9→同页 16tok 桶内/下一桶, 邻桶必带。
 - 落码点: blockwise kept 组装后 `kept |= {b+1 for b in top-sel if b+1 < n_blocks}` 截到 budget - 同步 remobilize 分支 (双臂一模型)。判据: T1 全答案 True → 计数战开打 (88K×2 复证+152K×3+250K×1) → T2 时长 (bt16 下拷暴 182s 需随诊: pair 字段本轮未出, written 疑回落)。
 - 1 boot+2 发。ahead 282→283 (本 commit)。引擎 bt16 代健康。
+
+## 345. Round 173: 邻桶保底落码上盘 (kept ∪ {b+1} 在视图行容量内) - 三次语义自纠 (stats 预算/属性名/行容量) 后合同正确
+
+- 落形: blockwise want 展开前 kept 终集补邻块, cap=len(st.row)//q (≤B+R 恒等式护栏); 属性名双保险 (block_tokens or select_block_tokens); 4 套件+assembly_law 全绿 commit。
+- 判据预期: bt16 已让针句进 kept → 邻块=码值桶 → 模型第一次拿到完整答案 'ZX-4417-QJ7' → N152 冷 True 首现。计数战随开: 88K×2+152K×3+250K×1 (250K 在 bt16 桶 15304 网格上 softmax 竞争更强, 邻桶保底同样适用)。
+- 下轮: boot → 152K 双发判据 (cold T1 + resume T2 时长) → 计数战开打。
+- 0 boot 本轮+2 修 (arm_boot 前预算已用 1 代)。ahead 283→284+。引擎 bt16 代健康。
