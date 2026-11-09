@@ -5287,8 +5287,26 @@ class VllmSparseRuntime:
                     # it again is the T1=441s storm. Cold = the
                     # books never carried it (evicted long ago);
                     # only those owe the store replay.
-                    _sl330 = _pmap328.get(int(_pg312))
-                    if _sl330 is not None and int(_sl330) > 0:
+                    # FRESH LEDGER ONLY (design 331): the stale
+                    # _page_map answers with pre-compaction dense
+                    # slots and lies about residency; the truth is
+                    # read live from the kernel's own row. A page
+                    # is hot iff the block it maps to is INSIDE
+                    # this request's current row.
+                    _sl330 = None
+                    try:
+                        _rows331 = self.view.block_table_rows()[0]
+                        _ri331 = int(st.row_index or 0)
+                        if _ri331 < len(_rows331):
+                            _live331 = _rows331[_ri331]
+                            if _live331 is not None and \
+                                    int(_pg312) < len(_live331):
+                                _sl330 = int(_live331[int(_pg312)])
+                    except Exception:
+                        _sl330 = None
+                    if _sl330 is not None and int(_sl330) > 0 and \
+                            int(_sl330) // max(1, int(self.page_tokens)) \
+                            == int(_blk312):
                         continue
                     _lay312 = orch.store.get(int(_pg312))
                     if not _lay312:
@@ -5445,8 +5463,26 @@ class VllmSparseRuntime:
                     # it again is the T1=441s storm. Cold = the
                     # books never carried it (evicted long ago);
                     # only those owe the store replay.
-                    _sl330 = _pmap328.get(int(_pg312))
-                    if _sl330 is not None and int(_sl330) > 0:
+                    # FRESH LEDGER ONLY (design 331): the stale
+                    # _page_map answers with pre-compaction dense
+                    # slots and lies about residency; the truth is
+                    # read live from the kernel's own row. A page
+                    # is hot iff the block it maps to is INSIDE
+                    # this request's current row.
+                    _sl330 = None
+                    try:
+                        _rows331 = self.view.block_table_rows()[0]
+                        _ri331 = int(st.row_index or 0)
+                        if _ri331 < len(_rows331):
+                            _live331 = _rows331[_ri331]
+                            if _live331 is not None and \
+                                    int(_pg312) < len(_live331):
+                                _sl330 = int(_live331[int(_pg312)])
+                    except Exception:
+                        _sl330 = None
+                    if _sl330 is not None and int(_sl330) > 0 and \
+                            int(_sl330) // max(1, int(self.page_tokens)) \
+                            == int(_blk312):
                         continue
                     _lay312 = orch.store.get(int(_pg312))
                     if not _lay312:
