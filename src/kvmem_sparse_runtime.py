@@ -676,8 +676,19 @@ class VllmSparseRuntime:
                         # next query safely. _adopt_session checks this before consuming the entry.
                         self.log({"kind": "resume_miss", "req": req,
                                   "reason": "sealed retrieval statistics missing"})
-                        return
-                    index.reset_query()
+                        # FALL THROUGH (design 386): the old
+                        # `return` here also skipped the resume
+                        # consumption point 200 lines below -
+                        # the adopted prefix was never written
+                        # back, the engine attended to pool
+                        # garbage and answered "duct". The
+                        # retrieval index only serves QUERY
+                        # scoring; restore needs the store
+                        # alone, which this path owns.
+                    if index is not None:
+                        index.reset_query()
+                    else:
+                        st.resume_needs_retrieval = True
                     self._retrieval[req] = index
                     orch.retrieval_index = index
                     if orch.planner is not None:
