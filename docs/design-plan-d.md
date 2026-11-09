@@ -2151,3 +2151,9 @@ skip=不重放只装视图 - 顺路）。
 - 修复蓝图 (下轮手术, 协议级非补丁): MetaStore 跨进程通道已证可用 (shared_hit{90} 从 shm 读通) - **capture 时把 needle-relevant 页字节 spill 进 MetaStore entry 的 pages 字段 (store.get(pg) 序列化, 4410 页×16KB×8层 = ~560MB 太大) → 折中: 只 spill entry 摘要页 (前缀 head/tail + sink 带), 中段页 restore 走 worker→Core 的 store 读 RPC (collective 反向: Core 供页)** - 或最干净: **harvest 整个搬去 worker (374 attach 已给 worker runtime, before_step/adopt/knife 全 worker 域跑), Core 只留 decided 的数字** - worker harvest 的数据源 (block_table, paged_kv) 本来就在 worker!! Core harvest 时代是 A 域借 runner 的遗产错觉 (1286 caller 在 worker model_runner ✓ 一直如此)。
 - 定案: **harvest 在 worker (一直如此), 4410 页 capture 的 orch.store 也是 worker 的 - Core MetaStore shared_hit 读到的 entry 里 orch 引用是 Core 域的 None** - decided{pages:4410} 在 Core 出但 _resume_selection 用 worker orch ✓ - 断点重定向: worker adopt 拿到的 entry.orchestrator 是新 runtime 的空 orch → capture 数据(4410页)在哪?**在 worker 老 runtime (383 前不存在!) - host-attach 374 才让 worker 有 runtime - T1 的 harvest 数据从第一刀就应写 worker store ✓ d_capture_direct{complete} pid 域待验 (下轮第一查)**。
 - 计数账: FT386 T1 F T2/T3 duct 一致 (deterministic poison, 20.2s 带内)。2 boots+5 发。ahead 325→326。引擎 386 代健康。
+
+## 388-389. Round 190: pid 包装上盘 (runtime 全事件自动带宿主) - 新实锤候选: _adopt_session pop 的 self._resume 是进程本地 dict, Core decided 的标记到不了 worker
+
+- 终形假说 (待 pid 表终审): harvest/capture 若在 CORE (184 普查 hv pid=CORE), Core 的 orch.store 满页; worker 的 runtime 374 新建 store 全空; decided 写 Core runtime._resume ✓ 但 adopt 在 worker 的 _resume ✗ 永远 None → st.resume 无人标 → 无写回 → duct。两条修复路: (a) 写回搬 Core (schedule 边界内 _complete_resume, store 同域); (b) resume 标记随 scheduler_output 到 worker (引擎原生字段 num_computed 已是载体, worker 首步自查 MetaStore 命中 + computed 跳量, 自标 _resume, restore 走 shm entry 的页字节 - entry 需带 spill)。
+- pid 包装是裁决器: 下轮双发后按 pid 分域表 - capture/prep/knife/hv/adopt/retire 各事件族落哪进程一目了然, 修路按图表一次性选 (不再逐代猜)。
+- 386 fall-through + 388 pid wrap 均 parse+3 套件绿。本回合 0 boot+3 查+2 修。ahead 326→328。引擎 386 代健康。
