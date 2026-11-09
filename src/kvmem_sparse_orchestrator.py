@@ -568,8 +568,15 @@ class SparseOrchestrator:
                 layer_rows[int(layer)] = q
                 rows = max(rows, int(q.shape[0]))
         except Exception:
+            import traceback as _tb320
+            _probe_write({"kind": "d_core_exc",
+                          "err": _tb320.format_exc(limit=4)[-360:]})
             return None
         if rows <= 0 or not layer_rows:
+            _probe_write({"kind": "d_core_empty", "rows": int(rows),
+                          "layers": len(layer_rows),
+                          "saved_layers": len(saved or {}),
+                          "frozen": bool(frozen)})
             return None
         recall = getattr(self, "_recall", None)
         if recall is None:
