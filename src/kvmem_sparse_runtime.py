@@ -2011,8 +2011,15 @@ class VllmSparseRuntime:
                                       "req": str(req)[-6:],
                                       "hit": hit390,
                                       "blocks": n390})
-                except Exception:
+                except Exception as _e392:
+                    self.log({"kind": "d_selfderive_err",
+                              "err": f"{type(_e392).__name__}: "
+                                     f"{_e392}"[:140]})
                     pending = None
+            else:
+                self.log({"kind": "d_selfderive_skip",
+                          "reuse": bool(self.session_reuse),
+                          "store": self.session_store is not None})
         if pending is None or not self.session_reuse or self.session_store is None:
             return None
         hit_tokens, visible_tokens = pending
@@ -3051,6 +3058,15 @@ class VllmSparseRuntime:
         # --kvmem-inrequest-compaction off). Retrieval statistics can still be collected.
         if not bool(getattr(self, "inrequest_compaction", False)):
             return None
+        if getattr(self, "_bs_loud", 0) < 8:
+            # CONSUME GATE WITNESS (design 392): announces that
+            # before_step reached the resume consumption gate and
+            # what the gate sees - settles whether the marker or
+            # the row arrival is the missing half.
+            self._bs_loud = getattr(self, "_bs_loud", 0) + 1
+            self.log({"kind": "d_bs_gate", "req": str(req)[-6:],
+                      "has_resume": st.resume is not None,
+                      "has_row": row_index is not None})
         if st.resume is not None and row_index is not None:
             # First step of a request that continues a parked session: fill the engine's freshly
             # allocated resident pages from the store and adopt the parked token book. This must run
