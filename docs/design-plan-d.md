@@ -2208,3 +2208,9 @@ skip=不重放只装视图 - 顺路）。
 - 终解: 全名读数终结双身份猜想 - 897437ec/b083330a 是不同代的 rid 样本, 同请求的 adopt 与 gate 同域 ✓ 真病 = T2 唯一一次 _ensure 在 adopt 分支里 return (无行可消费), 后续步骤不再进 _ensure, gate 的 deferred-knife 永无 T2 步 - 411 修: adopt 步当场挥 pressure 刀 (行在 before_step 头已绑, T2 decode 行=自己)。
 - 下轮 (boot 已备): 三连 - d_adopt_knife{tokens} 出生 → panels(T2) → 视图重排 → T2 内容修复 (duct 终) → resumed 谱名 → 计数战开打。
 - 本回合 2 boots+5 发 (现杀豁免在案)。ahead 351→352。引擎 410 代健康。
+
+## 412. Round 196 收官: 刀绑错支解构 - miss census 分型 (6 全在 2118 收养尾区, retrieval-miss 0) = T2 走健康主支, 411 刀永不到货 - 412 刀移主支尾 (每次收养必挥)
+
+- 终形: 收养主支 = selfderive 标 → pending 非 None → hashes/owner/digest 全行 (2112-2126) → 若某环断 (hashes 空) 2118-line miss 无 reason 字段 - 6 发 = 双 rank×3 轮同型 - retrieval-miss (702, 带 reason) 零发 = 主支根本没进 miss 子支 ✓✓ - 412 修: adopt_knife_pending + 当场挥刀全在 return 前主支尾, 收养一步不放过。
+- 下轮三连: d_adopt_knife{tokens} 出生 (预期 tokens>0 = 行已绑) → T2 panels 谱 → duct 终结或视图覆写二次判 (行绑定时序) → resumed → 计数战。
+- 本回合 2 boots+6 发+10 查。ahead 353→354。引擎 411 代待换 412。
