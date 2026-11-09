@@ -1965,3 +1965,9 @@ skip=不重放只装视图 - 顺路）。
 - 保持的战果: core_exc=0 (形状案终审成立), 中段刀 rank 进 top10 (前代 pair323 实证 30→7)。
 - 新末页: refresh 代末刀 panel -1/-1 - d_core_empty 针在位未读 (本回合 grep 窗已排, 下轮首读它的 rows/layers/frozen 四元) - 三择: rows=0 → 刷新后的 capture 把 source 洗成空 (tail 切片在短行上出错?) ; layers=0 → saved 被覆盖为空 dict; frozen=False → 新刀走 live (refresh 判据 tokens<pl 永真 - prompt 完成后仍刷 - **把题带 tail 换成 decode 步的生成 token 行!! refresh 过界了**) - 第三择最可疑: 条件应为 `tokens < pl` 但 decode 期 tokens 继续涨>pl 停刷 ✓... 除非 st.tokens 是窗口人群数而非全量... 读数裁决。
 - 计数账: N152 0/1 refresh 代 (T1 217.2s duct, T2 582.7s 慢=decode 退化加长)。0 boots+2 发。ahead 262→263。引擎 refresh 代健康。
+
+## 326. Round 161: 盲区证人三连零发 (gate 三口无/entry 空字段/want 证人错流路) - 末刀 rank7 score4.21 保持, written 343<840 = store 缺 497 页, per-page 账针上膛
+
+- 判决进展: 打分器健康 (rank 7 = kept 含针), capture 8 次活, core_exc 恒零 - 病只余一:**store 里 840 want 页只有 343 有规范字节** - 缺的 497 是哪些 (needle 页 2205+ 在其中?) = per-page 账针 (d_oow_ledger: page/blk/store有/域内 四元 ×12 页首样) 一发定案。
+- 缺页先验 (待账针证): harvest 的 span 只覆盖**窗口人群** (resident∪recent) - prefill 早期被 evict 的段若 harvest 未跟写, store 无规范字节 → CF 之前实测 canonical=104 是 needle 页有字节的 (2205-2209 canonical 好) - 所以 written=343 或许**needle 已在 343 内, 拷了但仍 duct** - 那样病又回到装填后 kernel 读取面 (相位)。账针的 [pg,blk,store,dom] 四元 + copy 成功数一起读, 两案同时收口。
+- 1 boot+2 发+3 读触戒律。ahead 264→265。引擎 gates 代健康。
