@@ -220,8 +220,15 @@ def torch_dtype(runner):
     return dtype if getattr(dtype, "is_floating_point", False) else _t.bfloat16
 
 
+_BOOT_T0 = __import__("time").monotonic()
+
+
 def _append(path, record):
     try:
+        if isinstance(record, dict) and "t" not in record:
+            record = {**record,
+                      "t": round(__import__("time").monotonic()
+                                 - _BOOT_T0, 2)}
         with open(path, "a") as handle:
             handle.write(json.dumps(record) + "\n")
     except Exception:
