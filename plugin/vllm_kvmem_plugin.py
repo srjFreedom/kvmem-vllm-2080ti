@@ -2345,6 +2345,19 @@ def register():
                                  "why": "TP worker checkpoint unavailable", "pid": os.getpid()})
                         continue
                     visible = pages * pt
+                    if (__import__("os").environ.get(
+                            "KVMEM_D_NOADOPT", "") in
+                            ("1", "true", "yes")):
+                        # DIAGNOSTIC GATE (427b): refuse the skip
+                        # itself - without an adoption that can
+                        # restore bytes, skipping the prefix hands
+                        # the attention pool garbage (duct). The
+                        # whole resume half stands down as one.
+                        _append("/tmp/kvmem_sparse.jsonl",
+                                {"kind": "d_skip_refused",
+                                 "req": str(rid)[-6:],
+                                 "would_hit": int(hit)})
+                        continue
                     request.num_computed_tokens = visible
                     request.num_logical_tokens = hit
                     request.num_kvmem_offset = hit - visible
