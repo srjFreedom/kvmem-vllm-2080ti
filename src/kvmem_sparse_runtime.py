@@ -5088,6 +5088,28 @@ class VllmSparseRuntime:
             if i < len(row) and row[i] > 0 and int(lp) >= 0:
                 res_slot.setdefault(int(lp), int(row[i]))
         want = []
+        # ADJACENT-BLOCK RESERVE (design 345): a needle sentence
+        # and its answer value almost never share the SAME score
+        # window - the value bucket has zero lexical overlap with
+        # the question and the softmax can never reach it through
+        # the semantic channel. Documents answer next to the
+        # mention: reserve the block right after every selected
+        # block while the budget allows. Pure page rearrange +
+        # selection (invariant 3); no kernel, no token stream.
+        _sel345 = set(int(x) for x in kept)
+        # CAP = VIEW ROW CAPACITY, not the statistic grid: the
+        # window row holds ~row-page-count engine blocks
+        # (len(st.row) pages / q pages-per-block); reserving an
+        # adjacent block only while the row can still carry it
+        # keeps the ≤B+R invariant exact.
+        _rowcap345 = max(2, len(st.row or ()) // max(1, int(q)))
+        _cap345 = _rowcap345
+        for _b345 in sorted(_sel345):
+            if len(_sel345) >= _cap345:
+                break
+            if _b345 + 1 < n_blocks:
+                _sel345.add(_b345 + 1)
+        kept = sorted(_sel345)
         for b in sorted(int(x) for x in kept):
             if b < 0:
                 continue
