@@ -109,7 +109,7 @@ check("_seal_restore_checkpoint" in _rr and "session_checkpoint_sealed_restore" 
       "runtime seals a restore checkpoint at the pressure rebuild queue")
 check("restore_only=False" in _rr and "not restore_only and capacity * self.page_tokens" in _rr,
       "restore publish waives the full-resident contract only for restore mode")
-check('"kvmem_resume_deferred"' in _rs and 'if not getattr(meta, "has_state", True):' in _rs,
+check('"kvmem_resume_deferred"' in _rs and 'not getattr(meta, "has_state", True)' in _rs and 'd_mode' in _rs,
       "Core defers restore-type hits only; dense entries apply")
 _rr2 = _rr
 check('owner_session_id = ("", "__prefix_cache__")' in _rr2.split("def _adopt_session")[1].split("def ")[0],
