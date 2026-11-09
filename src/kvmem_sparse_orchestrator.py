@@ -568,9 +568,15 @@ class SparseOrchestrator:
             # (d_core_exc 'tuple' has no numel ×52 knives, every
             # score since is _last_core residue, not fresh math).
             # One contract: always a pair from here on.
-            source = {int(k): (v if isinstance(v, tuple)
-                               else (v, None))
-                      for k, v in source.items()}
+            def _pair322(v):
+                if isinstance(v, tuple):
+                    if len(v) == 2:
+                        return v
+                    return (v[0], v[1] if len(v) > 1 else None)
+                return (v, None)
+            source = {int(k): _pair322(v) for k, v in source.items()
+                      if v is not None and (
+                          not isinstance(v, tuple) or v[0] is not None)}
             for layer, (q, _pos) in source.items():
                 if q is None or q.numel() == 0:
                     continue

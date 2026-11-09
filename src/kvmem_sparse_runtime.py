@@ -2508,11 +2508,25 @@ class VllmSparseRuntime:
                 _lim316 = 512
                 _qk = {}
                 for _l316, _val316 in _src316.items():
+                    # read_all() yields (q, pos) pairs (or
+                    # (None, None) when a layer is empty) - keep
+                    # the pair shape EXACTLY; trimming the tail
+                    # preserves it. Empty pairs are skipped so
+                    # the frozen source only carries real rows.
                     try:
-                        _q316, _p316 = _val316
-                        _qk[_l316] = (_q316[-_lim316:], _p316[-_lim316:])
+                        if isinstance(_val316, tuple):
+                            _q316 = _val316[0]
+                            _p316 = _val316[1] if len(_val316) > 1 \
+                                else None
+                            if _q316 is None:
+                                continue
+                            _qk[_l316] = (_q316[-_lim316:],
+                                          _p316[-_lim316:]
+                                          if _p316 is not None else None)
+                        elif _val316 is not None:
+                            _qk[_l316] = (_val316[-_lim316:], None)
                     except Exception:
-                        _qk[_l316] = _val316
+                        continue
                 _ri316._q_rows = _qk
                 _orch316._d_question_mode = True
                 if self.log is not None and \
