@@ -5281,6 +5281,16 @@ class VllmSparseRuntime:
                               "ordered_n": len(ordered), "po_n": len(_po),
                               "led": _led})
                 for _pg312, _blk312 in zip(ordered, _po):
+                    # HOT BY THE BOOKS (design 330): a page whose
+                    # slot is CURRENTLY mapped is already resident
+                    # with its own bytes at _po's block - copying
+                    # it again is the T1=441s storm. Cold = the
+                    # books never carried it (evicted long ago);
+                    # only those owe the store replay.
+                    _sl330 = _pmap328.get(int(_pg328)) \
+                        if "_pmap328" in dir() else None
+                    if _sl330 is not None and int(_sl330) > 0:
+                        continue
                     _lay312 = orch.store.get(int(_pg312))
                     if not _lay312:
                         continue
@@ -5370,6 +5380,8 @@ class VllmSparseRuntime:
                     _po.append(int(_sl328b) // _pt328b)
                 else:
                     _po.append(int(_pg328b) - int(_pg328b) % _bpo)
+            _pmap328 = _pm328b
+            _pt328 = max(1, int(self.page_tokens))
             # BLKIDS v2 (design 139): PHYSICALS deduped to one entry
             # per engine block (adopt + row math speak blocks);
             # LOGICALS stay the true page-id sequence - the earlier
@@ -5428,6 +5440,16 @@ class VllmSparseRuntime:
                 # ALL kept pages is idempotent pure copy - the
                 # honest cost of invariant (2).
                 for _pg312, _blk312 in zip(ordered, _po):
+                    # HOT BY THE BOOKS (design 330): a page whose
+                    # slot is CURRENTLY mapped is already resident
+                    # with its own bytes at _po's block - copying
+                    # it again is the T1=441s storm. Cold = the
+                    # books never carried it (evicted long ago);
+                    # only those owe the store replay.
+                    _sl330 = _pmap328.get(int(_pg328)) \
+                        if "_pmap328" in dir() else None
+                    if _sl330 is not None and int(_sl330) > 0:
+                        continue
                     _lay312 = orch.store.get(int(_pg312))
                     if not _lay312:
                         continue
