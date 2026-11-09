@@ -711,8 +711,15 @@ class VllmSparseRuntime:
                         # and let the consumption gate below still
                         # find its marker intact.
                         try:
+                            # pressure=True: the RESUME VIEW is
+                            # exactly the pressure lane's shape
+                            # (scored selection + adjacent
+                            # reserve over the restored prefix);
+                            # pressure=False is the question-lane
+                            # ablation no-op and was silently
+                            # refused at the gate.
                             self._reselect_blockwise(
-                                req, pressure=False)
+                                req, pressure=True)
                         except Exception as _e399:
                             self.log({"kind": "d_adopt_knife_err",
                                       "err": f"{type(_e399).__name__}: "
