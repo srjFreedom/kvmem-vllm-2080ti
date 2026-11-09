@@ -613,6 +613,82 @@ class VllmSparseRuntime:
                 # host tier, so nothing is re-prefilled and no new host share is opened.
                 entry, hit_tokens, visible_tokens = adopted
                 orch = entry.orchestrator
+# CLAIM THE KEEPALIVE (424b): a cross-process
+                # adoption's store is this process's own harvest,
+                # keyed by the chain digest - graft it onto the
+                # adopted orch so restore_pages_batch copies real
+                # bytes instead of an empty ledger.
+                if orch is not None:
+                    try:
+                        _h424b = self._session_hashes(req)
+                        _pool424b = getattr(self, "_spill_stores",
+                                            {})
+                        for _k424 in reversed(list(_h424b or ())):
+                            _st424 = _pool424b.get(str(_k424))
+                            if _st424 is not None:
+                                orch.store = _st424
+                                self.log({"kind": "d_store_claim",
+                                          "req": str(req)[-6:],
+                                          "key": str(_k424)[:16]})
+                                break
+                    except Exception:
+                        pass
+                # The parked device pages belong to a FINISHED request and have been returned to
+                # the pool, so their residency bookkeeping is stale: every page is rebuilt from the
+                # store on demand instead (the store is the only authority).
+                orch.resident.clear()
+                orch.slot_of.clear()
+                orch.baked_delta.clear()
+                orch.slots = []
+                orch.steps_since_reselect = 0
+                self._orch[req] = orch
+                # RESUME BYTE PAIR (design 384): the adopted books
+                # were just cleared with the promise "rebuilt on
+                # demand" - but demand may NEVER write the skipped
+                # prefix's pages back, leaving the engine to attend
+                # to pool garbage (the duct answers). Compare, for
+                # the needle neighborhood, the canonical store
+                # bytes against whatever the device row currently
+                # holds at the very first post-adopt step.
+                def _resume_pair384():
+                    try:
+                        stx = self._state.get(req)
+                        orx = self._orch[req]
+                        if stx is None or orx is None:
+                            return None
+                        rows = self.view.block_table_rows()
+                        row0 = rows[0] if rows else ()
+                        ptx = max(1, int(orx.page_tokens or 32))
+                        nbx = (self._needle_marker(req, stx)
+                               // ptx) // max(1, len(row0) or 1)
+                        pairs = []
+                        for pos in range(len(row0)):
+                            blk = int(row0[pos])
+                            pg = nbx * max(1, len(row0)) + pos
+                            for want in (nbx - 1, nbx, nbx + 1):
+                                if blk <= 0 or (pg // max(1, len(row0))) != want:
+                                    continue
+                                lz = orx.store.get(int(pg))
+                                if not lz:
+                                    continue
+                                cz = float(lz[0].float().abs().mean())
+                                pk = self.view.paged_kv()
+                                sz = int(blk)
+                                vz = (float(pk[0][sz].float().abs()
+                                            .mean())
+                                      if sz < pk[0].shape[0] else -2.0)
+                                pairs.append([int(pg), round(vz, 6),
+                                              round(cz, 6)])
+                            if len(pairs) >= 6:
+                                break
+                        return pairs[:6]
+                    except Exception:
+                        return None
+                if getattr(self, "_rp_loud", 0) < 4:
+                    self._rp_loud = getattr(self, "_rp_loud", 0) + 1
+                    self.log({"kind": "d_resume_pair",
+                              "req": str(req)[-6:],
+                              "pair": _resume_pair384()})
                 # The parked device pages belong to a FINISHED request and have been returned to
                 # the pool, so their residency bookkeeping is stale: every page is rebuilt from the
                 # store on demand instead (the store is the only authority).
@@ -1486,6 +1562,20 @@ class VllmSparseRuntime:
         any live books. A checkpoint that was sealed but never published is re-published here
         while books still exist (short answers that finished before any release).
         """
+        # STORE KEEPALIVE (design 424b): the harvest bytes must
+        # outlive the orch that owns them - T2's adoption in this
+        # process claims the store back by chain digest, and the
+        # restore is then a pure copy (protocol 2).
+        _orch424 = self._orch.get(req)
+        if _orch424 is not None and getattr(_orch424, "store",
+                                            None) is not None:
+            _h424 = self._session_hashes(req)
+            if _h424:
+                _pool424 = self._spill_stores = getattr(
+                    self, "_spill_stores", {})
+                _pool424[str(_h424[-1])] = _orch424.store
+                while len(_pool424) > max(2, int(self.sessions)):
+                    _pool424.pop(next(iter(_pool424)), None)
         if not self.session_reuse or self.session_store is None:
             self.log({"kind": "session_park_enter", "req": req, "which": "disabled",
                       "reuse": self.session_reuse, "store": self.session_store is not None})
