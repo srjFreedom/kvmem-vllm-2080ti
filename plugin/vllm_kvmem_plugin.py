@@ -1046,7 +1046,8 @@ def _attach_sparse(runner, log_path):
     except Exception:
         _append(log_path, {"kind": "bridge_ensure_error", "error": traceback.format_exc()})
     global _ACTIVE_RUNTIME
-    _ACTIVE_RUNTIME = runtime            # the early capture resolves its index through this
+    _ACTIVE_RUNTIME = runtime
+    _CORE_RUNTIME_HOLDER["rt"] = runtime            # the early capture resolves its index through this
     if _CAPTURE is not None:
         runtime.capture = _CAPTURE
     try:
@@ -1458,6 +1459,11 @@ def _attach_free_path(log_path):
 
 _CAPTURE = None
 _ACTIVE_RUNTIME = None
+# CROSS-HOST RUNTIME REGISTRY (design 353): every process that
+# attaches a runtime records it here; retirement resolves through
+# it when object-attribute paths miss (the harvest host and the
+# retirement hook host are not the same object graph).
+_CORE_RUNTIME_HOLDER = {}
 
 
 def _install_capture_early(log_path, gen_reserve):
@@ -2561,9 +2567,12 @@ def register():
                             {"pid": os.getpid(), **event}),
                         core_runtime=(
                             getattr(core.scheduler, "kvmem_runtime", None)
+                            or getattr(getattr(core, "model_executor", None),
+                                       "kvmem_runtime", None)
                             or (getattr(core.scheduler, "_kvmem", None)
                                and core.scheduler._kvmem.get("sparse"))
-                            or _ACTIVE_RUNTIME))
+                            or _ACTIVE_RUNTIME
+                            or _CORE_RUNTIME_HOLDER.get("rt")))
 
                 def _quiescent_compaction(core):
                     """Opt-in: compact at the Core boundary, between steps, on the main thread.
