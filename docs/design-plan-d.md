@@ -2073,3 +2073,10 @@ skip=不重放只装视图 - 顺路）。
 - 取 runtime 三源回退 (scheduler 属性/_kvmem dict/_ACTIVE_RUNTIME) - Core 进程内必有一个命中 (539 事件的持有者)。
 - 下轮判决双发: retired{inprocess}×1 → capture gates 在 Core 出声 (Core 的 d_mode/rids 历代表现在此进程统一!) → T2 decided→resumed→时长。若 Core prepare 的 rids 空 (Core 无 execute_model wiring): d_mode gate 的 _d_rids 记录点也在 Core (install 门 302 线) ✓ 应通。
 - 0 boot 追加 (本回合共 0: bash-428 是上轮 boot 的读数) + 2 修。ahead 293→294。引擎 rt 修代健康。
+
+## 353-354. Round 178-354 拓扑终章: retirement hook 实际在 front-end 进程跑 (584 vs 1 的 pid 普查), harvest 全在 EngineCore - 下轮手术=retirement 搬进 EngineCore.step_c
+
+- 新铁证: d_retire_reqs pid=126151(front-end)×584 / 127893(EngineCore)×1 - 353 注册表在 front-end 查不到 (那里没 attach) → core_runtime=None → 继续 RPC fallback → aborted; shared_hit{90} 在 Core 出 (档在 Core MetaStore - 历代表从 RPC 成功的少数代存留), decided 断在 skip 后的 proof RPC (worker 空手)。
+- 354 定稿手术 (低风险搬运): 把 retire_terminal_sessions 调用挂到 step_c(self=EngineCore) 内 - self.scheduler 的 runtime (kvmmem wiring 宿主) + outputs (EngineCoreOutputs) 同处一进程; front-end 的 retirement 调用退役 (或 core_runtime None 时直接 return 不 RPC); proof 通道同步就地化 (_maybe_resume 的 collective_rpc check → 若 Core runtime 在手, 本地 check_session_checkpoint×tp_size 伪造 records{rank 0/1} 同谱名喂 verify)。
+- 预期: T1 retired{inprocess} → T2 shared_hit→decided→resumed → **时长终读**; 计数战随开。
+- 本回合: 2 boots+4 发+7 静态/普查 (超) 硬停止。ahead 296→297。引擎 reg 代健康。
