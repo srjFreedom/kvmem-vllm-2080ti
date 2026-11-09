@@ -5319,9 +5319,35 @@ class VllmSparseRuntime:
                 pass
             if self.log is not None and getattr(self, "_ow_loud", 0) < 6:
                 self._ow_loud = getattr(self, "_ow_loud", 0) + 1
+                _pair338 = []
+                try:
+                    _nbz338 = (self._needle_marker(req, st)
+                               // max(1, int(pt))) // max(1, int(q))
+                    _paged338 = self.view.paged_kv()
+                    for _pgz, _blkz in zip(ordered, _po):
+                        _bz338 = int(_pgz) // max(1, int(q))
+                        if _bz338 not in (_nbz338 - 1, _nbz338,
+                                          _nbz338 + 1):
+                            continue
+                        _lz338 = orch.store.get(int(_pgz))
+                        if not _lz338:
+                            continue
+                        _cz338 = float(_lz338[0].float().abs().mean())
+                        _sz338 = int(_blkz)
+                        _vz338 = (float(_paged338[0][_sz338].float()
+                                        .abs().mean())
+                                  if _sz338 <
+                                  _paged338[0].shape[0] else -2.0)
+                        _pair338.append([int(_pgz), round(_vz338, 6),
+                                         round(_cz338, 6)])
+                        if len(_pair338) >= 6:
+                            break
+                except Exception:
+                    pass
                 self.log({"kind": "d_oow_handoff", "req": str(req)[-6:],
                           "pages": len(ordered), "written": _rest312,
-                          "rowdom": len(_rowdom)})
+                          "rowdom": len(_rowdom),
+                          "pair": _pair338})
             return (_po, ordered, [], [], _bpo)
         assign = {}
         used = set()
@@ -5495,9 +5521,35 @@ class VllmSparseRuntime:
                 pass
             if self.log is not None and getattr(self, "_ow_loud", 0) < 6:
                 self._ow_loud = getattr(self, "_ow_loud", 0) + 1
+                _pair338 = []
+                try:
+                    _nbz338 = (self._needle_marker(req, st)
+                               // max(1, int(pt))) // max(1, int(q))
+                    _paged338 = self.view.paged_kv()
+                    for _pgz, _blkz in zip(ordered, _po):
+                        _bz338 = int(_pgz) // max(1, int(q))
+                        if _bz338 not in (_nbz338 - 1, _nbz338,
+                                          _nbz338 + 1):
+                            continue
+                        _lz338 = orch.store.get(int(_pgz))
+                        if not _lz338:
+                            continue
+                        _cz338 = float(_lz338[0].float().abs().mean())
+                        _sz338 = int(_blkz)
+                        _vz338 = (float(_paged338[0][_sz338].float()
+                                        .abs().mean())
+                                  if _sz338 <
+                                  _paged338[0].shape[0] else -2.0)
+                        _pair338.append([int(_pgz), round(_vz338, 6),
+                                         round(_cz338, 6)])
+                        if len(_pair338) >= 6:
+                            break
+                except Exception:
+                    pass
                 self.log({"kind": "d_oow_handoff", "req": str(req)[-6:],
                           "pages": len(ordered), "written": _rest312,
-                          "rowdom": len(_rowdom)})
+                          "rowdom": len(_rowdom),
+                          "pair": _pair338})
             return (_po, ordered, [], [], _bpo)
         # IDENTITY MEANS DO-NOTHING (design 282): the court-martial
         # unit law holds - a rebuilt row must be ENGINE BLOCK IDS.
