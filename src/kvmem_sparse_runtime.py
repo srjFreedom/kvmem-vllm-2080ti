@@ -663,7 +663,14 @@ class VllmSparseRuntime:
             store = None
             # KVMem's host tier owns the spilled payload and enforces H. Falls back to the plain
             # host store when the native extension is unavailable.
-            if getattr(self, "use_kvmem_host", True):
+            if getattr(self, "use_kvmem_host", True) and \
+                    not getattr(self, "d_mode", False):
+                # D NEVER TAKES THE SHARE GRANT (design 382): the
+                # H pool with sessions=1 leaked one active grant
+                # per crashed request and BudgetError-killed the
+                # engine ("no idle H share" death-watch); D's
+                # host tier is the orchestrator store already
+                # aliased below, so the A-era ledger is skipped.
                 try:
                     from kvmem_sparse_orchestrator import KvmemHostStore
                     # H is shared across live and parked sessions. Reusing len(_orch)+1 after a
