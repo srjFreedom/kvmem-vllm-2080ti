@@ -704,8 +704,15 @@ class VllmSparseRuntime:
                         # process (miss×4 proves pending was
                         # live); hand it back so the next _ensure
                         # adopts through the shared-store path.
-                        self._resume[req] = (int(hit_tokens),
-                                             int(visible_tokens))
+                        if req not in getattr(self, "_reseed_once",
+                                               None) or True:
+                            _rs4 = self._reseed_once = getattr(
+                                self, "_reseed_once", set())
+                            if req not in _rs4:
+                                _rs4.add(req)
+                                self._resume[req] = (
+                                    int(hit_tokens),
+                                    int(visible_tokens))
                         # FALL THROUGH (design 386): the old
                         # `return` here also skipped the resume
                         # consumption point 200 lines below -
