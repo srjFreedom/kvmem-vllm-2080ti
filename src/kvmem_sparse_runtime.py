@@ -5197,8 +5197,22 @@ class VllmSparseRuntime:
             #残块-K starvation explains every clean-chain answer miss:
             # the model read 12% of each block.
             ordered = sorted(set(want))
-            _bpo = max(1, int(q))
-            _po = [pg - pg % _bpo for pg in ordered]
+            # TRUE-MAP PHYSICALS (design 328): bucket identity assumed
+            # dense allocation from block 0; real engine allocation is
+            # sparse (ledger: every phys bucket missed st.row, dom=0).
+            # The books map page -> current slot; slot//page_tokens is
+            # the owning engine block - the only legal row value. Never
+            # resident pages fall back to the store-copy cold path with
+            # the bucket id (they have no map entry by construction).
+            _pmap328 = self._page_map.get(req, {})
+            _pt328 = max(1, int(self.page_tokens))
+            _po = []
+            for _pg328 in ordered:
+                _sl328 = _pmap328.get(int(_pg328))
+                if _sl328 is not None and int(_sl328) > 0:
+                    _po.append(int(_sl328) // _pt328)
+                else:
+                    _po.append(int(_pg328) - int(_pg328) % max(1, int(q)))
             # EARLY-PATH FIELD TRUTH (design 174): print what the
             # identity path ACTUALLY produced for the needle block -
             # complete 49-page span, page count, and the returned
@@ -5344,7 +5358,18 @@ class VllmSparseRuntime:
             # rbv-internal units (never borrow the caller's locals):
             # pages per engine block = block_pages = q passed in.
             _bpo = max(1, int(q))
-            _po = [pg - pg % _bpo for pg in ordered]  # block-start pages (143)
+            # TRUE-MAP (design 328 part2): same page->slot//pt
+            # contract as the main rebuild; cold fallback keeps
+            # the bucket form for never-resident pages.
+            _pm328b = self._page_map.get(req, {})
+            _pt328b = max(1, int(self.page_tokens))
+            _po = []
+            for _pg328b in ordered:
+                _sl328b = _pm328b.get(int(_pg328b))
+                if _sl328b is not None and int(_sl328b) > 0:
+                    _po.append(int(_sl328b) // _pt328b)
+                else:
+                    _po.append(int(_pg328b) - int(_pg328b) % _bpo)
             # BLKIDS v2 (design 139): PHYSICALS deduped to one entry
             # per engine block (adopt + row math speak blocks);
             # LOGICALS stay the true page-id sequence - the earlier
