@@ -2047,3 +2047,9 @@ skip=不重放只装视图 - 顺路）。
 - 终读法: 事件流不撒谎 - pressure_gate/panel 全零 + tp_records_dump ranks ["None","None"] = prepare_session_checkpoint 在两 worker 都返回 None = **_park_session/捕获链在 345 代某行炸且被 except 吞成 None** (非刀门, 非 flags) - 346 修 (row 形参等价重写) 已 boot; 若 adj2 仍 None, d_rpc_return 之外需给 prepare 的 except 装 err 出声 (一行) 终结盲修。
 - 保持账: bt16 针句胜利 (KEY-MID 直读), 邻桶合同设计正确 (码值桶物理相邻), 只差这代刀活着。
 - 预算: 1 boot 追加 (bash-415) 触顶停止交还。ahead 286+。引擎 adj2 待命。
+
+## 348-349. Round 174-349: 邻桶进 law 作用域后答案第三形态 (针句可读+码值幻觉 888…) 但 prep 全链零 = prepare RPC 未达 worker - 下一步 RPC 存在针一枚止臆
+
+- 战果侧影: T1 'blunt nib' 复读 = 邻块 (clerk 桶) 内容进了视图; T3 'KEY-MID is 888…' = 问句+针句头在场、码值仍缺 - **邻桶合同在可读面上有芽, 判决要等 prep 链活**。
+- 零事件新案: adj3 代 d_prep_enter 从 0 变无 (前两代至少 4 条) = collective_rpc 的 prepare 请求集为空或抛前置异常 - 嫌疑: 348 改动让 law 区某变量在部分作用域抛 (kept 重定义?) 使 **quiescent_compact 每次炸 → d_none_reason 应现但 grep=0**... 或 retirement 侧 requests 过滤 (finish reason 变化?) - 下轮唯一动作: 在 _retire/terminal requests 组装处 + wrapper 入口各一枚存在针 (两行 log), 一发看 requests=[]? wrapper 抛? 或 rpc 根本没调 - 然后才修。
+- 2 boots+3 发触大戒律。ahead 288→289。引擎 adj3 代在跑 (RPC 针代待命)。
