@@ -2176,3 +2176,9 @@ skip=不重放只装视图 - 顺路）。
 - 396 修 (复员首刀): session_resumed 出口立即 _reselect_blockwise(pressure=False) - sink+recent+评分+邻桶保底一次重排, 与冷跑首刀同谱 - 三修 (394 reseed/395 guard/396 刀) 全上盘, 3 套件绿。
 - 终读窗 (下轮双发): session_resumed 出生 → panel×N (kept 结构) → d_resume_pair [pg,live,canon,n] → 答案 ZX-4417-QJ7 (若邻桶+码值桶同现) → 计数战全开。
 - 3 boots+3 发。ahead 335→336。引擎 396 代在跑。
+
+## 397-398. Round 194-198: 收养-放弃循环闭合 (第二次 miss 缴械走冷路) - 396/397 刀位就绪等活收养通过 (d_adopt_giveup 出生即分案)
+
+- K397 读数: 397 刀 err 0 (未运行=miss pop 掉 st, 刀随 state 死), duct sha 4af1433f 恒等 (T2 用未重排引擎行=池垃圾) - resume_miss×4 是"活 orch 收养"被 retrieval-gate 打回再 reseed 的死循环, 398 给 give-up counter 封环。
+- 分案预期: give-up 后 T2 走冷 (T2 时长回落 ~300s = 机制诚实但 resume 未成) 或 收养真通过 (session_resumed 出生 → 396/397 刀挥 → 内容修复)。两种读数都推进: 前者证明 give-up 通道, 后者直接终读。
+- 计数账: K397 T1 F (半针形态, kept 13 连续带=邻桶工作), T2/T3 duct 恒等。2 boots+3 发+3 修。ahead 337→340。引擎 398 代待命。
