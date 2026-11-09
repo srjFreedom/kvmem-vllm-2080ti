@@ -2157,3 +2157,9 @@ skip=不重放只装视图 - 顺路）。
 - 终形假说 (待 pid 表终审): harvest/capture 若在 CORE (184 普查 hv pid=CORE), Core 的 orch.store 满页; worker 的 runtime 374 新建 store 全空; decided 写 Core runtime._resume ✓ 但 adopt 在 worker 的 _resume ✗ 永远 None → st.resume 无人标 → 无写回 → duct。两条修复路: (a) 写回搬 Core (schedule 边界内 _complete_resume, store 同域); (b) resume 标记随 scheduler_output 到 worker (引擎原生字段 num_computed 已是载体, worker 首步自查 MetaStore 命中 + computed 跳量, 自标 _resume, restore 走 shm entry 的页字节 - entry 需带 spill)。
 - pid 包装是裁决器: 下轮双发后按 pid 分域表 - capture/prep/knife/hv/adopt/retire 各事件族落哪进程一目了然, 修路按图表一次性选 (不再逐代猜)。
 - 386 fall-through + 388 pid wrap 均 parse+3 套件绿。本回合 0 boot+3 查+2 修。ahead 326→328。引擎 386 代健康。
+
+## 390-391. Round 191: pid 表终审 (harvest/adopt/retire 全 W0/W1, decided 孤悬 CORE) + selfderive 悖论读数 - 下刀: 消费口 2998 到货证人
+
+- 裁决: 390 表一锤 - note_resume 的 Core 标记确实到不了 worker 的 self._resume 对象 (pid 分表物理隔离), d_adopt_lookup×2 在 W 域 ✓ 通道候选成立; 但 SD390 代 selfderive×0 与 resume_miss×4 并存 - miss 在 adopted!=None 分支内 = adopt 以某路径成功 (旧标存活或 note_resume 有 worker 调用点未查) - selfderive 的 lookup 参数 (owner kw 缺失/prefix_digest 空) 可能静默 miss 未及运行。
+- 下刀两枚 (1 发定案): ①2998 消费口到货证人 d_bs_gate{has_resume,row}; ②selfderive 失败原因出声 (lookup None 时 log why) - 两针下去 duct 链的每一环都有名字。
+- 计数账: SD390 双 F (duct 带内确定 sha 2bced0ff)。1 boot+3 发。ahead 329→330。引擎 390 代健康。
