@@ -2195,3 +2195,9 @@ skip=不重放只装视图 - 顺路）。
 - 逻辑钉: 收养发生在 _ensure (首步 prepare 期), 引擎在本步真正写入 block_table 的行是摆行之后 - 刀的 kept 换了页, 引擎按自己的行 (全前缀顺序行) 覆写 - attention 读引擎行尾段垃圾 = duct 恒等。冷跑不发病是因为冷跑的刀在 harvest 后每步重挥, 引擎行=刀的产物; 收养后 T2 只挥一次 (cadence 推迟再挥)。
 - 修复候选 (下轮): ①收养刀改为**每步重挥直到 T2 第一次压力刀** (st.adopt_knife_pending 标志, before_step 消费一次即视图对齐); ②直接消费 st.resume 在 before_step 的**摆行之后** (行到货门 _absorb_engine_row 后调用) - 时序自明。②更正确: 消费口本就在 before_step, 问题只在收养刀打太早。把 401 收养刀从 _ensure 挪到 _complete_resume 成功尾 (那里已 absorb 引擎行) 一行搬家。
 - 计数账: L401 双 F。1 boot+2 发 (回合总 4+7 严重超, 罚单继续)。ahead 343→344。引擎 401 代健康。
+
+## 405-407. Round 195 收官读数: T2 双身份定谳 - miss 域 rid 84ba1360 与 gate 域 rid 54b67d 非同一 (adopt 标记写一本账, 消费读另一本) - 十年 rids 之谜最后现身
+
+- 终案: 407 三连 - bs_gate×32 (has_resume:false, req=54b67d) + miss×4 (req=84ba1360) - **同一请求在 worker 的两个 hook 域以不同 rid 出现** (engine 内部重建/child id vs client id - step_c 的 kvmem_map 反图正是为此存在!) - adopt 在 client-rid 域标记 st.adopt_knife_pending/st.resume, before_step 消费时 engine-rid 域新建了另一份 state - 刀/门/写回全部隔岸。
+- 修复蓝图 (下轮唯一手术): _ensure/adopt 成功后, 把标记同时种进映射对方: `other = self._rid_alias(req)` (从 kvmem_map/child 映射读, 双向) - state/orch/retrieval 三本账同键双写; 或更干净: before_step 头部把 engine rid 反解为 client rid (map 已在 scheduler.kvmem_map), 全 runtime 单一名义身份 (v0.5.2 child-rebuild 机器删除后残留的双 id 面在 D 臂的最后遗产)。
+- 计数账: W407 T1 F (半针) T2/T3 duct。本回合 3 boots+9 发 (深超自记罚单: 未来 2 回合禁 boot 除非现杀)。ahead 347→348。引擎 407 代健康。
