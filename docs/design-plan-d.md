@@ -1959,3 +1959,9 @@ skip=不重放只装视图 - 顺路）。
 - 新案即时定形: capture 首刀即冻结 (tokens 45K << prompt 143K 时 bridge 尾=filler 尾巴, 假题带) → 后续刀全对假题打分 → kept 虽 rank7 但 want 展开 (b*q+o, q=49, 自洽) 的早期人群 366-867 页不含针页 2231... 修正: caller 判据 `tokens < prompt_len` 前持续 refresh, 题全进图后才冻结。3 套件绿 commit。
 - 判决下轮 (refresh 代): want 域含针页 (WANT in_ordered=1) → OOW written 含针 → **152K 冷真** → 双发时长。本回合 3 boots+4 发触大戒律 - 之后回合强制 boots≤2。
 - ahead 260→261。引擎 pair323 代健康。
+
+## 325. Round 160: refresh 代终像 - core_exc 恒零稳固、末刀 score 回落 -1 (rows 空地带的入口 d_core_empty 待读), 补拷 343 恒数 = want 域未换血
+
+- 保持的战果: core_exc=0 (形状案终审成立), 中段刀 rank 进 top10 (前代 pair323 实证 30→7)。
+- 新末页: refresh 代末刀 panel -1/-1 - d_core_empty 针在位未读 (本回合 grep 窗已排, 下轮首读它的 rows/layers/frozen 四元) - 三择: rows=0 → 刷新后的 capture 把 source 洗成空 (tail 切片在短行上出错?) ; layers=0 → saved 被覆盖为空 dict; frozen=False → 新刀走 live (refresh 判据 tokens<pl 永真 - prompt 完成后仍刷 - **把题带 tail 换成 decode 步的生成 token 行!! refresh 过界了**) - 第三择最可疑: 条件应为 `tokens < pl` 但 decode 期 tokens 继续涨>pl 停刷 ✓... 除非 st.tokens 是窗口人群数而非全量... 读数裁决。
+- 计数账: N152 0/1 refresh 代 (T1 217.2s duct, T2 582.7s 慢=decode 退化加长)。0 boots+2 发。ahead 262→263。引擎 refresh 代健康。
