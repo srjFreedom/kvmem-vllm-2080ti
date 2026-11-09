@@ -33,6 +33,12 @@ def retire_finished_worker_requests(runtime, scheduler_output):
 def retire_terminal_sessions(output_map, allowed_reasons, executor, tp_size, store,
                              report=lambda event: None):
     request_ids = terminal_checkpoint_requests(output_map, allowed_reasons)
+    # EXISTENCE PIN (design 350): Core announces the retirement set
+    # BEFORE any gate; paired with the worker-side arrival echo, a
+    # one-sided log nails the RPC itself as the broken link.
+    report({"kind": "d_retire_reqs", "n": len(request_ids or ()),
+            "reqs": [str(r)[-6:] for r in (request_ids or ())[:4]],
+            "executor": executor is not None})
     if not request_ids or executor is None or getattr(executor, "is_failed", False):
         return []
     try:

@@ -1594,6 +1594,22 @@ def register():
             def _prepare_kvmem_session_checkpoints(worker, request_ids):
                 runner = getattr(worker, "model_runner", None)
                 runtime = getattr(runner, "kvmem_runtime", None)
+                # ARRIVAL ECHO (design 350): fires before any gate
+                # including the runtime-None return, so Core-side
+                # retirement requests and worker-side arrivals are
+                # independently observable.
+                try:
+                    import json as _json350
+                    with open("/tmp/kvmem_sparse.jsonl", "a") as _fh350:
+                        _fh350.write(_json350.dumps({
+                            "kind": "d_prep_rpc_in",
+                            "n": len(request_ids or ()),
+                            "reqs": [str(r)[-6:]
+                                     for r in (request_ids or ())[:4]],
+                            "rt": runtime is not None,
+                            "pid": os.getpid()}) + "\n")
+                except Exception:
+                    pass
                 if runtime is None:
                     return {}
                 out = {str(req): runtime.prepare_session_checkpoint(req)
