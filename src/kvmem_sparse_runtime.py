@@ -5287,8 +5287,7 @@ class VllmSparseRuntime:
                     # it again is the T1=441s storm. Cold = the
                     # books never carried it (evicted long ago);
                     # only those owe the store replay.
-                    _sl330 = _pmap328.get(int(_pg328)) \
-                        if "_pmap328" in dir() else None
+                    _sl330 = _pmap328.get(int(_pg312))
                     if _sl330 is not None and int(_sl330) > 0:
                         continue
                     _lay312 = orch.store.get(int(_pg312))
@@ -5446,8 +5445,7 @@ class VllmSparseRuntime:
                     # it again is the T1=441s storm. Cold = the
                     # books never carried it (evicted long ago);
                     # only those owe the store replay.
-                    _sl330 = _pmap328.get(int(_pg328)) \
-                        if "_pmap328" in dir() else None
+                    _sl330 = _pmap328.get(int(_pg312))
                     if _sl330 is not None and int(_sl330) > 0:
                         continue
                     _lay312 = orch.store.get(int(_pg312))
