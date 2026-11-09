@@ -2000,3 +2000,10 @@ skip=不重放只装视图 - 顺路）。
 - 真身聚焦: LED pages=369 = 末刀 kept_n 仅 8 (budget_blocks 缩水? sink4+recent2+room2?) - needle 即使 rank7, kept 装 8 块时 room=top2 - 前刀 kept 18 时 needle 进过 (rank7<18), 末刀缩位后挤出 - **T2 decided 命中 T1 末视图 = 末刀视图无针 = resumed 读到的视图无针** - 计数账 N152: T1 0/2 (418.7 F), T2 0/2 (19.9s 快而错)。
 - 下轮双读一刀: (1) 末刀 kept_n 为何 8 (budget_blocks 事件链 d_gate_trace/pressure_gate 读数对照) (2) needle 页 live 复测 (CF cmp 强制含 2205± - 若 live=canonical 都在且 needle∈kept - 答案还 F, 相位案回归)。先读后修, 不再盲派。
 - 0 boot+2 发+桌面证一枚。ahead 273→274。引擎 live-v332 代健康。
+
+## 335. Round 166: kept=8 真相 (结构底座非缩水) + CF 前刀抢占修复上盘 + 打分器真身= C++ softmax frame 对 2233 桶
+
+- 认知刷新: kept_n 的 8 是 needle 未入 top18 时的结构值 (sink4+recent2+top2+pad), 18/8 交替=分数竞争输赢的显示, 不是 budget 变 - 病归位: **末刀时 needle 分数在 2233 桶 softmax 里输给 filler 海洋** (score 读数跨刀 -1→4.21→-1 大幅晃 = frame/capture 不稳的另一证据)。
+- CF 修: _tail334 末刀强制采样 (不计 loud 额度) - 下轮一发即可拿 needle 页 live/canonical 定案: 双好→纯分数竞争案 (修=frame 侧问题带加权或桶分组配额, 属打分器策略); live 坏→字节面复案。
+- 打分器栈核实: query_scores(stats._store, ordered, kv_heads, q_heads, max_agg?) + query_score_frame - C++ ext 黑盒但输入=stats 桶+frame Q - **frame 的 Q 来源 (capture 的题带?) 与 needle 桶的 K (64tok 均值桶?) 的分辨率问题** - stats.block_tokens=64 - needle 一句话摊进 2 个 64-tok 桶, 被 2233 桶 softmax 稀释属数学必然 - **v0.19 官方语义如此, 88K 能赢是运气 (桶少)**, 152K+ 靠分数单选针天生弱 - 出路=**分数之外的选择配额** (题带关键词桶保底?) 属策略级改动, 待 CF 定案后议。
+- 0 boot+3 静态+1 修。ahead 274→275。引擎末刀采样代待 boot。
