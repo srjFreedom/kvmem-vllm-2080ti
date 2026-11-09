@@ -673,6 +673,19 @@ class VllmSparseRuntime:
                 st = _ReqState()
                 st.resume = (entry, hit_tokens, visible_tokens)
                 self._state[req] = st
+                # FIRST KNIFE ON ADOPTION (design 397): adopted
+                # unconditionally, before any retrieval verdict -
+                # the engine row behind the skip boundary is pool
+                # garbage and only a pure page-rearrange selection
+                # re-lays the retrieval view (sink + recent +
+                # scored + adjacent reserve). The cadence would
+                # otherwise defer this until R fills.
+                try:
+                    self._reselect_blockwise(req, pressure=False)
+                except Exception as _e397:
+                    self.log({"kind": "d_adopt_knife_err",
+                              "err": f"{type(_e397).__name__}: "
+                                     f"{_e397}"[:150]})
                 # A resumed request needs its OWN retrieval index. The parked orchestrator's index
                 # was released with the previous request and carries no query for THIS turn, and
                 # `self._retrieval[req]` was never populated on this early return - so
