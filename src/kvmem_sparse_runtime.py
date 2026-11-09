@@ -1005,6 +1005,28 @@ class VllmSparseRuntime:
                 pass
             self._owned_slots[req] = set()
             self._state[req] = _ReqState()
+            # FORGED RESUME LEDGER (design 440): the graft found a
+            # surviving store for this chain - hand the fresh
+            # state the adoption marker with a live-orchestrator
+            # entry so the normal consumption point (before_step
+            # row arrival) runs _complete_resume: pages restore as
+            # PURE COPIES from the grafted store (protocol 2).
+            _hit440 = getattr(self, "_resume_ok", {}).pop(req, 0)
+            if _hit440:
+                class _E440:
+                    pass
+                _en440 = _E440()
+                _en440.orchestrator = orch
+                _en440.covered_tokens = int(_hit440)
+                _en440.mamba_state = None
+                _en440.page_tokens = int(self.page_tokens)
+                _stt440 = self._state[req]
+                _stt440.tokens = int(_hit440)
+                _stt440.resume = (_en440, int(_hit440),
+                                  int(_hit440))
+                self.log({"kind": "d_resume_forged",
+                          "req": str(req)[-6:],
+                          "hit": int(_hit440)})
 
     # --- cross-request prefix reuse (parked sessions) -----------------------------------
     def enable_session_reuse(self, store=None, kv_block_size=0):
