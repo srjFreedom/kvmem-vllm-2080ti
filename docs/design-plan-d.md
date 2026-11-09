@@ -2089,3 +2089,10 @@ skip=不重放只装视图 - 顺路）。
   B. shared_hit→decided 静默: 在 fallback 出口后逐门补针 (pt<=0 门现形 + visible 计算行前 d_hit_gate{pt,ppb,cap,pages,hit}) - 一发钉死第三门。
 - 计数账: N152 冷 0/3 (354b 代, 全"半针"形态), N88 保持 1/1, resume 时长未终读 (resumed 仍缺位, decided 前置)。
 - 本回合总账: 3 boots (超) + 6 发 + 8 静态 + 一次结构毁回滚 (git checkout 止损✓) + 用例同步 (session_clip 文本断言更新, 行为语义未动)。ahead 300→301。引擎 354b 代健康。
+
+## 364-365. Round 365 收束账: lazy attach 在 worker 撞 vLLM 原生校验 (single_type_kv_cache_manager: selection block multiple) - worker-harvest 宿主路线证伪, 回摆 Core-harvest 架构日
+
+- 读数: d_lazy_attach_err×4 (ValueError @ vllm/v1/core/single_type_kv_cache_manager) - attach 需要 manager 配置一致, worker 期 cfg(16) 与其 kv group 冲突; 即使绕过, worker 无本请求的 harvest 账 (books 随 execute_model 在 worker? 但 prepare RPC 到达时 _state/_prev_n 空 → capture 无从谈起)。
+- 路线定案 (下轮架构日): 回到 harvest-in-Core 时代 (135-145 窗口: hv/knife/capture 全 Core, retired×3 blocks90 全链曾在 Core 打通) - 具体: (1) wiring d_mode 在 Core runtime 复活 (cfg 通道 363 已装, attach 宿主 front 进程不变); (2) harvest 面 (before/after_step 的 Core 直连) 恢复; (3) retirement 回 352 就地通道 (holder 在 front 注册 ✓); (4) 答案内容毒 (码值桶) 是另一战场 (softmax 分辨率), 与 resume 链分开收口。
+- 计数账: L365 双 F (半针形态持续)。3 boots (bash-464/468/469) 超戒自记 - 下轮起架构日模式: 一日一 boot 一读数。
+- ahead 305→306。引擎 L365 代健康。
