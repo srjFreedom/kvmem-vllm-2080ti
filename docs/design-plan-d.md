@@ -2123,3 +2123,10 @@ skip=不重放只装视图 - 顺路）。
 - 纪律实录: 本回合曾试图 setdefault 三个 env (KVMEM_PREFIX_CACHE 等) - grep 证明**这些名字不存在读者 = 捏造开关**, 当场 git checkout 回滚 (ahead 保持 314) - 教训入律: **开关必先证读者存在, 再写设置端**。
 - 下一步 (正确姿势): 读 attach 在 worker 激活了什么 (register_partial 的调用链: who calls with 16?) - 从 raise 现场反向定位 (block_pool.py 472-489 已读, 找调用方 grep num_tokens= 传 16 的来源) - 修在调用方参数, 不造 env。
 - 计数账: H374 双 F。1 boot+2 发+3 查+1 回滚。引擎 374 代健康 (attach 报错但服务活着 - 报错在 execute_model 头的 try 内)。
+
+## 376-377. Round 186 收束: 拓扑终局三连胜 (attach 风暴闸门/C++ 选择器校验 64 合规/worker host attach 2 出生 err 0) + 自造 NameError 击毙 (377)
+
+- 战果: SELECT 16->64 让 C++ build_store_config 校验通过 (16%32!=0 是我 r172 埋的雷, worker 重建 selector 才曝光 - Core 域靠启动时序躲过) - d_host_attach×2 err 0 = worker runtime 首次真实存在 (rt_id 出生)。
+- 自伤账: host attach 证人抄 `smoke or probe` (宿主函数无 smoke 变量) -> worker NameError -> EngineDead 全灭 40 分钟 - 修复 377 用 _sched_cfg(self) 正统读法 - 教训: 抄旧现场代码必查变量域, 证人代码同样能杀死引擎。
+- 下轮: 377 代健康确认后验证双发 - 预期链: rpc_in{rt:true} -> prep_enter -> capture gates -> retired{blocks:90+} -> hit_gate -> decided -> resumed -> T2 时长终读。
+- 本回合 3 boots (超, 自记) + 2 发 + 5 查 + 2 修。ahead 317。
