@@ -1620,38 +1620,39 @@ def register():
                 if runtime is None:
                     runtime = globals().get("_ACTIVE_RUNTIME")
                 if runtime is None and runner is not None:
-                    # LAZY ATTACH (design 364): register()'s env
+                    # LAZY ATTACH (design 365): register()'s env
                     # gate dies silently in the filtered worker
-                    # environment, so attach NEVER ran here and
-                    # every arrival answered rt:False. The config
-                    # arrives via vllm's own serialization; attach
-                    # on THIS runner is the same path the front
-                    # host uses, so the runtime lands with its
-                    # books in the process that harvests.
+                    # environment, so attach NEVER ran here (every
+                    # arrival answered rt:False). The config
+                    # arrives through vllm's own serialization;
+                    # attach installs itself on THIS runner and we
+                    # re-read the attribute it sets.
                     try:
-                        _cfg364 = getattr(
+                        _cfg365 = getattr(
                             getattr(worker, "vllm_config", None),
                             "additional_config", None) or {}
-                        _kv364 = (_cfg364.get("kvmem")
-                                  if isinstance(_cfg364, dict) else None)
-                        if (_kv364 and _kv364.get("enabled")
-                                and _kv364.get("sparse")):
-                            runtime = _attach_sparse(
-                                runner, _kv364.get("probe_log")
+                        _kv365 = (_cfg365.get("kvmem")
+                                  if isinstance(_cfg365, dict) else None)
+                        if (_kv365 and _kv365.get("enabled")
+                                and _kv365.get("sparse")):
+                            _attach_sparse(
+                                runner, _kv365.get("probe_log")
                                 or "/tmp/kvmem_sparse.jsonl")
+                            runtime = getattr(runner, "kvmem_runtime",
+                                              None)
                             with open("/tmp/kvmem_sparse.jsonl",
-                                      "a") as _f364:
-                                _f364.write(json.dumps({
+                                      "a") as _f365:
+                                _f365.write(json.dumps({
                                     "kind": "d_lazy_attach",
                                     "rt": runtime is not None,
                                     "pid": os.getpid()}) + "\n")
-                    except Exception as _e364:
+                    except Exception as _e365:
                         with open("/tmp/kvmem_sparse.jsonl",
-                                  "a") as _f364:
-                            _f364.write(json.dumps({
+                                  "a") as _f365:
+                            _f365.write(json.dumps({
                                 "kind": "d_lazy_attach_err",
-                                "err": f"{type(_e364).__name__}: "
-                                       f"{_e364}"[:160],
+                                "err": f"{type(_e365).__name__}: "
+                                       f"{_e365}"[:160],
                                 "pid": os.getpid()}) + "\n")
                         runtime = None
                 # ARRIVAL ECHO (design 350): fires before any gate
