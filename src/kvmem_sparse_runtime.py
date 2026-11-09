@@ -2000,6 +2000,21 @@ class VllmSparseRuntime:
         self.log({"kind": "session_resumed", "req": req, "hit": int(hit_tokens),
                   "resident": st.seq_len, "pages": len(pages),
                   "state": entry.mamba_state is not None})
+        # FIRST KNIFE AFTER RESUME (design 396): the cadence
+        # `_tokens_at_reselect = st.seq_len` defers the next
+        # selection until R fills - until then the view would
+        # keep the engine's append-only row (whose tail beyond
+        # the restored prefix is pool garbage: the duct). Fire
+        # one pure page-rearrange selection pass NOW: sink +
+        # recent + scored + adjacent reserve re-lay the row
+        # over the restored prefix, exactly the cold path's
+        # first knife.
+        try:
+            self._reselect_blockwise(req, pressure=False)
+        except Exception as _e396:
+            self.log({"kind": "d_resume_knife_err",
+                      "err": f"{type(_e396).__name__}: "
+                             f"{_e396}"[:150]})
         return True
 
     def _adopt_session(self, req):
