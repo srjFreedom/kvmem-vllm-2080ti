@@ -559,7 +559,26 @@ class SparseOrchestrator:
                 # huge user message otherwise dilutes the question with hundreds of repeated lines.
                 import os as _os
                 limit = int(getattr(self, "_query_tail_rows", 0) or 0)
-                source = {int(k): (v[-limit:] if (limit > 0 and v.shape[0] > limit) else v, None)
+                def _tail323(v, lim):
+                    # a captured PAIR gets its ROWS trimmed, the
+                    # pair contract preserved (the old expression
+                    # sliced the pair itself when v was a tuple).
+                    if isinstance(v, tuple):
+                        if len(v) == 0 or v[0] is None:
+                            return v if len(v) == 2 else (
+                                v[0] if v else None, None)
+                        q323 = v[0][-lim:] if (lim > 0 and
+                                              hasattr(v[0], "shape")) else v[0]
+                        p323 = None
+                        if len(v) > 1 and v[1] is not None and \
+                                hasattr(v[1], "shape"):
+                            p323 = v[1][-lim:] if lim > 0 else v[1]
+                        return (q323, p323)
+                    if lim > 0 and hasattr(v, "shape"):
+                        return (v[-lim:], None)
+                    return (v, None)
+                source = {int(k): _tail323(v, limit if limit > 0
+                                           else 512)
                           for k, v in saved.items()}
             # SHAPE NORMALIZATION (design 321): read_all() hands
             # back BARE tensors per layer, while the captured
