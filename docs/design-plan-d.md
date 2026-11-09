@@ -2007,3 +2007,9 @@ skip=不重放只装视图 - 顺路）。
 - CF 修: _tail334 末刀强制采样 (不计 loud 额度) - 下轮一发即可拿 needle 页 live/canonical 定案: 双好→纯分数竞争案 (修=frame 侧问题带加权或桶分组配额, 属打分器策略); live 坏→字节面复案。
 - 打分器栈核实: query_scores(stats._store, ordered, kv_heads, q_heads, max_agg?) + query_score_frame - C++ ext 黑盒但输入=stats 桶+frame Q - **frame 的 Q 来源 (capture 的题带?) 与 needle 桶的 K (64tok 均值桶?) 的分辨率问题** - stats.block_tokens=64 - needle 一句话摊进 2 个 64-tok 桶, 被 2233 桶 softmax 稀释属数学必然 - **v0.19 官方语义如此, 88K 能赢是运气 (桶少)**, 152K+ 靠分数单选针天生弱 - 出路=**分数之外的选择配额** (题带关键词桶保底?) 属策略级改动, 待 CF 定案后议。
 - 0 boot+3 静态+1 修。ahead 274→275。引擎末刀采样代待 boot。
+
+## 336. Round 167: CF 末刀零事件定罪 = 探针自身单位案复发 (块域 q*pt 与页域 pt 混用), 修+±1 页窗上盘
+
+- 判决链: TAILCF 代 CF=0 - 采样门 `lp//q in (nb304, nb304+1)` 中 nb304 由 q*pt 域算 (45) 而 lp//q 是页→块域 (2231//49=45)... 数值看着同, 但 pt 若≠页宽即错位; 更硬的证据是 needle **页** 2231 的块=45 而 ordered 里 needle 页段 [2205..2253]//49∈{45} 应命中... CF=0 说明末刀根本走到? _tail334 判定 `st.tokens ≥ 0.93×prompt_len` 且 pressure - 末刀 pressure=True tokens=143000+ ✓... 唯一剩: cmp=[] 空且事件 0 = **if 外层 `self.log is not None and (_tail334 or loud<2)` 的 else 分支 try 里 _paged312 崩** (无 except 声?) - 探针自身炸光 (except 吞) - ±1 窗+单位注释已重上, 下轮再看; 若仍 0, 给 CF 块加异常出声再审。
+- 策略层预备 (分数稀释案): 若 needle 页 CF 双好而答案仍输 - 选择策略补刀 = **top 桶配额保底题带邻近块** (v0.19 官方 softmax 之外, 属 D 的选择增强, 与不变量不冲突: 仍是纯页重排+选择)。
+- 1 boot+1 发+2 修触戒。ahead 276→277。引擎 CF 修代待 boot。
