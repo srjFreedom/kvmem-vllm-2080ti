@@ -2116,3 +2116,10 @@ skip=不重放只装视图 - 顺路）。
 - 自白: 前文 "rpc_in pid 是 W0/W1" 误读 - 该事件根本没有 pid 字段, grep 拿到的 122779 是相邻事件; 而 prepare_enter 的 122779 与 FRONT 同号存疑, 待下代带字段读数。诚实账: 拓扑结论降级为"注册表在两处皆空, wiring 是现存唯一活锚点"。
 - 369 修上盘: wiring (schedule 内每步跑, rt=state.get("sparse") or self.kvmem_runtime 必中) 首次发现 runtime 即注册 holder → prepare wrapper 回退链有值 → rt:true。验证: 下代 d_prep_rpc_in{rt:true} + d_prep_enter 出生 + capture gates 出声 + retired → T2 全链。
 - 计数账不变: H368 双 F (半针形态)。1 boot+2 发+3 查。ahead 310→312。引擎将换 369 代。
+
+## 375. Round 185: host attach 打开新战场 (worker 的 vLLM 原生 prefix/partial 路径与选择参数冲突) - 一次捏造 env 名被当场纪律回滚
+
+- 事实链: 374 host-attach 上盘后 d_host_attach_err×1168 (ValueError @ block_pool.register_partial: num_tokens 需 hash_block_size 正倍数) - worker 进程里 vLLM 原生 partial-cache 路径被 attach 的某钩激活 (或 retention_interval=16 与 1568 校验冲突), Core 域从未有此问题 (其 manager 构造参数不同)。
+- 纪律实录: 本回合曾试图 setdefault 三个 env (KVMEM_PREFIX_CACHE 等) - grep 证明**这些名字不存在读者 = 捏造开关**, 当场 git checkout 回滚 (ahead 保持 314) - 教训入律: **开关必先证读者存在, 再写设置端**。
+- 下一步 (正确姿势): 读 attach 在 worker 激活了什么 (register_partial 的调用链: who calls with 16?) - 从 raise 现场反向定位 (block_pool.py 472-489 已读, 找调用方 grep num_tokens= 传 16 的来源) - 修在调用方参数, 不造 env。
+- 计数账: H374 双 F。1 boot+2 发+3 查+1 回滚。引擎 374 代健康 (attach 报错但服务活着 - 报错在 execute_model 头的 try 内)。
