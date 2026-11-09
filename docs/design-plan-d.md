@@ -1952,3 +1952,10 @@ skip=不重放只装视图 - 顺路）。
 - 本回合大事: (1) seam 无 caller 史案终结 (helper+blockwise 自捕); (2) core 吞异常针破 52 刀全炸真身 (read tuple 形态与我 helper 二次包装的合谋); (3) 修正: capture 保持 pair 原形+空对跳, 评分口 _pair322 归一 (bare→pair, tuple 超长取前二, None-first 过滤) - 4 套件绿。
 - 判据展望 (下轮全修代): core_exc→0、d_question_capture 出生、panel 首刀 score>0 rank 稳定 → kept 含 45 → want 含针页 → oow written 含针 → **152K 冷首真 → 双发 resume 时长终读**。若 score 仍 -1: trio 针 (frozen 入口) 与 core_exc 新文定下一层。
 - 严重超支自记: 4 boots+5 发+14 静态读 - 从本条起**回合内 boots>2 即强制转入档模式** (arm_boot 后只跑最小单发)。引擎 norm-v321 代在跑。ahead 257→258。
+
+## 323-324. Round 159 收官三步: 形状案终审 (core_exc 52→0, rank 30→7 针回 top10) + 快照早冻新案 (want 不含针页) + refresh-until-question 修上盘
+
+- 胜利链: frozen 口 v.shape[0] 元凶 tuple 炸 (ACTUAL 现形读法) → _tail323 pair 合同 → **core_exc=0 历史首次**、needle rank 30→7 score 4.23 → **打分器复活且针进 top10**。
+- 新案即时定形: capture 首刀即冻结 (tokens 45K << prompt 143K 时 bridge 尾=filler 尾巴, 假题带) → 后续刀全对假题打分 → kept 虽 rank7 但 want 展开 (b*q+o, q=49, 自洽) 的早期人群 366-867 页不含针页 2231... 修正: caller 判据 `tokens < prompt_len` 前持续 refresh, 题全进图后才冻结。3 套件绿 commit。
+- 判决下轮 (refresh 代): want 域含针页 (WANT in_ordered=1) → OOW written 含针 → **152K 冷真** → 双发时长。本回合 3 boots+4 发触大戒律 - 之后回合强制 boots≤2。
+- ahead 260→261。引擎 pair323 代健康。
