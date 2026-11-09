@@ -2096,3 +2096,10 @@ skip=不重放只装视图 - 顺路）。
 - 路线定案 (下轮架构日): 回到 harvest-in-Core 时代 (135-145 窗口: hv/knife/capture 全 Core, retired×3 blocks90 全链曾在 Core 打通) - 具体: (1) wiring d_mode 在 Core runtime 复活 (cfg 通道 363 已装, attach 宿主 front 进程不变); (2) harvest 面 (before/after_step 的 Core 直连) 恢复; (3) retirement 回 352 就地通道 (holder 在 front 注册 ✓); (4) 答案内容毒 (码值桶) 是另一战场 (softmax 分辨率), 与 resume 链分开收口。
 - 计数账: L365 双 F (半针形态持续)。3 boots (bash-464/468/469) 超戒自记 - 下轮起架构日模式: 一日一 boot 一读数。
 - ahead 305→306。引擎 L365 代健康。
+
+## 366. Round 366 破案: prepare wrapper 被 hasattr 守卫挡住 - fork 自带同名空壳方法, 我们从未装上 (rt:False 的全部真相); compact 无此守卫所以活着 (31 returns)
+
+- 终审逻辑: 同一 Worker 类同一 runner 取值行, compact wrapper 生效而 prepare wrapper 失效 - 唯一差异是安装条件: prepare 用 `if not hasattr(_GPUWorker, "prepare_kvmem_session_checkpoints")` - fork 原生已有该方法 (返回 rank 空 dict) → hasattr True → 我们的实现从未安装 → RPC 打到空壳 → records None → aborted 全程 - 五代 rt:False、holder 空、lazy 撞墙全部由此一守卫误导。
+- 修复: 无条件覆盖安装 (带 _kvmem_patched 标记防重复), abort/check wrapper 同修。
+- 预期判决: rpc_in{rt:true} → prep_enter → capture/d_gates 出声 → records dict 双秩 → retired×3 → T2 decided/resumed → 时长终读。
+- 本回合 1 发 + 4 查 (0 boot)。ahead 306→307。
