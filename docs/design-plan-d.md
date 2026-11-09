@@ -2059,3 +2059,10 @@ skip=不重放只装视图 - 顺路）。
 - 落形: retirement 在过滤前宣布请求集; worker wrapper 在任何 return 前 echoes 到达 - 两侧同屏即证 RPC 通; 单侧即证断点位置。附带发现: 230 时代对质针把 `prepared` 变量写进了 wrapper (worker 域不存在该名) - NameError 被 except 吞 - 无害但列入下轮清理。
 - 下轮一发 (双针代): 152K 单发读 {d_retire_reqs.n, d_prep_rpc_in.n, d_prep_enter 数} 三行分案: retire=0 (Core 过滤死)/ retire>0, rpc_in=0 (RPC 断)/ rpc_in>0, prep_enter=0 (wrapper 在 dict  comprehension 前炸, 嫌疑=348 改动让 runtime 某方法缺失) / 全通则旧病回归 (gate 谱)。
 - 0 boot 本轮 (boot 留下一轮与读数同批)。ahead 289→290。引擎 adj3 代健康。
+
+## 351. Round 176 分案定谳: retire(n=1)→rpc_in(n=1,rt:False)→records 空→aborted - 断点=wrapper 的 runner 层与 wiring 绑定层不同对象, 修=_ACTIVE_RUNTIME 进程级回退
+
+- 四线分案一次收口: Core 宣布正常 (44 次含 warmup, 实请求 n=1), RPC 到达正常 (n=1 reqs 齐), **runtime 解析失败** (rt:false) = aborted 的全部来源; wrapper 读 worker.model_runner.kvmem_runtime 而 wiring 绑在它自己的 runner 实例 - 对象层错位。
+- 修复 (351 上盘): runtime None 时回退 _ACTIVE_RUNTIME (模块级进程单例, worker 内刀/hv 均在它上面跑, 必非 None) - 若读数仍 rt:False, 则 worker 进程根本没跑过 attach (env 过滤杀 enabled) - 备刀: wrapper 内联 create (cfg from additional_config native serialization ✓ plan_d 已在)。
+- 下轮: boot 后 152K 双发 - 预期 rpc_in{rt:true} → prep_enter×2 → capture gates 全出声 → retired{90} → T2 decided → **首次全链真形终读**。
+- 1 boot 追加 (本回合共 2) 触戒。ahead 291→292。引擎双针代健康。
