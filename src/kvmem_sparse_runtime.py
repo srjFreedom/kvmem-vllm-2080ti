@@ -5466,7 +5466,7 @@ class VllmSparseRuntime:
             if self.log is not None and getattr(self, "_wd_loud", 0) < 6:
                 self._wd_loud = getattr(self, "_wd_loud", 0) + 1
                 _nb315 = self._needle_marker(req, st) // max(
-                    1, int(block_tokens))
+                    1, int(getattr(self, "select_block_tokens", 64) or 64))
                 _pg315 = self._needle_marker(req, st) // max(1, int(pt))
                 self.log({"kind": "d_want_domain", "req": str(req)[-6:],
                           "pages": len(ordered),
