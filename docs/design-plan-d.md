@@ -2242,3 +2242,10 @@ skip=不重放只装视图 - 顺路）。
 - 尺寸账备档: 若保活池超预算再降级文件 spill (NVMe 1.15GB ≈ 3s) - 先保活 (纯 python 一行搬运 + LRU), 不动 C++。
 - 落点三处: sweep_release (pop 前挂存), _park_session/prepare (capture 点登记), _ensure-adopted (认领点) - 下轮 1 boot 内三连。
 - 本回合预算: 1 验证发 (bash-673 在跑) + 0 boot。
+
+## 422-424. Round 199: 时间炸弹清场三连 (block_tokens/pressure 证人雷) + duct 污染档解剖 + **store keepalive 池上盘** (park 强挂 chain 键, adopt 认领嫁接, d_store_claim 证人)
+
+- 拆弹账: d_want_domain 证人借宿主变量两雷 (block_tokens 非形参 / pressure 不在 _rebuild_view 签名) - wrapper_exception 每步一炸正是 T1 也被 duct 化的推手 (刀废→视图不重排→skip 后读垃圾)。
+- 污染档真相: R423 T2 428.6s = MetaStore 在 Core 进程内存, boot 即清 - "T1 命中旧档"是刀废的假象而非收养; keepalive 池补上真正的跨请求字节寿命 (store 随 orch 死是 duct 协议级根因, sweep_release 现场在卷)。
+- 终读窗 (425 代): panels 恢复千级 + wrapper_exception 绝迹 → T1 冷形态 → T2 (selfderive 收养 → d_store_claim 出生 → restore 拷真字节 → 视图重排 → 内容修复)。计数战候场。
+- 本回合 3 boots+5 发 (重超自记) ahead 366→370。引擎 424 代在跑。
