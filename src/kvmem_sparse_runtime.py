@@ -701,43 +701,22 @@ class VllmSparseRuntime:
                         # next query safely. _adopt_session checks this before consuming the entry.
                         self.log({"kind": "resume_miss", "req": req,
                                   "reason": "sealed retrieval statistics missing"})
-                        # DEAD ORCH RE-ADOPT (design 393): an
-                        # entry carried in process memory can
-                        # outlive its orchestrator's harvest;
-                        # with no retrieval index the adoption is
-                        # worthless anyway - drop it and let the
-                        # next _ensure re-run the shared-store
-                        # path (self-derive), which rebuilds the
-                        # marker from the MetaStore authority.
-                        _am4 = getattr(self, "_adopt_miss", {})
-                        _am4[req] = _am4.get(req, 0) + 1
-                        if _am4[req] >= 2:
-                            # the second miss means the
-                            # re-seeded adoption died the same
-                            # way - stop re-adopting and let the
-                            # request run cold (harvest rebuilds
-                            # the pages honestly this pass).
-                            _am4.pop(req, None)
-                            self.log({"kind": "d_adopt_giveup",
-                                      "req": str(req)[-6:]})
-                        else:
-                            self._orch.pop(req, None)
-                            self._state.pop(req, None)
-                        # RE-SEED the marker (394): the pop above
-                        # also erased the freshly set st.resume -
-                        # the note_resume channel DOES reach this
-                        # process (miss×4 proves pending was
-                        # live); hand it back so the next _ensure
-                        # adopts through the shared-store path.
-                        if req not in getattr(self, "_reseed_once",
-                                               None) or True:
-                            _rs4 = self._reseed_once = getattr(
-                                self, "_reseed_once", set())
-                            if req not in _rs4:
-                                _rs4.add(req)
-                                self._resume[req] = (
-                                    int(hit_tokens),
-                                    int(visible_tokens))
+                        # KNIFE AT THE MISS SITE (design 399):
+                        # the pop/re-seed lineage only murdered
+                        # the fresh st.resume marker - the worker
+                        # never re-enters _ensure for this rid, so
+                        # adoption is ONE shot. Keep the adoption,
+                        # re-lay the view right here (sink+recent+
+                        # scored+adjacent over the restored prefix)
+                        # and let the consumption gate below still
+                        # find its marker intact.
+                        try:
+                            self._reselect_blockwise(
+                                req, pressure=False)
+                        except Exception as _e399:
+                            self.log({"kind": "d_adopt_knife_err",
+                                      "err": f"{type(_e399).__name__}: "
+                                             f"{_e399}"[:150]})
                         # FALL THROUGH (design 386): the old
                         # `return` here also skipped the resume
                         # consumption point 200 lines below -
