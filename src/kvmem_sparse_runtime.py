@@ -709,8 +709,20 @@ class VllmSparseRuntime:
                         # next _ensure re-run the shared-store
                         # path (self-derive), which rebuilds the
                         # marker from the MetaStore authority.
-                        self._orch.pop(req, None)
-                        self._state.pop(req, None)
+                        _am4 = getattr(self, "_adopt_miss", {})
+                        _am4[req] = _am4.get(req, 0) + 1
+                        if _am4[req] >= 2:
+                            # the second miss means the
+                            # re-seeded adoption died the same
+                            # way - stop re-adopting and let the
+                            # request run cold (harvest rebuilds
+                            # the pages honestly this pass).
+                            _am4.pop(req, None)
+                            self.log({"kind": "d_adopt_giveup",
+                                      "req": str(req)[-6:]})
+                        else:
+                            self._orch.pop(req, None)
+                            self._state.pop(req, None)
                         # RE-SEED the marker (394): the pop above
                         # also erased the freshly set st.resume -
                         # the note_resume channel DOES reach this
