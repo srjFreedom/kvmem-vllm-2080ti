@@ -688,6 +688,16 @@ class VllmSparseRuntime:
                         # next query safely. _adopt_session checks this before consuming the entry.
                         self.log({"kind": "resume_miss", "req": req,
                                   "reason": "sealed retrieval statistics missing"})
+                        # DEAD ORCH RE-ADOPT (design 393): an
+                        # entry carried in process memory can
+                        # outlive its orchestrator's harvest;
+                        # with no retrieval index the adoption is
+                        # worthless anyway - drop it and let the
+                        # next _ensure re-run the shared-store
+                        # path (self-derive), which rebuilds the
+                        # marker from the MetaStore authority.
+                        self._orch.pop(req, None)
+                        self._state.pop(req, None)
                         # FALL THROUGH (design 386): the old
                         # `return` here also skipped the resume
                         # consumption point 200 lines below -
