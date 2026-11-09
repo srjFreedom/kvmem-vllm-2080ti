@@ -976,6 +976,23 @@ class VllmSparseRuntime:
                 pass
             orch.session_id = session      # identity used by the shared H pool on release
             self._orch[req] = orch
+            # KEEPALIVE GRAFT AT BIRTH (design 437): a fresh orch for a
+            # request whose chain an earlier life parked inherits the
+            # surviving store - restore_pages_batch then copies REAL
+            # bytes (the duct was an empty ledger all along).
+            try:
+                _hp437 = self._session_hashes(req)
+                _pool437 = getattr(self, "_spill_stores", {})
+                for _kk437 in reversed(list(_hp437 or ())):
+                    _ss437 = _pool437.get(str(_kk437))
+                    if _ss437 is not None:
+                        orch.store = _ss437
+                        self.log({"kind": "d_keepalive_graft",
+                                  "req": str(req)[-6:],
+                                  "key": str(_kk437)[:16]})
+                        break
+            except Exception:
+                pass
             self._owned_slots[req] = set()
             self._state[req] = _ReqState()
 
