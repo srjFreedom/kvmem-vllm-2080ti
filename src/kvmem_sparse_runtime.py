@@ -699,8 +699,10 @@ class VllmSparseRuntime:
                     if index is None:
                         # A cached KV prefix without its sealed mean-K identity cannot answer the
                         # next query safely. _adopt_session checks this before consuming the entry.
-                        self.log({"kind": "resume_miss", "req": req,
-                                  "reason": "sealed retrieval statistics missing"})
+                        self.log({"kind": "resume_miss", "req": str(req),
+                                  "reason": "sealed retrieval missing",
+                                  "states": [str(k)[-8:] for k in
+                                             list(self._state)[-4:]]})
                         # KNIFE AT THE MISS SITE (design 399):
                         # the pop/re-seed lineage only murdered
                         # the fresh st.resume marker - the worker
@@ -3132,7 +3134,10 @@ class VllmSparseRuntime:
             # what the gate sees - settles whether the marker or
             # the row arrival is the missing half.
             self._bs_loud = getattr(self, "_bs_loud", 0) + 1
-            self.log({"kind": "d_bs_gate", "req": str(req)[-6:],
+            self.log({"kind": "d_bs_gate", "req": str(req),
+                      "full": True,
+                      "states": [str(k)[-8:]
+                                 for k in list(self._state)[-4:]],
                       "has_resume": st.resume is not None,
                       "has_row": row_index is not None})
         if st.resume is not None and row_index is not None:
