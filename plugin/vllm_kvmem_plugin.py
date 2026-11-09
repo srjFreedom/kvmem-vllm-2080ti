@@ -3279,6 +3279,38 @@ def _install(cls, module_name, probe, smoke, state):
         if os.environ.get("KVMEM_EXEC_HOOKS", "1") == "0":
             return original(self, scheduler_output, *args, **kwargs)
         _config_from_runner(self)
+        # ATTACH ON THE HARVEST HOST (design 374): execute_model
+        # runs in the WORKER process (em_entry pid census) while
+        # _attach_sparse historically ran only on the schedule
+        # wrapper (CORE domain). Every earlier resolution chain
+        # therefore found nothing - the runtime never existed in
+        # the process holding the model. Attach HERE, once, on
+        # THIS runner, when the native config says sparse.
+        if (not _CORE_RUNTIME_HOLDER.get("rt")) and \
+                getattr(self, "kvmem_runtime", None) is None:
+            try:
+                _cfg374 = getattr(
+                    getattr(self, "vllm_config", None),
+                    "additional_config", None) or {}
+                _kv374 = _cfg374.get("kvmem") if isinstance(
+                    _cfg374, dict) else None
+                if _kv374 and _kv374.get("enabled") and \
+                        _kv374.get("sparse"):
+                    _attach_sparse(
+                        self, _kv374.get("probe_log")
+                        or "/tmp/kvmem_sparse.jsonl")
+                    _rt374 = getattr(self, "kvmem_runtime", None)
+                    if _rt374 is not None:
+                        _CORE_RUNTIME_HOLDER["rt"] = _rt374
+                        _append("/tmp/kvmem_sparse.jsonl",
+                                {"kind": "d_host_attach",
+                                 "rt_id": id(_rt374),
+                                 "pid": os.getpid()})
+            except Exception as _e374:
+                _append("/tmp/kvmem_sparse.jsonl",
+                        {"kind": "d_host_attach_err",
+                         "err": f"{type(_e374).__name__}: "
+                                f"{_e374}"[:160]})
         # Cross-request prefix reuse MUST be recorded before anything calls into the sparse runtime:
         # the runtime creates a request's orchestrator on first sight (`_ensure`), and a resumed
         # request can only ADOPT the parked one if the promotion hint is already on the runtime.
