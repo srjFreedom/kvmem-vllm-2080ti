@@ -6534,10 +6534,19 @@ class VllmSparseRuntime:
                 # the confrontation set so their live-vs-canonical
                 # means are read directly.
                 _mt304 = self._needle_marker(req)
-                _nb304 = _mt304 // max(1, int(q) * max(1, int(pt)))
+                # UNIT COURT (design 336): logical_pages entries
+                # are PAGE ids; the page->block divisor is q (=49
+                # here), not q*pt. The old q*pt form looked up
+                # block 45 while the needle block is page 2231//q
+                # = 45 in a 49-page world ... except pages count
+                # 32-token units so the direct page is token//pt.
+                # Both corrected: page domain via pt, block domain
+                # via q on pages.
+                _pg304 = _mt304 // max(1, int(pt))
+                _nb304 = _pg304 // max(1, int(q))
                 for lp in logical_pages:
                     if int(lp) >= 0 and int(lp) // max(1, int(q)) \
-                            in (_nb304, _nb304 + 1):
+                            in (_nb304 - 1, _nb304, _nb304 + 1):
                         _cf_p.append(int(lp))
                         if len(_cf_p) > 8:
                             break
