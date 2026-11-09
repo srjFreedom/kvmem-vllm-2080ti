@@ -4629,8 +4629,17 @@ class VllmSparseRuntime:
                 # CAPTURE BEFORE THE FIRST KNIFE (design 319): the
                 # seam never had a caller in the D world - blockwise
                 # demands the question snapshot itself now.
-                if bool(pressure) and not getattr(
-                        self._orch.get(req), "_d_question_mode", False):
+                if bool(pressure) and int(st.tokens) < int(
+                        self._prompt_len.get(req, 0) or 0):
+                    # REFRESH UNTIL THE QUESTION IS IN (design
+                    # 324): an early knife used to freeze the
+                    # question-mode flag on a partial-question
+                    # bridge (tokens 45K of a 143K prompt) - the
+                    # pinned tail then carried no real question
+                    # and every later knife scored a stale query.
+                    # Capture keeps refreshing until the prompt
+                    # fully executed; only then does the snapshot
+                    # freeze.
                     self._q_capture_now(req)
                 self._reselect_blockwise(req, pressure=pressure)
             else:
