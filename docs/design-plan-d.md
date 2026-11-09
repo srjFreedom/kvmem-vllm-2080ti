@@ -2027,3 +2027,10 @@ skip=不重放只装视图 - 顺路）。
 - 用例: tests/recall_resolution_test.py (rank0 断言 + margin>1e-6 分辨率地板) - 现值 margin≈1e-4 通过地板但真实海洋会淹没它 - 修复方向 (策略级, 不变量安全): **题带关键词预筛保底** - 在 score 之外对"与 query 词面强重合的块"进 kept 保底名额 (仍是纯页重排+选择, 不动 kernel/token 流) - 或 ext 侧温度放大 (C++ 侵入, 后选)。
 - 下轮: 保底名额设计落码 (kept = sink ∪ recent ∪ top(room-2) ∪ 词面强合 2 块) + 152K 判据。
 - 0 boots+5 静态解剖。ahead 282→283。引擎 pair 代健康。
+
+## 343-344. Round 172: bt16 战术的战果与残敌 - 模型已读到针句 (正确引 KEY-MID)，码值桶 (纯 token 无词面共现) 需**邻桶结构保底** (b∈kept → b+1 保底)
+
+- 战果: SELECT_BLOCK_TOKENS 64→16 (arm_boot 单点切换) → margin 放大 16 倍 → T1 172.7s 且答案**引用 KEY-MID** (针句进视图! 十年针案首次被模型直读) - 但码值 'ZX-4417-QJ7' 缺失: 码值桶与问题带零词面共现 (随机符号串), cos 语义通道数学不可达。
+- 定案策略: **邻桶保底** - kept 选定块 b 后无条件补 b+1 (预算内的结构补全, 仍是纯页重排+选择 - 不变量(3) 合规; 语义: 文档答案极少单独成桶, 与题句桶物理相邻是普遍结构) - 码值桶 71401+9→同页 16tok 桶内/下一桶, 邻桶必带。
+- 落码点: blockwise kept 组装后 `kept |= {b+1 for b in top-sel if b+1 < n_blocks}` 截到 budget - 同步 remobilize 分支 (双臂一模型)。判据: T1 全答案 True → 计数战开打 (88K×2 复证+152K×3+250K×1) → T2 时长 (bt16 下拷暴 182s 需随诊: pair 字段本轮未出, written 疑回落)。
+- 1 boot+2 发。ahead 282→283 (本 commit)。引擎 bt16 代健康。
