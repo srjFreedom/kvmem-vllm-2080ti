@@ -1280,6 +1280,14 @@ def _attach_sparse(runner, log_path):
                     if runtime.sweep_release(gone):
                         _append(log_path, {"kind": "released", "req": gone,
                                            "pid": os.getpid(), "site": "A"})
+                if getattr(view, "_lv403", 0) < 8:
+                    view._lv403 = getattr(view, "_lv403", 0) + 1
+                    _append("/tmp/kvmem_sparse.jsonl", {
+                        "kind": "d_live403",
+                        "live": [str(r)[-6:] for r in live[:5]],
+                        "ids": [str(r)[-6:] for r in
+                                (getattr(runner, "_kvmem_req_ids",
+                                         None) or [])][:5]})
                 for req in live:
                     runtime.seen_alive(req)
                 for req in live:
