@@ -1971,3 +1971,11 @@ skip=不重放只装视图 - 顺路）。
 - 判决进展: 打分器健康 (rank 7 = kept 含针), capture 8 次活, core_exc 恒零 - 病只余一:**store 里 840 want 页只有 343 有规范字节** - 缺的 497 是哪些 (needle 页 2205+ 在其中?) = per-page 账针 (d_oow_ledger: page/blk/store有/域内 四元 ×12 页首样) 一发定案。
 - 缺页先验 (待账针证): harvest 的 span 只覆盖**窗口人群** (resident∪recent) - prefill 早期被 evict 的段若 harvest 未跟写, store 无规范字节 → CF 之前实测 canonical=104 是 needle 页有字节的 (2205-2209 canonical 好) - 所以 written=343 或许**needle 已在 343 内, 拷了但仍 duct** - 那样病又回到装填后 kernel 读取面 (相位)。账针的 [pg,blk,store,dom] 四元 + copy 成功数一起读, 两案同时收口。
 - 1 boot+2 发+3 读触戒律。ahead 264→265。引擎 gates 代健康。
+
+## 327. Round 162 总定谳: `pg - pg%q` 把页空间桶号当 engine block id 用 - 离散分配时代 identity 的连续假设破产 = duct 总根源
+
+- 账针铁证: led 十二页全 [pg, pg-pg%49, store=1, dom=0] - rowdom (st.row 值域) 是 engine 离散分配的块 id 集合, 桶号不在其中 → 全部判冷被拷进"桶号块" (别人的地盘), kernel 依 phys_pages (=桶号序列) 索引 paged_kv → 读的是错误块的字节 - needle 无论拷没拷都读不对 (拷也拷错地方)。
+- 正确映射链已在库: _page_map[req] (页→真块/slot, harvest 维护) - 重写蓝图: phys[i] = _page_map[req].get(pg) 或冷页经 pool 真分配后的新块 id; 冷拷目标 = 那个真块; rowdom 判定 = pg 在 _page_map 且字节仍在 (store 对质可选)。
+- 波及面审查 (同族错): install 线的 st.row 初值来源 (engine 给的行=真块 ✓), 装填覆盖 st.row=phys_pages (桶号!) - 即刀后 kernel 的行整体搬错域 - 一处修 (phys 改真映射) 全链归位。
+- 下轮主刀: _rebuild_view identity 分支的 _po 改 _page_map 查询 + 冷页 pool 分配接口 (orch.pick_free_block 类) - 先离线 synthetic 用例 (mock 离散 row → 断言 phys 全是 row 域内块) 再活体。判据: N152 冷首真。
+- 1 boot+1 发+账读。ahead 266→267。引擎 ledger 代健康。
