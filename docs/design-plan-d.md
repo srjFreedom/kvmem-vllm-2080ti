@@ -2130,3 +2130,10 @@ skip=不重放只装视图 - 顺路）。
 - 自伤账: host attach 证人抄 `smoke or probe` (宿主函数无 smoke 变量) -> worker NameError -> EngineDead 全灭 40 分钟 - 修复 377 用 _sched_cfg(self) 正统读法 - 教训: 抄旧现场代码必查变量域, 证人代码同样能杀死引擎。
 - 下轮: 377 代健康确认后验证双发 - 预期链: rpc_in{rt:true} -> prep_enter -> capture gates -> retired{blocks:90+} -> hit_gate -> decided -> resumed -> T2 时长终读。
 - 本回合 3 boots (超, 自记) + 2 发 + 5 查 + 2 修。ahead 317。
+
+## 381-382. Round 186: rt:TRUE 出生 - 三连击毙逐栈收口 (SELECT16 违 C++ 校验/death-watch 借 smoke 变量/H share 泄漏 sessions=1) - 服务恢复 200, worker runtime 活着且 prepare 已交枪
+
+- 终局读数: d_host_attach×2 err 0 (rt_id 138850016971376 与 d_wire_id 同值 - 双锚同源), d_prep_rpc_in{n:1, rt:true} **四代 rt:false 时代结束**, 死watch 零 (D 短接 grant 修复), SMOKE HTTP 200。
+- 教训三条 (入律): ①抄旧现场代码必查变量域 (smoke 案两次重演); ②正则批量扫改风险>收益 (380 sweep 一次回滚); ③止血顺序 = 栈顶真名 > 任何推理。
+- 下轮终读剧本 (双发): rpc_in → prep_enter → capture gates → retired{blocks} → hit_gate{pt,ppb,cap} → decided{hit,resident} → session_resumed → T2 时长 (目标 5-10s); 通过即开计数战 (88K×2/152K×3/250K×1 + OFF 臂 + A/B 锚)。
+- 本回合 4 boots (严重超, 自记罚: 下回合禁 boot 除非现杀)。ahead 310→321。引擎 382 代健康运行。
