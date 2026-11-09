@@ -2053,7 +2053,17 @@ class VllmSparseRuntime:
                 try:
                     h390 = self._session_hashes(req)
                     if h390:
-                        got390 = self.session_store.lookup(
+                        # META-STORE (design 410): self.
+                        # session_store is the HOST block-byte
+                        # ledger (HostStore), not the shared
+                        # session MetaStore the retirement
+                        # publishes into - every earlier lookup
+                        # asked the wrong book. get_meta_store()
+                        # is the same shm authority Core decided
+                        # and d_adopt_lookup witnesses read.
+                        from kvmem_session_store import (
+                            get_meta_store as _gms410)
+                        got390 = _gms410().lookup(
                             h390,
                             prefix_digest=getattr(
                                 self, "_session_digests", {}).get(req))
