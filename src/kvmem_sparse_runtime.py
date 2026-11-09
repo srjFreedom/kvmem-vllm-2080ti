@@ -175,16 +175,13 @@ class VllmSparseRuntime:
         self.install_pos = True
         _sink388 = log or (lambda record: None)
         import os as _os388
-        import time as _tm388
-        def _log388(record, _f=_sink388, _pid=_os388.getpid(),
-                    _clock=_tm388.monotonic, _boot=_tm388.time()):
+        def _log388(record, _f=_sink388, _pid=_os388.getpid()):
             # EVERY runtime event carries its host process - the
             # store/adopt split stayed blind for three generations
             # because witnesses shipped without pid.
             try:
                 if isinstance(record, dict) and "pid" not in record:
-                    record = {**record, "pid": _pid,
-                              "t": round(_clock(), 2)}
+                    record = {**record, "pid": _pid}
             except Exception:
                 pass
             _f(record)
@@ -616,30 +613,6 @@ class VllmSparseRuntime:
                 # host tier, so nothing is re-prefilled and no new host share is opened.
                 entry, hit_tokens, visible_tokens = adopted
                 orch = entry.orchestrator
-                # CLAIM THE KEEPALIVE (424b): a cross-process
-                # adoption's store is this process's own harvest,
-                # keyed by the chain digest - graft it onto the
-                # adopted orch so restore_pages_batch copies real
-                # bytes instead of an empty ledger.
-                if orch is not None:
-                    try:
-                        _h424b = self._session_hashes(req)
-                        _pool424b = getattr(self, "_spill_stores",
-                                            {})
-                        for _k424 in reversed(list(_h424b or ())):
-                            _st424 = _pool424b.get(str(_k424))
-                            if _st424 is not None:
-                                # store is a read-only property
-                                # over _store (the silent graft
-                                # failure of the first round):
-                                # swap the attribute ITSELF.
-                                orch._store = _st424
-                                self.log({"kind": "d_store_claim",
-                                          "req": str(req)[-6:],
-                                          "key": str(_k424)[:16]})
-                                break
-                    except Exception:
-                        pass
                 # The parked device pages belong to a FINISHED request and have been returned to
                 # the pool, so their residency bookkeeping is stale: every page is rebuilt from the
                 # store on demand instead (the store is the only authority).
@@ -739,6 +712,26 @@ class VllmSparseRuntime:
                         # scored+adjacent over the restored prefix)
                         # and let the consumption gate below still
                         # find its marker intact.
+                        # THE ADOPTION IS THE LAST CHANCE
+                        # (design 411): T2's only ensure entry is
+                        # THIS step (orch lands in _orch right
+                        # after; later steps skip _ensure, the
+                        # gate sees the marker-less engine twin) -
+                        # strike now: the row bound at the head of
+                        # this before_step carries T2's own
+                        # decoded page, the same hood the cold
+                        # first-knife rides.
+                        st.adopt_knife_pending = True
+                        try:
+                            self._reselect_blockwise(req,
+                                                     pressure=True)
+                            self.log({"kind": "d_adopt_knife",
+                                      "req": str(req)[-6:],
+                                      "tokens": int(st.tokens)})
+                        except Exception as _e411:
+                            self.log({"kind": "d_adopt_knife_err",
+                                      "err": f"{type(_e411).__name__}: "
+                                             f"{_e411}"[:150]})
                         # FALL THROUGH (design 386): the old
                         # `return` here also skipped the resume
                         # consumption point 200 lines below -
@@ -786,20 +779,6 @@ class VllmSparseRuntime:
                 # row: exactly the cold path's first pressure
                 # cadence point, where the view is real.
                 st.adopt_knife_pending = True
-                # MAIN-BRANCH TAIL KNIFE (design 412): 411 rode
-                # the retrieval-miss sub-branch, which the healthy
-                # adoption never enters (miss census: 6 in the
-                # resume tail, 0 in retrieval) - strike HERE, on
-                # every adoption, right after the wiring lands.
-                try:
-                    self._reselect_blockwise(req, pressure=True)
-                    self.log({"kind": "d_adopt_knife",
-                              "req": str(req)[-6:],
-                              "tokens": int(st.tokens)})
-                except Exception as _e412:
-                    self.log({"kind": "d_adopt_knife_err",
-                              "err": f"{type(_e412).__name__}: "
-                                     f"{_e412}"[:150]})
                 # COLD-PATH PARITY (design 407): the harvest site
                 # wires orch.inrequest_compaction before any step
                 # runs; the adopted orch skipped that wiring, so
@@ -1507,20 +1486,6 @@ class VllmSparseRuntime:
         any live books. A checkpoint that was sealed but never published is re-published here
         while books still exist (short answers that finished before any release).
         """
-        # STORE KEEPALIVE (design 424b): the harvest bytes must
-        # outlive the orch that owns them - T2's adoption in this
-        # process claims the store back by chain digest, and the
-        # restore is then a pure copy (protocol 2).
-        _orch424 = self._orch.get(req)
-        if _orch424 is not None and getattr(_orch424, "store",
-                                            None) is not None:
-            _h424 = self._session_hashes(req)
-            if _h424:
-                _pool424 = self._spill_stores = getattr(
-                    self, "_spill_stores", {})
-                _pool424[str(_h424[-1])] = _orch424.store
-                while len(_pool424) > max(2, int(self.sessions)):
-                    _pool424.pop(next(iter(_pool424)), None)
         if not self.session_reuse or self.session_store is None:
             self.log({"kind": "session_park_enter", "req": req, "which": "disabled",
                       "reuse": self.session_reuse, "store": self.session_store is not None})
@@ -5507,7 +5472,8 @@ class VllmSparseRuntime:
             if self.log is not None and getattr(self, "_wd_loud", 0) < 6:
                 self._wd_loud = getattr(self, "_wd_loud", 0) + 1
                 _nb315 = self._needle_marker(req, st) // max(
-                    1, int(getattr(self, "select_block_tokens", 64) or 64))
+                    1, int(getattr(self, "select_block_tokens",
+                                   64) or 64))
                 _pg315 = self._needle_marker(req, st) // max(1, int(pt))
                 self.log({"kind": "d_want_domain", "req": str(req)[-6:],
                           "pages": len(ordered),
@@ -5609,8 +5575,7 @@ class VllmSparseRuntime:
                           "pages": len(ordered), "written": _rest312,
                           "rowdom": len(_rowdom),
                           "pair": _pair338})
-            return (_po, ordered, [], [],
-                    locals().get("_bpo") or max(1, int(q or 1)))
+            return (_po, ordered, [], [], _bpo)
         assign = {}
         used = set()
         for pg in want:
@@ -5724,7 +5689,8 @@ class VllmSparseRuntime:
             if self.log is not None and getattr(self, "_wd_loud", 0) < 6:
                 self._wd_loud = getattr(self, "_wd_loud", 0) + 1
                 _nb315 = self._needle_marker(req, st) // max(
-                    1, int(block_tokens))
+                    1, int(getattr(self, "select_block_tokens",
+                                   64) or 64))
                 _pg315 = self._needle_marker(req, st) // max(1, int(pt))
                 self.log({"kind": "d_want_domain", "req": str(req)[-6:],
                           "pages": len(ordered),
