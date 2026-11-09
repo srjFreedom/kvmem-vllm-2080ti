@@ -2140,7 +2140,10 @@ def register():
                     # state that was never computed, so such hits are recorded and
                     # DEFERRED: the entry survives untouched (no proof RPC, no discard)
                     # until the replay mode consumes it properly.
-                    if not getattr(meta, "has_state", True):
+                    if (not getattr(meta, "has_state", True)) and \
+                            not bool(getattr(
+                                _CORE_RUNTIME_HOLDER.get("rt"),
+                                "d_mode", False)):
                         _append(_sched_cfg(scheduler).get("log")
                                 or "/tmp/kvmem_sparse.jsonl",
                                 {"kind": "resume_loop_gate",
@@ -2197,7 +2200,9 @@ def register():
                         # host answers its own proof; the RPC to
                         # empty-handed workers stays only as the
                         # fallback when no local runtime exists.
-                        _rt360 = getattr(scheduler, "kvmem_runtime", None)
+                        _rt360 = (getattr(scheduler, "kvmem_runtime",
+                                          None)
+                                  or _CORE_RUNTIME_HOLDER.get("rt"))
                         if _rt360 is not None:
                             proofs = [
                                 _rt360.check_session_checkpoint(
@@ -2480,7 +2485,8 @@ def register():
                 # the checkpoint into THIS MetaStore, where
                 # _maybe_resume already reads it (shared_hit host).
                 try:
-                    _rt354 = getattr(self.scheduler, "kvmem_runtime", None)
+                    _rt354 = (getattr(self.scheduler, "kvmem_runtime", None)
+                              or _CORE_RUNTIME_HOLDER.get("rt"))
                     if _rt354 is not None and outputs:
                         from vllm.v1.engine import FinishReason
                         from kvmem_session_store import get_meta_store
