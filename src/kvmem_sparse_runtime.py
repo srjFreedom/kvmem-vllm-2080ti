@@ -2095,6 +2095,22 @@ class VllmSparseRuntime:
                                 self, "_session_digests", {}).get(req))
                         if got390 and got390[0] is not None:
                             e390 = got390[0]
+                            # ANTI-AUTOCANNIBALISM (design 434):
+                            # a preempted or re-admitted request
+                            # would otherwise adopt the archive
+                            # ITS OWN earlier life parked - the
+                            # claim swaps the store, the logical
+                            # book starves (blockwise_no_logical
+                            # x1856), and every later step reads
+                            # an empty view (duct). Same-source
+                            # archives belong to the dead, not
+                            # to the living.
+                            if str(getattr(e390, "source_request",
+                                           "") or "") == str(req):
+                                self.log({
+                                    "kind": "d_adopt_selfrefused",
+                                    "req": str(req)[-6:]})
+                                return None
                             n390 = int(got390[1] or 0)
                             hit390 = int(e390.capacity_pages) * \
                                 int(e390.page_tokens)
