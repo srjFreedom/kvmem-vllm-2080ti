@@ -6513,11 +6513,15 @@ class VllmSparseRuntime:
         # hijacked; restore must fire for them (slot-owner fix).
         # equal -> the view bytes are right and the fault lives
         # elsewhere (phase/row), closing the byte case either way.
-        _tail334 = int(st.tokens) >= int(
-            0.93 * (self._prompt_len.get(req, 0) or 0)) \
-            and bool(pressure)
-        if self.log is not None and (_tail334 or
-                getattr(self, "_cf_loud", 0) < 2):
+        # RING SAMPLING (design 337): st.tokens in this build
+        # tracks the WINDOW head, not the prompt length, so the
+        # 0.93*prompt tail gate could never fire; sample one
+        # knife in every 16 instead - the needle pages appear in
+        # ordered on any knife whose kept holds block 45.
+        _cf_n = getattr(self, "_cf_count", 0) + 1
+        self._cf_count = _cf_n
+        _tail334 = (_cf_n % 16) == 1
+        if self.log is not None and _tail334:
             try:
                 _cf_r = set(int(x) for x in _to_restore2 or ())
                 # design 299: THE -1 SENTINELS ARE THE CRIME SCENE -
