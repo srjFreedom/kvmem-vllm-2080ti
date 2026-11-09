@@ -5445,7 +5445,7 @@ class VllmSparseRuntime:
                 _span = [pg for pg in ordered
                          if _nb * int(q) <= pg < (_nb + 1) * int(q)]
                 self.log({"kind": "d_rbv_early", "req": str(req)[-6:],
-                          "pressure": bool(pressure), "ordered_n": len(ordered),
+                          "ordered_n": len(ordered),
                           "phys_n": len(_po), "nb": _nb,
                           "span_pages": len(_span), "q": int(q),
                           "tokens": int(st.tokens)})
