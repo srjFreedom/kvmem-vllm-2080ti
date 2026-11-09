@@ -2137,3 +2137,10 @@ skip=不重放只装视图 - 顺路）。
 - 教训三条 (入律): ①抄旧现场代码必查变量域 (smoke 案两次重演); ②正则批量扫改风险>收益 (380 sweep 一次回滚); ③止血顺序 = 栈顶真名 > 任何推理。
 - 下轮终读剧本 (双发): rpc_in → prep_enter → capture gates → retired{blocks} → hit_gate{pt,ppb,cap} → decided{hit,resident} → session_resumed → T2 时长 (目标 5-10s); 通过即开计数战 (88K×2/152K×3/250K×1 + OFF 臂 + A/B 锚)。
 - 本回合 4 boots (严重超, 自记罚: 下回合禁 boot 除非现杀)。ahead 310→321。引擎 382 代健康运行。
+
+## 384-385. Round 188: duct 案卷宗闭合到最后一门 - before_step 被 view.row_index(req)=None 挡在门外, resume 消费口 (2998) 永不到货; T2=12.6s 距验收带一步
+
+- 证据链: 384 代 pair 探针零事件 (探针在消费之后的域) → 逆向到唯一消费口 before_step (2998 gate 全通: row_index not None + inrequest=true 命令行实锤) → plugin 1286 门卫 view.row_index(req) None→continue → resume_miss{hit:141120}×2 = 写回函数 _complete_resume (1874 区, 4410 页批拷贝能力现成) 从未被调 - **duct=引擎读未写回池垃圾, 机制无罪, 差一次门铃**。
+- 下轮首刀 (零猜直查): src/kvmem_live_view.row_index(req) 的返回条件 - T2 新 rid 何时进 view 的 req→row 映射 (engine Core 的 scheduler_output 携带, worker view 同步时机 vs before_step 调用时机); 若同步滞后 = 把 resume 消费挪到 row 到货的第一步 (seen_alive 已有此语义) 或 row_index None 时对 st.resume 的请求放行。
+- 速度战况: T2 12.6s (目标 5-10s 边缘), 写回接通后加 0.3-15s 拷贝 (batch 路已优化) - 若超带, restore 分块流水线。
+- 计数账: P384 双 F (duct 定性)。本回合 1 boot+2 发+8 静态。ahead 322→323。引擎 384 代健康。
