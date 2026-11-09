@@ -1619,6 +1619,41 @@ def register():
                 # handle.
                 if runtime is None:
                     runtime = globals().get("_ACTIVE_RUNTIME")
+                if runtime is None and runner is not None:
+                    # LAZY ATTACH (design 364): register()'s env
+                    # gate dies silently in the filtered worker
+                    # environment, so attach NEVER ran here and
+                    # every arrival answered rt:False. The config
+                    # arrives via vllm's own serialization; attach
+                    # on THIS runner is the same path the front
+                    # host uses, so the runtime lands with its
+                    # books in the process that harvests.
+                    try:
+                        _cfg364 = getattr(
+                            getattr(worker, "vllm_config", None),
+                            "additional_config", None) or {}
+                        _kv364 = (_cfg364.get("kvmem")
+                                  if isinstance(_cfg364, dict) else None)
+                        if (_kv364 and _kv364.get("enabled")
+                                and _kv364.get("sparse")):
+                            runtime = _attach_sparse(
+                                runner, _kv364.get("probe_log")
+                                or "/tmp/kvmem_sparse.jsonl")
+                            with open("/tmp/kvmem_sparse.jsonl",
+                                      "a") as _f364:
+                                _f364.write(json.dumps({
+                                    "kind": "d_lazy_attach",
+                                    "rt": runtime is not None,
+                                    "pid": os.getpid()}) + "\n")
+                    except Exception as _e364:
+                        with open("/tmp/kvmem_sparse.jsonl",
+                                  "a") as _f364:
+                            _f364.write(json.dumps({
+                                "kind": "d_lazy_attach_err",
+                                "err": f"{type(_e364).__name__}: "
+                                       f"{_e364}"[:160],
+                                "pid": os.getpid()}) + "\n")
+                        runtime = None
                 # ARRIVAL ECHO (design 350): fires before any gate
                 # including the runtime-None return, so Core-side
                 # retirement requests and worker-side arrivals are
