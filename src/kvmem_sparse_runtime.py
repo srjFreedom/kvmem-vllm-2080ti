@@ -5102,7 +5102,7 @@ class VllmSparseRuntime:
         # (len(st.row) pages / q pages-per-block); reserving an
         # adjacent block only while the row can still carry it
         # keeps the ≤B+R invariant exact.
-        _rowcap345 = max(2, len(st.row or ()) // max(1, int(q)))
+        _rowcap345 = max(2, len(row or ()) // max(1, int(q)))
         _cap345 = _rowcap345
         for _b345 in sorted(_sel345):
             if len(_sel345) >= _cap345:
