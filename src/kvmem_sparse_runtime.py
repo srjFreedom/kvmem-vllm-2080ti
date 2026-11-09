@@ -626,7 +626,11 @@ class VllmSparseRuntime:
                         for _k424 in reversed(list(_h424b or ())):
                             _st424 = _pool424b.get(str(_k424))
                             if _st424 is not None:
-                                orch.store = _st424
+                                # store is a read-only property
+                                # over _store (the silent graft
+                                # failure of the first round):
+                                # swap the attribute ITSELF.
+                                orch._store = _st424
                                 self.log({"kind": "d_store_claim",
                                           "req": str(req)[-6:],
                                           "key": str(_k424)[:16]})
