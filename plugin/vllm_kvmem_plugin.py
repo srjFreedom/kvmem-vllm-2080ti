@@ -3268,7 +3268,7 @@ def _install(cls, module_name, probe, smoke, state):
             if _ems[0] < 90:
                 _ems[0] += 1
                 _sched = getattr(scheduler_output, "num_scheduled_tokens", None) or {}
-                _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",
+                _append(_sched_cfg(self).get("probe_log") or "/tmp/kvmem_sparse.jsonl",
                         {"kind": "d_em_entry", "pid": os.getpid(),
                          "n": len(_sched),
                          "keys": [str(k)[-6:] for k in _sched],
@@ -3324,7 +3324,7 @@ def _install(cls, module_name, probe, smoke, state):
         if _rt0 is not None:
             from kvmem_session_retirement import retire_finished_worker_requests
             for _gone in retire_finished_worker_requests(_rt0, scheduler_output):
-                _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",
+                _append(_sched_cfg(self).get("probe_log") or "/tmp/kvmem_sparse.jsonl",
                         {"kind": "released", "req": _gone, "pid": os.getpid()})
             try:
                 for _nr in (getattr(scheduler_output, "scheduled_new_reqs", None)
@@ -3376,11 +3376,11 @@ def _install(cls, module_name, probe, smoke, state):
                                     _row = _bt.block_tables[_g].gpu
                                     _row[_idx].zero_()
                                 _bt.num_blocks.copy_to_uva()
-                                _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",
+                                _append(_sched_cfg(self).get("probe_log") or "/tmp/kvmem_sparse.jsonl",
                                         {"kind": "rebuild_row_reset", "req": _rid,
                                          "idx": int(_idx), "pid": os.getpid()})
                         except Exception:
-                            _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",
+                            _append(_sched_cfg(self).get("probe_log") or "/tmp/kvmem_sparse.jsonl",
                                     {"kind": "rebuild_row_reset_error", "req": _rid,
                                      "error": traceback.format_exc()[-300:]})
                         continue
@@ -3389,12 +3389,12 @@ def _install(cls, module_name, probe, smoke, state):
                     if bool(getattr(_nr, "kvmem_session_resume", False)):
                         _rt0.note_resume(_rid, _nlg, _npc)
                     if bool(_config().get("session_reuse", False)):
-                        _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",
+                        _append(_sched_cfg(self).get("probe_log") or "/tmp/kvmem_sparse.jsonl",
                                 {"kind": "note_prompt_ids", "req": str(_rid),
                                  "n": len(_ids or ()), "nlg": _nlg, "npc": _npc,
                                  "pid": os.getpid()})
             except Exception:
-                _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",
+                _append(_sched_cfg(self).get("probe_log") or "/tmp/kvmem_sparse.jsonl",
                         {"kind": "note_new_reqs_error", "error": traceback.format_exc()})
         # The sparse pre-hook runs inside prepare_pos_seq_lens(); it needs this step's request
         # ids, which only the scheduler output knows.
@@ -3417,7 +3417,7 @@ def _install(cls, module_name, probe, smoke, state):
                 for _r, _d in list(_spec.items()):
                     _n = int(_counts.get(_r, 0) or 0)
                     if _n <= len(_d) and _rt is not None:
-                        _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",
+                        _append(_sched_cfg(self).get("probe_log") or "/tmp/kvmem_sparse.jsonl",
                                 {"kind": "spec_short", "req": str(_r)[:8], "scheduled": _n,
                                  "drafts": len(_d)})
                 if _rt is not None and not os.path.exists(HOT_REQUEST):
@@ -3502,7 +3502,7 @@ def _install(cls, module_name, probe, smoke, state):
                                 except Exception:
                                     pass
                             _cs[0] += 1
-                            _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",
+                            _append(_sched_cfg(self).get("probe_log") or "/tmp/kvmem_sparse.jsonl",
                                     {"kind": "book", "req": str(_req)[:8], "n": int(_n),
                                      "computed": _comp, "logical": _logi,
                                      "rt_tokens": int(getattr(_st2, "tokens", 0)),
@@ -3556,7 +3556,7 @@ def _install(cls, module_name, probe, smoke, state):
                     except Exception:
                         self.kvmem_slot_offset = None
         except Exception:
-            _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",
+            _append(_sched_cfg(self).get("probe_log") or "/tmp/kvmem_sparse.jsonl",
                     {"kind": "advance_error", "error": traceback.format_exc()})
         except Exception:
             self._kvmem_req_ids = []
@@ -3615,7 +3615,7 @@ def _install(cls, module_name, probe, smoke, state):
                             # chain then resolves rt:true.
                             if not _CORE_RUNTIME_HOLDER.get("rt"):
                                 _CORE_RUNTIME_HOLDER["rt"] = rt
-                            _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",{"kind":"d_wire_id","rt_id":id(rt),"pid":os.getpid()})
+                            _append(_sched_cfg(self).get("probe_log") or "/tmp/kvmem_sparse.jsonl",{"kind":"d_wire_id","rt_id":id(rt),"pid":os.getpid()})
                         # TRIPLE-TABLE RE-STAMP (design 133): the stamp
                         # onto wrapper-self was NOT visible to code that
                         # reads through the runner module's own `self`
@@ -3637,7 +3637,7 @@ def _install(cls, module_name, probe, smoke, state):
                         # were stamped onto plus the allocation outcome,
                         # so the sync side can be compared by id().
                         try:
-                            _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",
+                            _append(_sched_cfg(self).get("probe_log") or "/tmp/kvmem_sparse.jsonl",
                                     {"kind": "d_wire_probe",
                                      "runner_id": id(self),
                                      "dl_none": self.kvmem_slot_deltas is None,
@@ -3647,7 +3647,7 @@ def _install(cls, module_name, probe, smoke, state):
                                      "rt_has_runner_attr": getattr(rt, "runner", None) is self if rt is not None else False})
                         except Exception:
                             pass
-                        _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",
+                        _append(_sched_cfg(self).get("probe_log") or "/tmp/kvmem_sparse.jsonl",
                                 {"kind": "plan_d_wired", "pid": os.getpid(),
                                  "reqs": _n})
             except Exception:
@@ -3686,7 +3686,7 @@ def _install(cls, module_name, probe, smoke, state):
                 _exs = state["_exs"] = [0]
             if _exs[0] < 60:
                 _exs[0] += 1
-                _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",
+                _append(_sched_cfg(self).get("probe_log") or "/tmp/kvmem_sparse.jsonl",
                         {"kind": "d_exec_after", "pid": os.getpid(),
                          "nres": 0 if result is None else 1,
                          "dummy": bool(kwargs.get("dummy_run")),
@@ -3705,7 +3705,7 @@ def _install(cls, module_name, probe, smoke, state):
             if _rp is not None:
                 self._d_replay_output = None
                 result = _rp
-                _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",
+                _append(_sched_cfg(self).get("probe_log") or "/tmp/kvmem_sparse.jsonl",
                         {"kind": "d_replay_swapped", "pid": os.getpid()})
         # hold the NEXT step's base. view_lens advances by this step's write
         # count; a row without any knife advances 0 -> n -> num_computed, i.e.
@@ -3745,7 +3745,7 @@ def _install(cls, module_name, probe, smoke, state):
                     with _tv.no_grad():
                         _vlv2[_sel2] += _ql2.to(_vlv2.dtype)
             except BaseException as _aex:
-                _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",
+                _append(_sched_cfg(self).get("probe_log") or "/tmp/kvmem_sparse.jsonl",
                         {"kind": "d_advance_error",
                          "error": str(_aex)[:180]})
         if os.environ.get("KVMEM_EXEC_POST", "1") == "0":
@@ -3782,7 +3782,7 @@ def _install(cls, module_name, probe, smoke, state):
                 _ps[0] += 1
                 _ad = state.get("adapter_step")
                 _sp = state.get("sparse")
-                _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",
+                _append(_sched_cfg(self).get("probe_log") or "/tmp/kvmem_sparse.jsonl",
                         {"kind": "d_post_adapter", "pid": os.getpid(),
                          "n": _ps[0],
                          "adapter_none": _ad is None,
@@ -3811,7 +3811,7 @@ def _install(cls, module_name, probe, smoke, state):
                                                   "num_scheduled_tokens",
                                                   None) or {})) == 0):
                     _pcl[0] += 1
-                    _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",
+                    _append(_sched_cfg(self).get("probe_log") or "/tmp/kvmem_sparse.jsonl",
                             {"kind": "d_preclear", "pid": os.getpid(),
                              "steps": state.get("steps")})
                 # STEP-END SNAPSHOT, uncapped, once per step (design 29): the
@@ -3829,7 +3829,7 @@ def _install(cls, module_name, probe, smoke, state):
                     # must not drain the real-step budget.
                     if _real and _snaps[0] < 60:
                         _snaps[0] += 1
-                        _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",
+                        _append(_sched_cfg(self).get("probe_log") or "/tmp/kvmem_sparse.jsonl",
                                 {"kind": "d_step_snapshot", "pid": os.getpid(),
                                  "steps": state.get("steps"),
                                  "n": len(scheduled),
@@ -3856,7 +3856,7 @@ def _install(cls, module_name, probe, smoke, state):
                     if _mc < 3 or _mcb < 3:
                         _mk[req] = _mc + 1
                         _mb[_key] = _mcb + 1
-                        _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",
+                        _append(_sched_cfg(self).get("probe_log") or "/tmp/kvmem_sparse.jsonl",
                                 {"kind": "d_loop_member", "req": str(req)[-8:],
                                 "call": _mc, "n_new": int(n_new),
                                 "reqs_in_step": len(scheduled),
@@ -3894,7 +3894,7 @@ def _install(cls, module_name, probe, smoke, state):
                             state["stats_probe"] = state.get("stats_probe", 0) + 1
                             try:
                                 _st = runtime.state(req)
-                                _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",
+                                _append(_sched_cfg(self).get("probe_log") or "/tmp/kvmem_sparse.jsonl",
                                         {"kind": "harvest_attempt", "pid": os.getpid(),
                                          "step": state["steps"], "n_new": int(n_new),
                                          "tokens": _st.tokens, "seq_len": _st.seq_len,
@@ -3916,7 +3916,7 @@ def _install(cls, module_name, probe, smoke, state):
                         try:
                             runtime.harvest_key_statistics(req, int(n_new))
                         except Exception:
-                            _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",
+                            _append(_sched_cfg(self).get("probe_log") or "/tmp/kvmem_sparse.jsonl",
                                     {"kind": "stats_harvest_error", "req": req,
                                      "error": traceback.format_exc()[-600:]})
                         # Stage-2 rebuild driver: the quiescent FINAL boundary queued this
@@ -3951,7 +3951,7 @@ def _install(cls, module_name, probe, smoke, state):
                                     if _ok:
                                         _rq.pop(req, None)
                                     else:
-                                        _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",
+                                        _append(_sched_cfg(self).get("probe_log") or "/tmp/kvmem_sparse.jsonl",
                                                 {"kind": "rebuild_select_retry", "req": req,
                                                  "detail": str(_det)[:200]})
                                         # give up after five attempts so a doomed request cannot
@@ -3971,7 +3971,7 @@ def _install(cls, module_name, probe, smoke, state):
                                     if _t2[req] < 6:
                                         _rq[req] = int(getattr(
                                             runtime._state.get(req), "tokens", 0) or 0)
-                                    _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",
+                                    _append(_sched_cfg(self).get("probe_log") or "/tmp/kvmem_sparse.jsonl",
                                             {"kind": "rebuild_select_error", "req": req,
                                              "error": traceback.format_exc()[-400:]})
                     if runtime.compact_rebuild:
@@ -4019,7 +4019,7 @@ def _install(cls, module_name, probe, smoke, state):
                             req_states = getattr(self, "req_states", None)
                             computed = (-1 if req_states is None else
                                         int(req_states.num_computed_tokens_np[0]))
-                            _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",
+                            _append(_sched_cfg(self).get("probe_log") or "/tmp/kvmem_sparse.jsonl",
                                     {"kind": "trace", "req": req, "n_new": int(n_new),
                                      "tokens": st.tokens, "seq_len": st.seq_len,
                                      "row": len(st.row), "computed": computed})
@@ -4052,7 +4052,7 @@ def _install(cls, module_name, probe, smoke, state):
                     for req, n_new in list(counts.items()):
                         runtime.advance_tokens(req, int(n_new))
             except Exception:
-                _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",
+                _append(_sched_cfg(self).get("probe_log") or "/tmp/kvmem_sparse.jsonl",
                         {"kind": "advance_error", "error": traceback.format_exc()})
             return _original_sample(self, scheduler_output, *args, **kwargs)
 
@@ -4099,7 +4099,7 @@ def _install(cls, module_name, probe, smoke, state):
                                 rt.note_session_id(_rid, getattr(_nr, "session_id", None),
                                                    getattr(_nr, "cache_salt", None))
                                 if bool(_config().get("session_reuse", False)):
-                                    _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",
+                                    _append(_sched_cfg(self).get("probe_log") or "/tmp/kvmem_sparse.jsonl",
                                             {"kind": "note_prompt_ids", "req": str(_rid),
                                              "n": len(_ids or ()), "pid": os.getpid()})
                                 _nlg = int(getattr(_nr, "num_logical_tokens", 0) or 0)
@@ -4116,7 +4116,7 @@ def _install(cls, module_name, probe, smoke, state):
                             # this after rt.state(new_req) reused the old budget identity.
                             for gone in [r for r in rt.live_requests() if r not in reqs]:
                                 if rt.sweep_release(gone):
-                                    _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",
+                                    _append(_sched_cfg(self).get("probe_log") or "/tmp/kvmem_sparse.jsonl",
                                             {"kind": "released", "req": gone, "pid": os.getpid(),
                                              "site": "B"})
                                 for _alive in reqs:
@@ -4168,7 +4168,7 @@ def _install(cls, module_name, probe, smoke, state):
                                                    position_slots=rt.view.query_position_slots(req),
                                                    rows_only=True)
                 except Exception as exc:
-                    _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",
+                    _append(_sched_cfg(self).get("probe_log") or "/tmp/kvmem_sparse.jsonl",
                             {"kind": "sparse_pre_install_error", "error": traceback.format_exc()})
                     from kvmem_session_budget import BudgetError
                     from kvmem_sparse_runtime import SparseViewCapacityError
@@ -4178,7 +4178,7 @@ def _install(cls, module_name, probe, smoke, state):
                         # whose EMPTY runtime explains the mid-flight state
                         # vanishings (tok=None floods, frozen stats, 4 releases per
                         # request id across rotating pids). Name the poison first.
-                        _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",
+                        _append(_sched_cfg(self).get("probe_log") or "/tmp/kvmem_sparse.jsonl",
                                 {"kind": "d_death_watch", "site": "pre_install",
                                  "pid": os.getpid(), "exc": type(exc).__name__,
                                  "msg": str(exc)[:240]})
@@ -4214,7 +4214,7 @@ def _install(cls, module_name, probe, smoke, state):
                                 _st = _rt_d.state(_req) if _rt_d is not None else None
                                 _row = (list(_st.row[:4]) + ["..."] + list(_st.row[-2:])
                                         if _st is not None and _st.row else [])
-                                _append(smoke or probe or "/tmp/kvmem_sparse.jsonl", {
+                                _append(_sched_cfg(self).get("probe_log") or "/tmp/kvmem_sparse.jsonl", {
                                     "kind": "debug_pos", "pid": os.getpid(), "req": _req,
                                     "row": _r, "n": _p1 - _p0,
                                     "positions": [int(v) for v in
@@ -4288,7 +4288,7 @@ def _install(cls, module_name, probe, smoke, state):
                         if _es is None:
                             _es = state["_es"] = [0]
                         _es[0] += 1
-                        _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",
+                        _append(_sched_cfg(self).get("probe_log") or "/tmp/kvmem_sparse.jsonl",
                                 {"kind": "sparse_step_error", "pid": os.getpid(),
                                  "count": _es[0],
                                  "error": _tbx.format_exc()[-700:]})
@@ -4306,7 +4306,7 @@ def _install(cls, module_name, probe, smoke, state):
                         # whose EMPTY runtime explains the mid-flight state
                         # vanishings (tok=None floods, frozen stats, 4 releases per
                         # request id across rotating pids). Name the poison first.
-                        _append(smoke or probe or "/tmp/kvmem_sparse.jsonl",
+                        _append(_sched_cfg(self).get("probe_log") or "/tmp/kvmem_sparse.jsonl",
                                 {"kind": "d_death_watch", "site": "step_end",
                                  "pid": os.getpid(), "exc": type(exc).__name__,
                                  "msg": str(exc)[:240]})
