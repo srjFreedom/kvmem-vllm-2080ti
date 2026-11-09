@@ -2201,3 +2201,10 @@ skip=不重放只装视图 - 顺路）。
 - 终案: 407 三连 - bs_gate×32 (has_resume:false, req=54b67d) + miss×4 (req=84ba1360) - **同一请求在 worker 的两个 hook 域以不同 rid 出现** (engine 内部重建/child id vs client id - step_c 的 kvmem_map 反图正是为此存在!) - adopt 在 client-rid 域标记 st.adopt_knife_pending/st.resume, before_step 消费时 engine-rid 域新建了另一份 state - 刀/门/写回全部隔岸。
 - 修复蓝图 (下轮唯一手术): _ensure/adopt 成功后, 把标记同时种进映射对方: `other = self._rid_alias(req)` (从 kvmem_map/child 映射读, 双向) - state/orch/retrieval 三本账同键双写; 或更干净: before_step 头部把 engine rid 反解为 client rid (map 已在 scheduler.kvmem_map), 全 runtime 单一名义身份 (v0.5.2 child-rebuild 机器删除后残留的双 id 面在 D 臂的最后遗产)。
 - 计数账: W407 T1 F (半针) T2/T3 duct。本回合 3 boots+9 发 (深超自记罚单: 未来 2 回合禁 boot 除非现杀)。ahead 347→348。引擎 407 代健康。
+
+## 409-411. Round 196: MetaStore 换本定谳 (selfderive 出生 hit=141120 blocks=90) + 收养即末程刀上盘 - 双身份终解: T2 只有一次 _ensure, 刀必须在那一步挥
+
+- 战果: 410 修 (selfderive 从 HostStore 账本换成 get_meta_store() - 历代查错本账) 一发出生 d_resume_selfderive×2 (双 rank 各一, hit=141120 = decided 精确同值) - 收养线通了, 标记在 client-rid 域的 st 上。
+- 终解: 全名读数终结双身份猜想 - 897437ec/b083330a 是不同代的 rid 样本, 同请求的 adopt 与 gate 同域 ✓ 真病 = T2 唯一一次 _ensure 在 adopt 分支里 return (无行可消费), 后续步骤不再进 _ensure, gate 的 deferred-knife 永无 T2 步 - 411 修: adopt 步当场挥 pressure 刀 (行在 before_step 头已绑, T2 decode 行=自己)。
+- 下轮 (boot 已备): 三连 - d_adopt_knife{tokens} 出生 → panels(T2) → 视图重排 → T2 内容修复 (duct 终) → resumed 谱名 → 计数战开打。
+- 本回合 2 boots+5 发 (现杀豁免在案)。ahead 351→352。引擎 410 代健康。
