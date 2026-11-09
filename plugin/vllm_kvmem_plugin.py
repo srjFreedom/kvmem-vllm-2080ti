@@ -1594,6 +1594,16 @@ def register():
             def _prepare_kvmem_session_checkpoints(worker, request_ids):
                 runner = getattr(worker, "model_runner", None)
                 runtime = getattr(runner, "kvmem_runtime", None)
+                # SAME-PROCESS SINGLETON (design 351): the wiring
+                # binds kvmem_runtime on the runner instance it was
+                # handed; the RPC wrapper resolves worker.model_runner
+                # (measured rt:False with arrivals n:1 - a different
+                # object layer). _ACTIVE_RUNTIME is module-global per
+                # process, and this function executes IN the worker
+                # process, so it is the authoritative same-process
+                # handle.
+                if runtime is None:
+                    runtime = globals().get("_ACTIVE_RUNTIME")
                 # ARRIVAL ECHO (design 350): fires before any gate
                 # including the runtime-None return, so Core-side
                 # retirement requests and worker-side arrivals are
