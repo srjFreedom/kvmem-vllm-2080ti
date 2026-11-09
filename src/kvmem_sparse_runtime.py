@@ -5568,7 +5568,8 @@ class VllmSparseRuntime:
                           "pages": len(ordered), "written": _rest312,
                           "rowdom": len(_rowdom),
                           "pair": _pair338})
-            return (_po, ordered, [], [], _bpo)
+            return (_po, ordered, [], [],
+                    locals().get("_bpo") or max(1, int(q or 1)))
         assign = {}
         used = set()
         for pg in want:
