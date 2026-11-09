@@ -710,20 +710,9 @@ class VllmSparseRuntime:
                         # scored+adjacent over the restored prefix)
                         # and let the consumption gate below still
                         # find its marker intact.
-                        try:
-                            # pressure=True: the RESUME VIEW is
-                            # exactly the pressure lane's shape
-                            # (scored selection + adjacent
-                            # reserve over the restored prefix);
-                            # pressure=False is the question-lane
-                            # ablation no-op and was silently
-                            # refused at the gate.
-                            self._reselect_blockwise(
-                                req, pressure=True)
-                        except Exception as _e399:
-                            self.log({"kind": "d_adopt_knife_err",
-                                      "err": f"{type(_e399).__name__}: "
-                                             f"{_e399}"[:150]})
+                        # (knife moved to the adoption tail -
+                        # striking here ran before the engine
+                        # even saw this request's row)
                         # FALL THROUGH (design 386): the old
                         # `return` here also skipped the resume
                         # consumption point 200 lines below -
@@ -763,6 +752,18 @@ class VllmSparseRuntime:
                     self.attach_statistics(req)
                 except Exception:
                     pass
+                # ADOPTION TAIL KNIFE (design 405): every earlier
+                # strike site lost the row to the engine's own
+                # append-only layout - here the adoption wiring is
+                # complete (statistics, retrieval, slots) and the
+                # pressure lane re-lays the view exactly like the
+                # cold path's pressure pass.
+                try:
+                    self._reselect_blockwise(req, pressure=True)
+                except Exception as _e405:
+                    self.log({"kind": "d_adopt_knife_err",
+                              "err": f"{type(_e405).__name__}: "
+                                     f"{_e405}"[:150]})
                 return
             kv_tensors = self.view.paged_kv()
             session = None
