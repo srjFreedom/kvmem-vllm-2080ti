@@ -2260,6 +2260,14 @@ def register():
                         # namespace the Core used (the 2026-11-03 fix; before it,
                         # adoption refused while Core applied, and the turn read
                         # un-written prefix pages - the 2e8bfe9 poison lineage).
+                        _append(_sched_cfg(scheduler).get("probe_log")
+                                or "/tmp/kvmem_sparse.jsonl",
+                                {"kind": "kvmem_resume_deferred", "req": rid,
+                                 "hit_blocks": int(blocks), "mode": "restore-pending",
+                                 "source": str(getattr(meta, "source_request", ""))[:40],
+                                 "prompt": int(getattr(request, "num_prompt_tokens", 0) or 0)})
+                        continue
+                    hit = int(blocks) * block_size
                     if getattr(scheduler, "_rlg", 0) <= 10:
                         _append(_sched_cfg(scheduler).get("log")
                                 or "/tmp/kvmem_sparse.jsonl",
