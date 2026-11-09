@@ -983,6 +983,17 @@ class VllmSparseRuntime:
             try:
                 _hp437 = self._session_hashes(req)
                 _pool437 = getattr(self, "_spill_stores", {})
+                if not _hp437 and len(_pool437) == 1:
+                    # RID DOMAIN BRIDGE (design 441): the first
+                    # step of a resumed request arrives under the
+                    # engine's own id, whose prompt ledger is
+                    # still empty - chain lookup by req cannot see
+                    # the archive. With EXACTLY one survivor in
+                    # the keepalive pool there is no ambiguity:
+                    # that parked chain is what this request
+                    # continues (the Core decided it; the archive
+                    # was keyed by content, not by id).
+                    _hp437 = list(_pool437.keys())
                 for _kk437 in reversed(list(_hp437 or ())):
                     _gv437 = _pool437.get(str(_kk437))
                     if _gv437 is not None:
