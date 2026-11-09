@@ -2041,3 +2041,9 @@ skip=不重放只装视图 - 顺路）。
 - 判据预期: bt16 已让针句进 kept → 邻块=码值桶 → 模型第一次拿到完整答案 'ZX-4417-QJ7' → N152 冷 True 首现。计数战随开: 88K×2+152K×3+250K×1 (250K 在 bt16 桶 15304 网格上 softmax 竞争更强, 邻桶保底同样适用)。
 - 下轮: boot → 152K 双发判据 (cold T1 + resume T2 时长) → 计数战开打。
 - 0 boot 本轮+2 修 (arm_boot 前预算已用 1 代)。ahead 283→284+。引擎 bt16 代健康。
+
+## 346-347. Round 174: 邻桶首代的哑刀真相 = prepare 静默 None (retire_aborted did-not-prepare) - 刀与 publish 同灭的一代, adj2 已 boot 读数待取
+
+- 终读法: 事件流不撒谎 - pressure_gate/panel 全零 + tp_records_dump ranks ["None","None"] = prepare_session_checkpoint 在两 worker 都返回 None = **_park_session/捕获链在 345 代某行炸且被 except 吞成 None** (非刀门, 非 flags) - 346 修 (row 形参等价重写) 已 boot; 若 adj2 仍 None, d_rpc_return 之外需给 prepare 的 except 装 err 出声 (一行) 终结盲修。
+- 保持账: bt16 针句胜利 (KEY-MID 直读), 邻桶合同设计正确 (码值桶物理相邻), 只差这代刀活着。
+- 预算: 1 boot 追加 (bash-415) 触顶停止交还。ahead 286+。引擎 adj2 待命。
