@@ -3303,10 +3303,12 @@ def _install(cls, module_name, probe, smoke, state):
                     _rt374 = getattr(self, "kvmem_runtime", None)
                     if _rt374 is not None:
                         _CORE_RUNTIME_HOLDER["rt"] = _rt374
-                        _append("/tmp/kvmem_sparse.jsonl",
-                                {"kind": "d_host_attach",
-                                 "rt_id": id(_rt374),
-                                 "pid": os.getpid()})
+                        _append(
+                            _sched_cfg(self).get("probe_log")
+                            or "/tmp/kvmem_sparse.jsonl",
+                            {"kind": "d_host_attach",
+                             "rt_id": id(_rt374),
+                             "pid": os.getpid()})
             except Exception as _e374:
                 self._host_attach_failed = True
                 _append("/tmp/kvmem_sparse.jsonl",
