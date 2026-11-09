@@ -2216,13 +2216,27 @@ class VllmSparseRuntime:
                             # with pending already live). Adopt
                             # the forged entry on the spot; the
                             # keepalive claim runs right after.
+                            vis436 = pl390 if pl390 else hit390
+                            if getattr(e390, "orchestrator",
+                                       None) is not None:
+                                # FORGE ADOPT (436b): only an
+                                # entry with a LIVE orchestrator
+                                # may be returned - the adopted
+                                # branch clears orch books and a
+                                # None orch crashed the engine
+                                # (HTTPError storm measured).
+                                self.log({
+                                    "kind": "d_resume_selfderive",
+                                    "req": str(req)[-6:],
+                                    "hit": hit390,
+                                    "blocks": n390,
+                                    "forged": True})
+                                return e390, hit390, vis436
+                            pending = (hit390, vis436)
                             self.log({"kind": "d_resume_selfderive",
                                       "req": str(req)[-6:],
-                                      "hit": hit390,
-                                      "blocks": n390,
-                                      "forged": True})
-                            return e390, hit390, \
-                                (pl390 if pl390 else hit390)
+                                      "hit": hit390, "blocks": n390,
+                                      "live": False})
                 except Exception as _e392:
                     self.log({"kind": "d_selfderive_err",
                               "err": f"{type(_e392).__name__}: "
