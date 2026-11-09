@@ -2271,3 +2271,10 @@ skip=不重放只装视图 - 顺路）。
 - 时序: A434 T1 满血 = 防自噬生效; G435 T2 仍 duct = selfderive 的 pending 被下游二次 lookup (source 命名空间) 扑空 → 收养死路 - 436 锻入: 命中即 entry 直返 (return e390,hit,vis), adopted 消费线 (614 unpack + claim 段) 原样接力。
 - 终读窗 (436 代): d_resume_selfderive{forged:true} → d_store_claim{key} → restore×2233页 (batch 0.3s) → session_resumed → T2 内容真形 → 计数战 (88K×2/152K×3/250K×1) → 全绿即 push 里程碑。
 - 本回合 2 boots+4 发+7 查+4 修 (超戒自记)。ahead 383→384。引擎 436 代在跑。
+
+## 442. Round 203 收官: graft 零发真因 = adopted 分支先建 orch 跳过正常建线 - 442 终修落点具名
+
+- 断点终像: _ensure 两处 _orch[req]=orch (adopted 644 / 正常 978) - T2 经 selfderive pending→adopted≠None→644 直接登账→978 的 graft+441 桥永不到货。graft/桥/伪造账三件都在树上, 只是装错了没被走的那扇门。
+- 442 手术 (一发封链): adopted 分支 `orch = entry.orchestrator` 后判 None → 现场 graft: 从 keepalive 池取 (store,hit) + orch = self._make_orchestrator(req)(现成建造器, 正常线同款) → orch.store=pool store → 登 _orch/_resume_ok → 伪造账经 440 块 (搬为函数 _forge_resume_ledger(req, hit) 两门共用)。消费线已全通 (gate→_complete_resume→restore_pages_batch 纯拷贝)。
+- 终读窗 (442 代): d_keepalive_graft+d_resume_forged+session_resumed 三连出生 → T2 半针 (选择器战场) → 402 邻桶+420 码值桶两役收官 → 计数战 (88K×2/152K×3/250K×1/OFF臂/并发/session) → 全绿 push 里程碑。
+- 本回合 1 boot+3 发+3 查 (罚单内)。ahead 389→390。引擎 441 代健康。
