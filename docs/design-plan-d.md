@@ -2080,3 +2080,12 @@ skip=不重放只装视图 - 顺路）。
 - 354 定稿手术 (低风险搬运): 把 retire_terminal_sessions 调用挂到 step_c(self=EngineCore) 内 - self.scheduler 的 runtime (kvmmem wiring 宿主) + outputs (EngineCoreOutputs) 同处一进程; front-end 的 retirement 调用退役 (或 core_runtime None 时直接 return 不 RPC); proof 通道同步就地化 (_maybe_resume 的 collective_rpc check → 若 Core runtime 在手, 本地 check_session_checkpoint×tp_size 伪造 records{rank 0/1} 同谱名喂 verify)。
 - 预期: T1 retired{inprocess} → T2 shared_hit→decided→resumed → **时长终读**; 计数战随开。
 - 本回合: 2 boots+4 发+7 静态/普查 (超) 硬停止。ahead 296→297。引擎 reg 代健康。
+
+## 361-362. Round 354b 终像与收束账: 答案三变体均"针句全读码值缺席"; retired/prep 零事件 = step_c retirement 块未跑; shared_hit 后静默 = hit 主流程某门无声吞
+
+- 保持战果: skip{TP} 绝迹 (proof 就地化), shared_hit×2 稳 (Core MetaStore 档), 针句 100% 进视图 (模型精确引 KEY-MID 句式填槽) - 十年针案距离最近的一代。
+- 双开放案与下轮双针:
+  A. step_c retirement 未跑: 在 step_c 入口第一行加 d_step362{has_rt, omap_n} 纯 log (holder 解析结果现场直播) - 零风险。
+  B. shared_hit→decided 静默: 在 fallback 出口后逐门补针 (pt<=0 门现形 + visible 计算行前 d_hit_gate{pt,ppb,cap,pages,hit}) - 一发钉死第三门。
+- 计数账: N152 冷 0/3 (354b 代, 全"半针"形态), N88 保持 1/1, resume 时长未终读 (resumed 仍缺位, decided 前置)。
+- 本回合总账: 3 boots (超) + 6 发 + 8 静态 + 一次结构毁回滚 (git checkout 止损✓) + 用例同步 (session_clip 文本断言更新, 行为语义未动)。ahead 300→301。引擎 354b 代健康。
