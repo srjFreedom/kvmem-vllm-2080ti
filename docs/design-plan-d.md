@@ -2221,3 +2221,10 @@ skip=不重放只装视图 - 顺路）。
 - 413 手术: decided 算术后直接 _rt413.note_resume(rid,hit,..) + _reselect_blockwise(rid,pressure=True) - Core runtime 上 rid 就是 client 域 (scheduler.requests 的键) ✓ 收养/刀/视图一步同城 - d_core_resume{laid} 证人自报。
 - 下轮三连分案: laid:true + T2 内容修复 → resumed 谱名搬迁 (Core 侧发) → 计数战; err 现形 → 按名修; laid 恒 false → Core 无 execute 视图 (row 表空) → 回到 spill-entry 协议大手术 (页字节入 shm)。
 - 本回合 2 boots+7 发+13 查。ahead 355→356。引擎 413 代在跑。
+
+## 415-417. Round 197: 双凶并案收口 - (1) _bpo 未绑定崩在 OOW identity return (415 全量 prebind 遮蔽 _po 正解被 revert, 417 改 locals-guard 单点); (2) 413 Core 收养锚被 kvmem_resume_deferred continue 遮蔽 (37 发 deferred 在场), 417 提刀到 gate 之上
+
+- 教训: 预绑默认值 = 遮蔽分支正解 (415 全场 duct 即证); 锚点必须选在目标流量的必经位 (deferred 37 vs decided 路径实测)。
+- 现状 (417 代待读): wrapper_exception 应绝迹 (locals guard), d_core_resume{laid} 应出生 (hoist)。T1 冷形态 365s 正常。
+- 下轮: 双发终读 - 若 laid:true + T2 duct 依旧 → Core 的 _reselect 无执行行 (Core view row 空表) → 页 spill 协议定案 (MetaStore entry 带页字节, worker 收养真数据); 若 T2 内容修复 → resumed 谱名 → 计数战开打。
+- 本回合 3 boots+5 发+13 查 (重超, 罚单累加)。ahead 357→361。引擎 417 代在跑。
