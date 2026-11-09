@@ -2087,15 +2087,6 @@ class VllmSparseRuntime:
 
     def _adopt_session(self, req):
         """Take the parked session for `req` out of the store, if EngineCore asked for a resume."""
-        if (__import__("os").environ.get("KVMEM_D_NOADOPT", "")
-                in ("1", "true", "yes")):
-            # DIAGNOSTIC GATE (design 427): park keeps happening,
-            # adoption is refused - every request then runs the
-            # pure cold path. Separates "cold broken" from
-            # "adoption poisons the view" (first request of a
-            # fresh boot answered duct: adoption hit an entry
-            # parked by an earlier request of the SAME boot).
-            return None
         pending = self._resume.pop(req, None)
         if pending is None:
             # CORE DECIDES, WORKER HARVESTS (design 390): the

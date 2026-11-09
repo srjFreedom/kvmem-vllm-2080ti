@@ -2346,7 +2346,7 @@ def register():
                         continue
                     visible = pages * pt
                     if (__import__("os").environ.get(
-                            "KVMEM_D_NOADOPT", "") in
+                            "KVMEM_D_NOSKIP", "") in
                             ("1", "true", "yes")):
                         # DIAGNOSTIC GATE (427b): refuse the skip
                         # itself - without an adoption that can
