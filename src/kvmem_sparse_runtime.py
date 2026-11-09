@@ -712,26 +712,6 @@ class VllmSparseRuntime:
                         # scored+adjacent over the restored prefix)
                         # and let the consumption gate below still
                         # find its marker intact.
-                        # THE ADOPTION IS THE LAST CHANCE
-                        # (design 411): T2's only ensure entry is
-                        # THIS step (orch lands in _orch right
-                        # after; later steps skip _ensure, the
-                        # gate sees the marker-less engine twin) -
-                        # strike now: the row bound at the head of
-                        # this before_step carries T2's own
-                        # decoded page, the same hood the cold
-                        # first-knife rides.
-                        st.adopt_knife_pending = True
-                        try:
-                            self._reselect_blockwise(req,
-                                                     pressure=True)
-                            self.log({"kind": "d_adopt_knife",
-                                      "req": str(req)[-6:],
-                                      "tokens": int(st.tokens)})
-                        except Exception as _e411:
-                            self.log({"kind": "d_adopt_knife_err",
-                                      "err": f"{type(_e411).__name__}: "
-                                             f"{_e411}"[:150]})
                         # FALL THROUGH (design 386): the old
                         # `return` here also skipped the resume
                         # consumption point 200 lines below -
@@ -779,6 +759,20 @@ class VllmSparseRuntime:
                 # row: exactly the cold path's first pressure
                 # cadence point, where the view is real.
                 st.adopt_knife_pending = True
+                # MAIN-BRANCH TAIL KNIFE (design 412): 411 rode
+                # the retrieval-miss sub-branch, which the healthy
+                # adoption never enters (miss census: 6 in the
+                # resume tail, 0 in retrieval) - strike HERE, on
+                # every adoption, right after the wiring lands.
+                try:
+                    self._reselect_blockwise(req, pressure=True)
+                    self.log({"kind": "d_adopt_knife",
+                              "req": str(req)[-6:],
+                              "tokens": int(st.tokens)})
+                except Exception as _e412:
+                    self.log({"kind": "d_adopt_knife_err",
+                              "err": f"{type(_e412).__name__}: "
+                                     f"{_e412}"[:150]})
                 # COLD-PATH PARITY (design 407): the harvest site
                 # wires orch.inrequest_compaction before any step
                 # runs; the adopted orch skipped that wiring, so
