@@ -1980,6 +1980,39 @@ class VllmSparseRuntime:
     def _adopt_session(self, req):
         """Take the parked session for `req` out of the store, if EngineCore asked for a resume."""
         pending = self._resume.pop(req, None)
+        if pending is None:
+            # CORE DECIDES, WORKER HARVESTS (design 390): the
+            # note_resume marker lives in the scheduler process
+            # while harvest, store and adoption run in the worker
+            # (pid arbiter table: W0/W1 across the full chain).
+            # Self-derive the marker from the shared MetaStore:
+            # a session whose hash chain is parked IS a resume,
+            # whoever forgot to say so. Arithmetic from the
+            # entry itself (capacity_pages x page_tokens), never
+            # from foreign block constants.
+            if self.session_reuse and self.session_store is not None:
+                try:
+                    h390 = self._session_hashes(req)
+                    if h390:
+                        got390 = self.session_store.lookup(
+                            h390,
+                            prefix_digest=getattr(
+                                self, "_session_digests", {}).get(req))
+                        if got390 and got390[0] is not None:
+                            e390 = got390[0]
+                            n390 = int(got390[1] or 0)
+                            hit390 = int(e390.capacity_pages) * \
+                                int(e390.page_tokens)
+                            pl390 = int(
+                                self._prompt_len.get(req, 0) or 0)
+                            pending = (hit390,
+                                       pl390 if pl390 else hit390)
+                            self.log({"kind": "d_resume_selfderive",
+                                      "req": str(req)[-6:],
+                                      "hit": hit390,
+                                      "blocks": n390})
+                except Exception:
+                    pending = None
         if pending is None or not self.session_reuse or self.session_store is None:
             return None
         hit_tokens, visible_tokens = pending
