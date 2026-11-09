@@ -2103,3 +2103,10 @@ skip=不重放只装视图 - 顺路）。
 - 修复: 无条件覆盖安装 (带 _kvmem_patched 标记防重复), abort/check wrapper 同修。
 - 预期判决: rpc_in{rt:true} → prep_enter → capture/d_gates 出声 → records dict 双秩 → retired×3 → T2 decided/resumed → 时长终读。
 - 本回合 1 发 + 4 查 (0 boot)。ahead 306→307。
+
+## 368-369. Round 368 拓扑终审: Worker RPC 进程无 model_runner 属性 (rt:False 物理必然), compact 31 events 证 harvest 在 CORE host - wrapper 三级回退注册表
+
+- 定案证据链: fork stub 覆盖后 rt 仍 False (122779 现场) + grep 全库无 worker.model_runner= 赋值 + compact wrapper 返回值 31 笔 (其宿主 self 持 kvmem_model_runner) → **harvest/retirement 的正确进程 = CORE (EngineCore), worker RPC 是 fork 架构误判的遗产通道**。
+- 修复上盘: prepare wrapper runtime 三级回退 runner attr → _ACTIVE_RUNTIME → _CORE_RUNTIME_HOLDER; lazy attach 保持 (runner None 时自然跳过)。下轮验证: rpc_in{rt:true} 出生 → prep_enter → capture gates → retired → T2 全链。
+- 计数战: stub 代双 F (半针形态); 368 修不碰选择器, 只通归档线。
+- 1 boot+2 发+终审。ahead 308→310。引擎 stub 代健康 (将换 368 代)。
