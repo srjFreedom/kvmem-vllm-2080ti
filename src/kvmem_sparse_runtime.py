@@ -2491,6 +2491,39 @@ class VllmSparseRuntime:
                               "req": str(rid)[-8:], "row": int(row),
                               "tensors": len(snap)})
 
+    def _q_capture_now(self, rid):
+        """QUESTION-BAND CAPTURE helper (design 319): stash the
+        live bridge's question Q rows (tail window) onto the
+        orchestrator so every later knife scores against the
+        pinned question. Idempotent - re-capture just refreshes
+        the same window."""
+        try:
+            from vllm import kvmem_bridge as _kb316
+            _arm316 = bool(getattr(_kb316, "ARMED", False))
+            _src316 = _kb316.read_all() if _arm316 else None
+            _orch316 = self._orch.get(rid)
+            _ri316 = getattr(_orch316, "retrieval_index", None) \
+                if _orch316 is not None else None
+            if _src316 and _ri316 is not None:
+                _lim316 = 512
+                _qk = {}
+                for _l316, _val316 in _src316.items():
+                    try:
+                        _q316, _p316 = _val316
+                        _qk[_l316] = (_q316[-_lim316:], _p316[-_lim316:])
+                    except Exception:
+                        _qk[_l316] = _val316
+                _ri316._q_rows = _qk
+                _orch316._d_question_mode = True
+                if self.log is not None and \
+                        getattr(self, "_qc_loud", 0) < 4:
+                    self._qc_loud = getattr(self, "_qc_loud", 0) + 1
+                    self.log({"kind": "d_question_capture",
+                              "req": str(rid)[-6:],
+                              "layers": len(_qk), "rows": _lim316})
+        except Exception:
+            pass
+
     def d_question_knife_seam(self, scheduler_output):
         """Design 39-A: install the question view on the completion step,
         BEFORE the sampler runs. Trigger: a scheduled chunk whose step
@@ -4579,6 +4612,12 @@ class VllmSparseRuntime:
                         q = self._rebuild_queue = {}
                     q.setdefault(req, int(st.tokens))
             elif bool(getattr(self, "blockwise_view", False)):
+                # CAPTURE BEFORE THE FIRST KNIFE (design 319): the
+                # seam never had a caller in the D world - blockwise
+                # demands the question snapshot itself now.
+                if bool(pressure) and not getattr(
+                        self._orch.get(req), "_d_question_mode", False):
+                    self._q_capture_now(req)
                 self._reselect_blockwise(req, pressure=pressure)
             else:
                 _rebuild_mode = bool(mode == "page"
