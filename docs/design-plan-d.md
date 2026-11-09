@@ -2144,3 +2144,10 @@ skip=不重放只装视图 - 顺路）。
 - 下轮首刀 (零猜直查): src/kvmem_live_view.row_index(req) 的返回条件 - T2 新 rid 何时进 view 的 req→row 映射 (engine Core 的 scheduler_output 携带, worker view 同步时机 vs before_step 调用时机); 若同步滞后 = 把 resume 消费挪到 row 到货的第一步 (seen_alive 已有此语义) 或 row_index None 时对 st.resume 的请求放行。
 - 速度战况: T2 12.6s (目标 5-10s 边缘), 写回接通后加 0.3-15s 拷贝 (batch 路已优化) - 若超带, restore 分块流水线。
 - 计数账: P384 双 F (duct 定性)。本回合 1 boot+2 发+8 静态。ahead 322→323。引擎 384 代健康。
+
+## 386-387. Round 188-189: duct 终极解释 = 双 runtime 分裂 (harvest 页字节在 CORE store, adopt/restore 在 WORKER runtime 空 store) - 归档协议必须带页字节跨进程
+
+- 拼图终形: d_hv_funnel/knife/decided 宿主 = CORE (184 回合 pid 普查 124203:CORE); em/before_step/adopt 宿主 = WORKER (143962:W, 374 host-attach 让 worker 有了 runtime 但它的 store 是空的) - worker restore_pages_batch 拷的是 worker 空 store → 写回"成功"但全是零页 → 引擎读到均匀垃圾 → duct 复读。386 fall-through 让 miss 不再拦路 (T2 20.2s 稳定), 但字节源头在错进程。
+- 修复蓝图 (下轮手术, 协议级非补丁): MetaStore 跨进程通道已证可用 (shared_hit{90} 从 shm 读通) - **capture 时把 needle-relevant 页字节 spill 进 MetaStore entry 的 pages 字段 (store.get(pg) 序列化, 4410 页×16KB×8层 = ~560MB 太大) → 折中: 只 spill entry 摘要页 (前缀 head/tail + sink 带), 中段页 restore 走 worker→Core 的 store 读 RPC (collective 反向: Core 供页)** - 或最干净: **harvest 整个搬去 worker (374 attach 已给 worker runtime, before_step/adopt/knife 全 worker 域跑), Core 只留 decided 的数字** - worker harvest 的数据源 (block_table, paged_kv) 本来就在 worker!! Core harvest 时代是 A 域借 runner 的遗产错觉 (1286 caller 在 worker model_runner ✓ 一直如此)。
+- 定案: **harvest 在 worker (一直如此), 4410 页 capture 的 orch.store 也是 worker 的 - Core MetaStore shared_hit 读到的 entry 里 orch 引用是 Core 域的 None** - decided{pages:4410} 在 Core 出但 _resume_selection 用 worker orch ✓ - 断点重定向: worker adopt 拿到的 entry.orchestrator 是新 runtime 的空 orch → capture 数据(4410页)在哪?**在 worker 老 runtime (383 前不存在!) - host-attach 374 才让 worker 有 runtime - T1 的 harvest 数据从第一刀就应写 worker store ✓ d_capture_direct{complete} pid 域待验 (下轮第一查)**。
+- 计数账: FT386 T1 F T2/T3 duct 一致 (deterministic poison, 20.2s 带内)。2 boots+5 发。ahead 325→326。引擎 386 代健康。
