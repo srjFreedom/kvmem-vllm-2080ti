@@ -2169,3 +2169,10 @@ skip=不重放只装视图 - 顺路）。
 - 终形: d_bs_gate×32 (has_row:true 门铃一直响!) + selfderive×0 = _ensure 的 req not in _orch 未触发 (T2 rid 首见即有 orch? - worker 域 orch 是 harvest 时建的活体, adopted 分支的 orch 与 Core decided 无涉) - 收养成功是"真收养", 但页字节在 T1 收工时随 sweep 归还 (store 空) - restore 拷空页 = duct 恒等 sha 2bced0ff。
 - 393 修 (re-adopt 逼供): index-None 的 miss 分支现在 pop orch/state - 下一 step _ensure 重入 selfderive (MetaStore 权威) - 配合 388 pid wrap, 终读窗: d_resume_selfderive 出生 + restore 走 shm entry 页 (若 entry 无字节则 d_resume_pair 出 [pg, 0.0, cz] 定 spill 立项)。
 - 本回合 2 boots+2 发+4 修。ahead 332→333。引擎 393 代在跑。
+
+## 394-396. Round 193-196: 毒位真身收口 - store 有真数据 (probe mean 0.54 双证), 无刀可挥是最后一环: resume 后 cadence 推迟首刀, 视图尾段=池垃圾 (duct) - 396 复员首刀上盘
+
+- 破案终章: ①394 reseed 发现 note_resume 通道本活 (miss×4=pending 活标) ②269 笔 d_store_probe restore 路 mean=0.54 非零 = 页字节真在 store ✓ 协议(2) restore=纯拷贝的源是好的 ③panel×0 + 无刀 = 视图没重建 - _tokens_at_reselect=st.seq_len 让 T2 首刀推迟到 R 满, 而 resume 跳前缀后 seq_len=141120 尾垃圾直接进 attention。
+- 396 修 (复员首刀): session_resumed 出口立即 _reselect_blockwise(pressure=False) - sink+recent+评分+邻桶保底一次重排, 与冷跑首刀同谱 - 三修 (394 reseed/395 guard/396 刀) 全上盘, 3 套件绿。
+- 终读窗 (下轮双发): session_resumed 出生 → panel×N (kept 结构) → d_resume_pair [pg,live,canon,n] → 答案 ZX-4417-QJ7 (若邻桶+码值桶同现) → 计数战全开。
+- 3 boots+3 发。ahead 335→336。引擎 396 代在跑。
