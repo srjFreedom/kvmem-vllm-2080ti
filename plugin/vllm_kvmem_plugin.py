@@ -1605,7 +1605,14 @@ def register():
     try:
         from vllm.v1.worker.gpu_worker import Worker as _GPUWorker
 
-        if not hasattr(_GPUWorker, "prepare_kvmem_session_checkpoints"):
+        # UNCONDITIONAL OVERWRITE (design 367): the fork ships a
+        # native prepare_kvmem_session_checkpoints stub, so the old
+        # `if not hasattr(...)` guard NEVER installed our wrapper -
+        # every RPC landed on the empty stub and answered None/{}
+        # (the real root of five generations of rt:False readings -
+        # compact worked only because it lacks this guard). Patch
+        # over the stub, keep an idempotence marker.
+        if not getattr(_GPUWorker, "_kvmem_prepare_patched", False):
             def _prepare_kvmem_session_checkpoints(worker, request_ids):
                 runner = getattr(worker, "model_runner", None)
                 runtime = getattr(runner, "kvmem_runtime", None)
