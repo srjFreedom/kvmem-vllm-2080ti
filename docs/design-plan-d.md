@@ -1993,3 +1993,10 @@ skip=不重放只装视图 - 顺路）。
 - 修 (332 上盘): 热判据读 live block_table_rows[req row][pg] = slot, slot//pt == _po's bucket-block 才跳拷 - 语义=页现值就在它将被读的那个块, 跳拷合法; 不等 = 冷, 补拷 store 到 _po 块。5 套件绿 commit。
 - 下轮判决: (a) T1 回落+written≈冷数; (b) dom 与热账同步; (c) needle 页若在 kept 且冷补拷到位 → **152K 冷可能首真**; (d) T2 若 resumed 仍缺席, adopt found:false 另案 (owner 域同形不中=档侧 owner 写成 str repr? 查 d_worker_park owner 字段)。
 - 2 boots+2 发触戒。ahead 271→272。引擎 hot-v330 代在跑。
+
+## 333-334. Round 165: live-ledger 代判据修正 - row[pg]//pt==_po 是恒等式 (native 页必热), written≡0 逻辑必然; 末刀 want 缩到 369 (kept 8 块) 才是 needle 缺席的真身
+
+- 桌面证: engine row 的 pos→block 即非 rewind 分配本体, 判据读它=永真 - 拷贝线全跳 (written 0) - 与 T1 读得到 filler 头段并不矛盾 (头段本就热)。
+- 真身聚焦: LED pages=369 = 末刀 kept_n 仅 8 (budget_blocks 缩水? sink4+recent2+room2?) - needle 即使 rank7, kept 装 8 块时 room=top2 - 前刀 kept 18 时 needle 进过 (rank7<18), 末刀缩位后挤出 - **T2 decided 命中 T1 末视图 = 末刀视图无针 = resumed 读到的视图无针** - 计数账 N152: T1 0/2 (418.7 F), T2 0/2 (19.9s 快而错)。
+- 下轮双读一刀: (1) 末刀 kept_n 为何 8 (budget_blocks 事件链 d_gate_trace/pressure_gate 读数对照) (2) needle 页 live 复测 (CF cmp 强制含 2205± - 若 live=canonical 都在且 needle∈kept - 答案还 F, 相位案回归)。先读后修, 不再盲派。
+- 0 boot+2 发+桌面证一枚。ahead 273→274。引擎 live-v332 代健康。
