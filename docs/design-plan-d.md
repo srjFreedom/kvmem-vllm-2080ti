@@ -1940,3 +1940,9 @@ skip=不重放只装视图 - 顺路）。
 - 事故小账: assert 锚尾形 `or 0)` 与 `if _force_tail:` 分行错位一败 (零污染); edit 工具首用需 read 前置 (规矩入 body)。
 - 判决一发 (下轮 boot 后 152K): d_question_capture{layers} 出生 + 面板 needle_score **不跨刀衰** (首末刀对比) + kept 含块45 → want 含针页 → 补拷 → **152K 冷真**。若分仍衰: captured 行的 pos 域与 align_scores 的期望形不合 - d_query_trio 探针 (529 行既有) 直接点名 rows_pre/layers。
 - 2 boots(前案)+4 静态。ahead 251→252。引擎 capture 半修代在跑。
+
+## 318-319. Round 158 终落: seam 无 caller 的第四代空转终结 - _q_capture_now helper + blockwise 首刀前自捕
+
+- 真相补完: seam 函数从 v0.5.2 退役那天起就没有调用者 (grep 空) - B2 三点修 (317) 落了捕获体但无人触发 - 578.3s duct 是"没捕获的 B2 代"预期形。本轮把捕获做成 per-req helper, blockwise pressure 首刀前自调 (幂等: _d_question_mode 已置则跳) - 捕获→frozen→limit0→caller 四件齐。
+- 判决下轮 (capture 代): d_question_capture{layers,rows} 出生 → 首刀 panel score 不为 -1 → needle 首刀即 rank1 → kept 含块 45 → want 含针页 → 补拷写针页 → 152K 冷真。四段仪表全在位, 断点无处藏身。
+- 2 boots+2 发+4 静态。ahead 253→254。引擎 B2 无 caller 代在跑 (将换全修代)。
