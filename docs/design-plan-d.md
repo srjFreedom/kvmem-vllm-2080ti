@@ -2265,3 +2265,9 @@ skip=不重放只装视图 - 顺路）。
 - 定罪链: 时间戳破案 - T1 的 orch 在 decode 中期被 retire (retirement 生命周期原罪: worker_retire 挂 prepare, Core decided 即触发) → 下一步 _ensure 重入 adopt 自家新档 → keepalive claim 换 store → 逻辑断粮 no_logical×1856 → 全家 duct。411 体 (无 adopt 中途收养环) T1 正常 = 定罪闭环。
 - 正确协议 (下轮正修): retirement 只在请求真终态 (output finish + step 边界); T1 期内绝不 adopt。修好后撤双闸, T2 收养终读。
 - 本回合 2 boots (bisect 树已上) + 2 发 + 5 查 + 2 修。ahead 379→383。引擎 431 代。
+
+## 434-436. Round 202: 三修上盘链 - 防自噬 (source_request 同档拒收, T1 满血 368s) + keepalive/claim 重嫁 (bisect 卷走找回) + 锻入式收养 (forged entry 直返, 终结 miss×6 查错命名空间的死循环)
+
+- 时序: A434 T1 满血 = 防自噬生效; G435 T2 仍 duct = selfderive 的 pending 被下游二次 lookup (source 命名空间) 扑空 → 收养死路 - 436 锻入: 命中即 entry 直返 (return e390,hit,vis), adopted 消费线 (614 unpack + claim 段) 原样接力。
+- 终读窗 (436 代): d_resume_selfderive{forged:true} → d_store_claim{key} → restore×2233页 (batch 0.3s) → session_resumed → T2 内容真形 → 计数战 (88K×2/152K×3/250K×1) → 全绿即 push 里程碑。
+- 本回合 2 boots+4 发+7 查+4 修 (超戒自记)。ahead 383→384。引擎 436 代在跑。
