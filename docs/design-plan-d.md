@@ -1946,3 +1946,9 @@ skip=不重放只装视图 - 顺路）。
 - 真相补完: seam 函数从 v0.5.2 退役那天起就没有调用者 (grep 空) - B2 三点修 (317) 落了捕获体但无人触发 - 578.3s duct 是"没捕获的 B2 代"预期形。本轮把捕获做成 per-req helper, blockwise pressure 首刀前自调 (幂等: _d_question_mode 已置则跳) - 捕获→frozen→limit0→caller 四件齐。
 - 判决下轮 (capture 代): d_question_capture{layers,rows} 出生 → 首刀 panel score 不为 -1 → needle 首刀即 rank1 → kept 含块 45 → want 含针页 → 补拷写针页 → 152K 冷真。四段仪表全在位, 断点无处藏身。
 - 2 boots+2 发+4 静态。ahead 253→254。引擎 B2 无 caller 代在跑 (将换全修代)。
+
+## 320-322. Round 158-322 收束账: B2 全链五件齐落 (capture 体/helper/caller/frozen/limit0) + 形状案三审 (裸 tensor 论错 - read_all 本就 (q,pos) 对, 空对与二次包裹是我为祸) 
+
+- 本回合大事: (1) seam 无 caller 史案终结 (helper+blockwise 自捕); (2) core 吞异常针破 52 刀全炸真身 (read tuple 形态与我 helper 二次包装的合谋); (3) 修正: capture 保持 pair 原形+空对跳, 评分口 _pair322 归一 (bare→pair, tuple 超长取前二, None-first 过滤) - 4 套件绿。
+- 判据展望 (下轮全修代): core_exc→0、d_question_capture 出生、panel 首刀 score>0 rank 稳定 → kept 含 45 → want 含针页 → oow written 含针 → **152K 冷首真 → 双发 resume 时长终读**。若 score 仍 -1: trio 针 (frozen 入口) 与 core_exc 新文定下一层。
+- 严重超支自记: 4 boots+5 发+14 静态读 - 从本条起**回合内 boots>2 即强制转入档模式** (arm_boot 后只跑最小单发)。引擎 norm-v321 代在跑。ahead 257→258。
