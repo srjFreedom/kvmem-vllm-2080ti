@@ -2234,3 +2234,11 @@ skip=不重放只装视图 - 顺路）。
 - 实验教训 (入律): Core 的 runtime 与 harvest 数据同城 ✓ 但**执行行在 worker** - Core 视图重排写的是 Core 的空行表, 同时把 st 状态搅乱 (T1 cold 198s 出 duct = Core 刀给新请求铺了垃圾视图) - "刀在哪挥"三择终定: 只能在行宿主 (worker) 挥, 所以 worker 缺的从来不是控制流, 是**页字节**。
 - 修复正解 (spill 协议, 下轮手术): capture/retirement 时把 MetaStore entry 缺的页字节写进 shm (restore 后前缀页在 Core 的 orch.store 有正本 - 收养 worker 从 MetaStore 读字节灌进本地 store, restore_pages_batch 现成, 纯拷贝协议 (2) 合规); 尺寸账: 152K 页 4410x8 层 x~16KB = ~560MB/档 → 先做 head/tail/sink 带页 (needle 域 ±窗) 的限量 spill 或全量压 fp8 (280MB) - 与用户"完整版"精神一致: 全量 spill, LRU 淘汰整档。
 - 计数账: H417 三连全 T 态 (T1 冷被污染 = 手术必须)。2 boots+3 发。ahead 362→364。引擎 417 代 (将回纯 worker 刀)。
+
+## 420-421. Round 199 设计稿: 页字节跨进程的正解 = **runtime 级 store 保活池** (零序列化), 非文件/非 shm spill
+
+- 顿悟链: worker 的 harvest 一直在跑 (panels×1196 @W0/W1, T1 时代) - **T1 的页字节本就落在 worker runtime 新建的 orch.store 里** - duct 的字节面根因 = T1 收工时 sweep_release pop orch → **store 随 orch 同灭** (store∈orch, 274 行) - T2 adopt 新 orch = 新空 store - 恢复拷贝 (restore_pages_batch) 从自家空 store 拷空页。
+- 协议 (runtime 级保活): retirement 时 `_spill_stores[chain_last_hash] = orch.store` (强引用), LRU 上限 = sessions 数; adopt/selfderive 命中 MetaStore 档时按 chain digest 认领同进程保活的 store 灌给新 orch (`orch.store = kept`) - **TP2 双 worker 各自保各自分片, 零序列化零跨进程** - 与"每用户固定份额"内存账兼容 (每档 ~百MB 级 fp8, LRU=2)。
+- 尺寸账备档: 若保活池超预算再降级文件 spill (NVMe 1.15GB ≈ 3s) - 先保活 (纯 python 一行搬运 + LRU), 不动 C++。
+- 落点三处: sweep_release (pop 前挂存), _park_session/prepare (capture 点登记), _ensure-adopted (认领点) - 下轮 1 boot 内三连。
+- 本回合预算: 1 验证发 (bash-673 在跑) + 0 boot。
