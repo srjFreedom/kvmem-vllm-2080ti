@@ -1626,6 +1626,15 @@ def register():
                 # handle.
                 if runtime is None:
                     runtime = globals().get("_ACTIVE_RUNTIME")
+                if runtime is None:
+                    # PROCESS TRUTH (design 368): the RPC lands on
+                    # the plain Worker process, which has NO
+                    # model_runner attribute at all - the kvmem
+                    # runtime lives on the CORE host (where the
+                    # model layer and the 31-event compact
+                    # proposal traffic prove harvest actually
+                    # runs). Take whatever this process registered.
+                    runtime = _CORE_RUNTIME_HOLDER.get("rt")
                 if runtime is None and runner is not None:
                     # LAZY ATTACH (design 365): register()'s env
                     # gate dies silently in the filtered worker
