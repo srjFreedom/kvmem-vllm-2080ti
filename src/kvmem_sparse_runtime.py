@@ -6513,7 +6513,11 @@ class VllmSparseRuntime:
         # hijacked; restore must fire for them (slot-owner fix).
         # equal -> the view bytes are right and the fault lives
         # elsewhere (phase/row), closing the byte case either way.
-        if self.log is not None and getattr(self, "_cf_loud", 0) < 3:
+        _tail334 = int(st.tokens) >= int(
+            0.93 * (self._prompt_len.get(req, 0) or 0)) \
+            and bool(pressure)
+        if self.log is not None and (_tail334 or
+                getattr(self, "_cf_loud", 0) < 2):
             try:
                 _cf_r = set(int(x) for x in _to_restore2 or ())
                 # design 299: THE -1 SENTINELS ARE THE CRIME SCENE -
@@ -6552,7 +6556,8 @@ class VllmSparseRuntime:
                     _can = float(_lay[0].float().abs().mean())
                     _cmp297.append([int(pg), round(_live, 7),
                                     round(_can, 7)])
-                self._cf_loud = getattr(self, "_cf_loud", 0) + 1
+                self._cf_loud = getattr(self, "_cf_loud", 0) + (
+                0 if _tail334 else 1)
                 self.log({"kind": "d_byte_confront",
                           "req": str(req)[-6:], "cmp": _cmp297,
                           "neg_rows": _neg299,
