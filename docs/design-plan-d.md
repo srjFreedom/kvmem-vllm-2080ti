@@ -2110,3 +2110,9 @@ skip=不重放只装视图 - 顺路）。
 - 修复上盘: prepare wrapper runtime 三级回退 runner attr → _ACTIVE_RUNTIME → _CORE_RUNTIME_HOLDER; lazy attach 保持 (runner None 时自然跳过)。下轮验证: rpc_in{rt:true} 出生 → prep_enter → capture gates → retired → T2 全链。
 - 计数战: stub 代双 F (半针形态); 368 修不碰选择器, 只通归档线。
 - 1 boot+2 发+终审。ahead 308→310。引擎 stub 代健康 (将换 368 代)。
+
+## 370. Round 370 收束: pid 误读自纠 (rpc_in 无 pid 字段 = Core 自调) + attach/Core 空注册表定案 - wiring 发布 runtime 入注册表 (369)
+
+- 自白: 前文 "rpc_in pid 是 W0/W1" 误读 - 该事件根本没有 pid 字段, grep 拿到的 122779 是相邻事件; 而 prepare_enter 的 122779 与 FRONT 同号存疑, 待下代带字段读数。诚实账: 拓扑结论降级为"注册表在两处皆空, wiring 是现存唯一活锚点"。
+- 369 修上盘: wiring (schedule 内每步跑, rt=state.get("sparse") or self.kvmem_runtime 必中) 首次发现 runtime 即注册 holder → prepare wrapper 回退链有值 → rt:true。验证: 下代 d_prep_rpc_in{rt:true} + d_prep_enter 出生 + capture gates 出声 + retired → T2 全链。
+- 计数账不变: H368 双 F (半针形态)。1 boot+2 发+3 查。ahead 310→312。引擎将换 369 代。
