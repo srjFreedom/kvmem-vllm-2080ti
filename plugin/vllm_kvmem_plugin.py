@@ -870,6 +870,9 @@ def _attach_sparse(runner, log_path):
     except Exception:
         runtime.block_pages = 1
     try:
+        runtime.d_mode = bool(cfg.get("plan_d")) and (
+            bool(cfg.get("d_knife")) or
+            os.environ.get("KVMEM_D_KNIFE", "") in ("1", "true", "yes", "on"))
         runner.kvmem_runtime = runtime      # diagnostic hooks in the runner read the books here
     except Exception:
         pass
@@ -1047,7 +1050,13 @@ def _attach_sparse(runner, log_path):
         _append(log_path, {"kind": "bridge_ensure_error", "error": traceback.format_exc()})
     global _ACTIVE_RUNTIME
     _ACTIVE_RUNTIME = runtime
-    _CORE_RUNTIME_HOLDER["rt"] = runtime            # the early capture resolves its index through this
+    _CORE_RUNTIME_HOLDER["rt"] = runtime
+    try:
+        with open("/tmp/kvmem_sparse.jsonl", "a") as _fh363:
+            _fh363.write(json.dumps({"kind": "d_holder_reg",
+                                     "pid": os.getpid()}) + "\n")
+    except Exception:
+        pass            # the early capture resolves its index through this
     if _CAPTURE is not None:
         runtime.capture = _CAPTURE
     try:
@@ -1628,8 +1637,28 @@ def register():
                     pass
                 if runtime is None:
                     return {}
-                out = {str(req): runtime.prepare_session_checkpoint(req)
-                       for req in request_ids}
+                out = {}
+                for _rq363 in request_ids:
+                    try:
+                        _ck363 = runtime.prepare_session_checkpoint(_rq363)
+                        out[str(_rq363)] = _ck363
+                        if _ck363:
+                            _parked = runtime._park_session(_rq363)
+                            with open("/tmp/kvmem_sparse.jsonl", "a") as _f363:
+                                _f363.write(json.dumps({
+                                    "kind": "d_worker_retire",
+                                    "req": str(_rq363)[-6:],
+                                    "parked": bool(_parked),
+                                    "pid": os.getpid()}) + "\n")
+                    except Exception as _e363:
+                        out[str(_rq363)] = None
+                        with open("/tmp/kvmem_sparse.jsonl", "a") as _f363:
+                            _f363.write(json.dumps({
+                                "kind": "d_worker_retire_err",
+                                "req": str(_rq363)[-6:],
+                                "err": f"{type(_e363).__name__}: "
+                                       f"{_e363}"[:160],
+                                "pid": os.getpid()}) + "\n")
                 try:
                     import json as _json
                     with open("/tmp/kvmem_sparse.jsonl", "a") as _fh:
