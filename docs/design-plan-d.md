@@ -2249,3 +2249,8 @@ skip=不重放只装视图 - 顺路）。
 - 污染档真相: R423 T2 428.6s = MetaStore 在 Core 进程内存, boot 即清 - "T1 命中旧档"是刀废的假象而非收养; keepalive 池补上真正的跨请求字节寿命 (store 随 orch 死是 duct 协议级根因, sweep_release 现场在卷)。
 - 终读窗 (425 代): panels 恢复千级 + wrapper_exception 绝迹 → T1 冷形态 → T2 (selfderive 收养 → d_store_claim 出生 → restore 拷真字节 → 视图重排 → 内容修复)。计数战候场。
 - 本回合 3 boots+5 发 (重超自记) ahead 366→370。引擎 424 代在跑。
+
+## 427-428. Round 200: T1-duct 全案告破 - launcher 152K warmup 每 boot 先跑先消费 (note_prompt_ids 142868 @boot 期, retired 8e40554e), 真 T1 撞上 warmup 的 decided-skip 而 worker 收养未成 → 空视图
+- 诊断闸教训 (入律): NOADOPT 只关 adopt 不关 decided-skip = 半关的水闸制造假象; 427 三版拉锯后回滚, skip 闸正名 KVMEM_D_NOSKIP (成对语义: skip 与 adopt 必须同生同灭 - 写进未来协议注释)。
+- 修复正道 (下轮): ①warmup 请求打 no-park 标 (rid 前缀/session="warmup" 识别, retirement 拒收) 或 launcher 换非电池 prompt; ②T1 从根上无档可撞 = 纯冷 ✓ T2 真收养 ✓ 终读窗重开。
+- 计数账: ALLCOLD 双 F (诊断牺牲轮, 数据有效)。本回合 2 boots+6 发+9 修。ahead 374。引擎待 428 boot。
