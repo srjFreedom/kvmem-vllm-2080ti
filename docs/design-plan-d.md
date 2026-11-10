@@ -2398,3 +2398,9 @@ skip=不重放只装视图 - 顺路）。
 - 结论: 冷路径 80K 内健康且命中; 续跑路径当前必 duct (与长度无关的假象来自"续跑请求恰好更短/更快")。round 217 的续跑绿点 (5.3s 命中) 与现在不同态 => 续跑路径回归/不稳定。
 - 下轮: ①短提示二连 (oracle 续跑) 看小前缀 resume 是否健康; ②以 10K/30K/50K 逐档二连, 找 resume 首个坏点; ③对坏点看 session_resumed{hit,pages}/d_state_restored_plugin/d_restore_pair 与 row 覆盖。
 - 本回合 0 boots+4 发+2 查。ahead 451。引擎 健康。
+
+## 502-503. Round 226: resume 边界图 - 50K 续跑 4.4s 正确 (验收形态!); 10K 续跑 14.6s 乱码; 88K 续跑 8.1s duct; 30K 续 25.9s 正确
+- 数据 (同一填充文本, 针置中): 10K 冷 12.3s 精确 ✓ / 10K 续 14.6s **混合乱码** ("来时国强-formatzac...") ; 30K 冷 29.6s ✓ / 30K 续 25.9s ✓ ; 50K 冷 54.1s ✓ / 50K 续 **4.4s ✓** (目标 5-10s 带内!)。
+- 判读: resume 并非全坏 - 50K 续跑已给出验收形态 (4.4s + 正确); 10K 续跑乱码 = 状态/相位错配类; 88K 电池续跑 duct。三个样本三种表现 -> resume 的破坏与"前缀深度/刀组合"相关, 需要按 hit/pages/state 逐档对照。
+- 下轮: ①对 10K 续跑乱码抓 session_resumed{hit,pages}/state/d_restore_pair (小前缀最易定位); ②以 50K 绿续为锚, 逐档 60/70/80K 二连画 resume 绿区; ③10K 乱码修好后复测 88K。
+- 本回合 0 boots+6 发。ahead 452。引擎 健康。
