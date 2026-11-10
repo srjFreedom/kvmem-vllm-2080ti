@@ -1044,7 +1044,9 @@ class VllmSparseRuntime:
                                   "key": str(_kk437)[:16]})
                         _hit437 = True
                         break
-                if not _hit437 and not _hp437 and len(_pool437) == 1:
+                if (not _hit437 and not _hp437
+                        and len(_pool437) == 1
+                        and self._resume.get(req) is not None):
                     # SINGLE-SURVIVOR BRIDGE (design 462, narrowed):
                     # ONLY when this request has NO chain of its own
                     # (the engine-rid first step with an empty prompt
@@ -1064,7 +1066,14 @@ class VllmSparseRuntime:
                     self.log({"kind": "d_keepalive_bridge",
                               "req": str(req)[-6:],
                               "key": str(_k447)[-16:]})
-                elif not _hit437:
+                elif not _hit437 and not _hp437:
+                    # WHY-NOT (design 482): an empty chain alone is
+                    # NOT a session identity - a 40-token prompt has
+                    # one too, and adopting the survivor under it
+                    # made EVERY short request read someone else's
+                    # cache (measured: trivial prompt -> duct).
+                    # Without Core's decided marker the bridge stays
+                    # shut.
                     self.log({"kind": "d_keepalive_nomatch",
                               "req": str(req)[-6:],
                               "hashes_n": len(_hp437 or ()),
