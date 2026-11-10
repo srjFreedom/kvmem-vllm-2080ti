@@ -7508,6 +7508,32 @@ class VllmSparseRuntime:
                                      n_pages)
         phys_pages, logical_pages, _to_restore2, _to_evict2, _bpw2 = \
             self._rebuild_view(req, st, orch, kept, q, pt, n_pages)
+        # CONSUME THE RESTORE LIST (design 476): the blockwise caller
+        # only used it for the confrontation set - every pair the
+        # knife decided to bring back was dropped, so wanted pages
+        # kept empty blocks (the needle page among them) while the
+        # books claimed a full view. Pure copy into the block each
+        # view position reads (protocol 2), and the residency book
+        # learns the slot so later knives stop re-pairing it.
+        if _to_restore2:
+            try:
+                orch.restore_pages_batch(_to_restore2)
+            except Exception:
+                for _pg476, _sl476 in _to_restore2:
+                    try:
+                        orch.restore_page(_pg476, _sl476)
+                    except Exception:
+                        pass
+            try:
+                _pm476 = self._page_map.setdefault(req, {})
+                for _pg476, _sl476 in _to_restore2:
+                    _pm476[int(_pg476)] = int(_sl476)
+            except Exception:
+                pass
+            if self.log is not None:
+                self.log({"kind": "d_knife_restore",
+                          "req": str(req)[-6:],
+                          "pairs": len(_to_restore2)})
         try:
             _pgv = self._needle_marker(req, st) // max(1, int(pt))
             _nbv = _pgv // max(1, int(q))
