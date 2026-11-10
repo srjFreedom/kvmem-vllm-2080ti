@@ -6550,10 +6550,22 @@ class VllmSparseRuntime:
                 _slot = (_physv[_idx] if 0 <= _idx < len(_physv)
                          else -1)
                 self._vn_seen = int(_vn_cap) + 1
+                _row474 = [int(x) for x in (getattr(st, "row", ()) or ())]
+                _rowpg474 = (int(_row474[int(_pgv)])
+                             if int(_pgv) < len(_row474) else -1)
+                _nblk474 = -1
+                try:
+                    _nblk474 = int(self.view.paged_kv()[0].shape[0])
+                except Exception:
+                    pass
                 self.log({"kind": "d_view_needle",
                           "req": str(req)[-6:],
                           "page": int(_pgv), "blk": int(_nbv),
                           "idx": int(_idx), "slot": int(_slot),
+                          "row_pg": int(_rowpg474),
+                          "row_len": len(_row474),
+                          "n_blocks": int(_nblk474),
+                          "q": int(q),
                           "in_logical": int(_idx >= 0),
                           "n_phys": len(_physv),
                           "n_pages": int(n_pages),
@@ -7504,10 +7516,22 @@ class VllmSparseRuntime:
                 _slot = (_physv[_idx] if 0 <= _idx < len(_physv)
                          else -1)
                 self._vn_seen = int(_vn_cap) + 1
+                _row474 = [int(x) for x in (getattr(st, "row", ()) or ())]
+                _rowpg474 = (int(_row474[int(_pgv)])
+                             if int(_pgv) < len(_row474) else -1)
+                _nblk474 = -1
+                try:
+                    _nblk474 = int(self.view.paged_kv()[0].shape[0])
+                except Exception:
+                    pass
                 self.log({"kind": "d_view_needle",
                           "req": str(req)[-6:],
                           "page": int(_pgv), "blk": int(_nbv),
                           "idx": int(_idx), "slot": int(_slot),
+                          "row_pg": int(_rowpg474),
+                          "row_len": len(_row474),
+                          "n_blocks": int(_nblk474),
+                          "q": int(q),
                           "in_logical": int(_idx >= 0),
                           "n_phys": len(_physv),
                           "n_pages": int(n_pages),
