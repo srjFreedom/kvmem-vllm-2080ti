@@ -6024,26 +6024,36 @@ class VllmSparseRuntime:
         # and silently fell back to the rewind-era pool allocator
         # (measured: res_slot unit mismatch -> every logical row
         # -1, restore never fires, needle pages read as garbage).
-        def _restore_pairs_471(_ordered, _pmap):
+        def _restore_pairs_471(_ordered, _pmap=None):
             """Wanted pages with NO residency book: pair each with the
-            engine block the request row holds AT ITS VIEW POSITION
-            (design 475). The row is positional (row[i] = the cache
-            block attention reads at view position i), so the index
-            space is the ORDER of `ordered`, not the page number -
-            the earlier page-indexed lookup left len(row) < page for
-            every needle page and dropped every pair. Pure copy into
-            the very block the engine will read (protocol 2).
+            block the engine will read AT ITS VIEW POSITION (design
+            480). Slot source order: engine block table row, then the
+            runtime mirror (st.row) - both are positional. Pure copy
+            into the very block attention reads (protocol 2).
             """
+            _pm = (_pmap if _pmap is not None
+                   else self._page_map.get(req, {}))
+            _rv = None
+            _src = "none"
             try:
                 _rows = self.view.block_table_rows()
                 _ri = getattr(st, "row_index", None)
-                _rv = None
                 if _ri is not None and int(_ri) < len(_rows):
                     _rv = [int(v) for v in _rows[int(_ri)]]
-                out = []
+                    _src = "engine"
+            except Exception:
+                _rv = None
+            if _rv is None:
+                try:
+                    _rv = [int(x) for x in (getattr(st, "row", ()) or ())]
+                    _src = "mirror" if _rv else "none"
+                except Exception:
+                    _rv = None
+            out = []
+            try:
                 for _idx, _pg in enumerate(_ordered):
                     _pg = int(_pg)
-                    if int(_pmap.get(_pg, 0) or 0) > 0:
+                    if int(_pm.get(_pg, 0) or 0) > 0:
                         continue
                     _slc = 0
                     if _rv is not None and 0 <= _idx < len(_rv):
@@ -6052,22 +6062,21 @@ class VllmSparseRuntime:
                         _slc = int(_pg) - int(_pg) % max(1, int(q))
                     if _slc > 0:
                         out.append((_pg, int(_slc)))
-                try:
-                    _seen477 = getattr(self, "_pairs477_seen", 0)
-                    if _seen477 < 6 and self.log is not None:
-                        self._pairs477_seen = int(_seen477) + 1
-                        self.log({"kind": "d_pairs477",
-                                  "n": len(out),
-                                  "ordered_n": len(_ordered),
-                                  "pmap_n": len(_pmap),
-                                  "rv_n": (len(_rv)
-                                           if _rv is not None else -1),
-                                  "sample": out[:3]})
-                except Exception:
-                    pass
-                return out
             except Exception:
-                return []
+                pass
+            try:
+                _seen = getattr(self, "_pairs480_seen", 0)
+                if _seen < 12 and self.log is not None:
+                    self._pairs480_seen = int(_seen) + 1
+                    self.log({"kind": "d_pairs480", "n": len(out),
+                              "ordered_n": len(_ordered),
+                              "pmap_n": len(_pm),
+                              "rv_n": (len(_rv)
+                                       if _rv is not None else -1),
+                              "src": _src, "sample": out[:3]})
+            except Exception:
+                pass
+            return out
 
         if True:
             # IDENTITY EARLY PATH (design 172): under BLKIDS the knife
