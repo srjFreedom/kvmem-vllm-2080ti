@@ -697,7 +697,7 @@ class VllmSparseRuntime:
                         return pairs[:6]
                     except Exception:
                         return None
-                if getattr(self, "_rp_loud", 0) < 4:
+                if not str(req).startswith("_warmup") and getattr(self, "_rp_loud", 0) < 4:
                     self._rp_loud = getattr(self, "_rp_loud", 0) + 1
                     self.log({"kind": "d_resume_pair",
                               "req": str(req)[-6:],
@@ -753,7 +753,7 @@ class VllmSparseRuntime:
                         return pairs[:6]
                     except Exception:
                         return None
-                if getattr(self, "_rp_loud", 0) < 4:
+                if not str(req).startswith("_warmup") and getattr(self, "_rp_loud", 0) < 4:
                     self._rp_loud = getattr(self, "_rp_loud", 0) + 1
                     self.log({"kind": "d_resume_pair",
                               "req": str(req)[-6:],
@@ -1641,7 +1641,8 @@ class VllmSparseRuntime:
         # restore is then a pure copy (protocol 2).
         _orch424 = self._orch.get(req)
         if _orch424 is not None and getattr(_orch424, "store",
-                                            None) is not None:
+                                            None) is not None \
+                and not str(req).startswith("_warmup"):
             _h424 = self._session_hashes(req)
             if _h424:
                 _pool424 = self._spill_stores = getattr(
@@ -1830,7 +1831,7 @@ class VllmSparseRuntime:
                                       "mean": round(_m0, 7)})
                         except Exception:
                             pass
-                if self.log is not None and getattr(self, "_fh_loud", 0) < 4:
+                if self.log is not None and not str(req).startswith("_warmup") and getattr(self, "_fh_loud", 0) < 4:
                     self._fh_loud = getattr(self, "_fh_loud", 0) + 1
                     self.log({"kind": "d_final_harvest_sweep",
                               "req": str(req)[-6:], "swept": _swept,
@@ -2221,6 +2222,11 @@ class VllmSparseRuntime:
 
     def _adopt_session(self, req):
         """Take the parked session for `req` out of the store, if EngineCore asked for a resume."""
+        if str(req).startswith("_warmup"):
+            # WARMUP NEVER ADOPTS (design 443): the boot warmup is
+            # a synthetic dummy decode; adopting a real archive
+            # for it would swap books under a doomed request.
+            return None
         if (__import__("os").environ.get("KVMEM_D_NOADOPT", "")
                 in ("1", "true", "yes")):
             # DIAGNOSTIC GATE (432, bisect-verified tree): refuse
@@ -3373,7 +3379,7 @@ class VllmSparseRuntime:
                 self.log({"kind": "d_adopt_knife_err",
                           "err": f"{type(_e406).__name__}: "
                                  f"{_e406}"[:150]})
-        if getattr(self, "_bs_loud", 0) < 8:
+        if not str(req).startswith("_warmup") and getattr(self, "_bs_loud", 0) < 8:
             # CONSUME GATE WITNESS (design 392): announces that
             # before_step reached the resume consumption gate and
             # what the gate sees - settles whether the marker or
@@ -3584,7 +3590,7 @@ class VllmSparseRuntime:
         st = self._state.get(req)
         if st is None:
             return
-        if self.log is not None and getattr(self, "_bc3_loud", 0) < 6:
+        if self.log is not None and not str(req).startswith("_warmup") and getattr(self, "_bc3_loud", 0) < 6:
             self._bc3_loud = getattr(self, "_bc3_loud", 0) + 1
             self.log({"kind": "d_bc3_enter", "req": str(req)[-6:],
                       "logical_n": len(logical_pages or ()),
@@ -3624,7 +3630,7 @@ class VllmSparseRuntime:
             # ROUTE PROBE (design 186): after enter, before any body
             # branch - print the exact inputs the body will use, so
             # "enter without event" finally names the dead line.
-            if self.log is not None and getattr(self, "_rt_loud", 0) < 8:
+            if self.log is not None and not str(req).startswith("_warmup") and getattr(self, "_rt_loud", 0) < 8:
                 self._rt_loud = getattr(self, "_rt_loud", 0) + 1
                 _pgq = self._needle_marker(req, st) // max(1, int(self.page_tokens))
                 self.log({"kind": "d_bc3_route", "req": key,
@@ -3633,7 +3639,7 @@ class VllmSparseRuntime:
             # PAGE SPACE CROSS-READ (design 170): print what the
             # books actually hold against the marker page, so the
             # unit question dies with data instead of silence.
-            if self.log is not None and getattr(self, "_bc3_loud", 0) < 6:
+            if self.log is not None and not str(req).startswith("_warmup") and getattr(self, "_bc3_loud", 0) < 6:
                 self.log({"kind": "d_bc3_pagespace", "req": key,
                           "pg": _pg, "lpg_head": [int(x) for x in _lpg[:6]],
                           "lpg_tail": [int(x) for x in _lpg[-4:]],
@@ -5570,7 +5576,7 @@ class VllmSparseRuntime:
         # hand at all (evict pool empty). restore_n=0 with a
         # cold view means the third or second branch fired for
         # every single page.
-        if self.log is not None and getattr(self, "_hs_loud", 0) < 4:
+        if self.log is not None and not str(req).startswith("_warmup") and getattr(self, "_hs_loud", 0) < 4:
             self._hs_loud = getattr(self, "_hs_loud", 0) + 1
             _cold301 = sum(1 for pg in want if pg not in res_slot)
             self.log({"kind": "d_hand_slot", "req": str(req)[-6:],
@@ -5583,7 +5589,7 @@ class VllmSparseRuntime:
         # // block_tokens) must appear; if it is in kept but never
         # wanted, the kept->want expansion is where it dies.
         try:
-            if self.log is not None and getattr(self, "_sp_loud", 0) < 6:
+            if self.log is not None and not str(req).startswith("_warmup") and getattr(self, "_sp_loud", 0) < 6:
                 self._sp_loud = getattr(self, "_sp_loud", 0) + 1
                 _bt_ok = max(1, int(q) * max(1, int(pt)))
                 _tk0 = int(st.tokens)
@@ -5663,7 +5669,7 @@ class VllmSparseRuntime:
             # widths. If this says the span is complete while the
             # downstream book still shows 6 pages, the split lives
             # AFTER the return (a later writer of st.logical).
-            if self.log is not None and getattr(self, "_ep_loud", 0) < 6:
+            if self.log is not None and not str(req).startswith("_warmup") and getattr(self, "_ep_loud", 0) < 6:
                 self._ep_loud = getattr(self, "_ep_loud", 0) + 1
                 _nb = self._needle_marker(req, st) // (max(1, int(q)) * max(1, int(pt)))
                 _span = [pg for pg in ordered
@@ -5687,7 +5693,7 @@ class VllmSparseRuntime:
             # no kernel ever got installed).
             _rowdom = set(int(x) for x in (st.row or ())
                           if int(x) > 0)
-            if self.log is not None and getattr(self, "_wd_loud", 0) < 6:
+            if self.log is not None and not str(req).startswith("_warmup") and getattr(self, "_wd_loud", 0) < 6:
                 self._wd_loud = getattr(self, "_wd_loud", 0) + 1
                 _nb315 = self._needle_marker(req, st) // max(
                     1, int(getattr(self, "select_block_tokens",
@@ -5711,7 +5717,7 @@ class VllmSparseRuntime:
                 # blk 45 << rowdom 1666). Canonical replay for
                 # ALL kept pages is idempotent pure copy - the
                 # honest cost of invariant (2).
-                if self.log is not None and getattr(self, "_pl_loud", 0) < 4:
+                if self.log is not None and not str(req).startswith("_warmup") and getattr(self, "_pl_loud", 0) < 4:
                     # PER-PAGE LEDGER (design 326): first 12 ordered pages -
                     # store presence, blk domain, and the copy decision,
                     # so "written 343 of 840" gets an itemized audit.
@@ -5762,7 +5768,7 @@ class VllmSparseRuntime:
                     _rest312 += 1
             except Exception:
                 pass
-            if self.log is not None and getattr(self, "_ow_loud", 0) < 6:
+            if self.log is not None and not str(req).startswith("_warmup") and getattr(self, "_ow_loud", 0) < 6:
                 self._ow_loud = getattr(self, "_ow_loud", 0) + 1
                 _pair338 = []
                 try:
@@ -5904,7 +5910,7 @@ class VllmSparseRuntime:
             # no kernel ever got installed).
             _rowdom = set(int(x) for x in (st.row or ())
                           if int(x) > 0)
-            if self.log is not None and getattr(self, "_wd_loud", 0) < 6:
+            if self.log is not None and not str(req).startswith("_warmup") and getattr(self, "_wd_loud", 0) < 6:
                 self._wd_loud = getattr(self, "_wd_loud", 0) + 1
                 _nb315 = self._needle_marker(req, st) // max(
                     1, int(getattr(self, "select_block_tokens",
@@ -5965,7 +5971,7 @@ class VllmSparseRuntime:
                     _rest312 += 1
             except Exception:
                 pass
-            if self.log is not None and getattr(self, "_ow_loud", 0) < 6:
+            if self.log is not None and not str(req).startswith("_warmup") and getattr(self, "_ow_loud", 0) < 6:
                 self._ow_loud = getattr(self, "_ow_loud", 0) + 1
                 _pair338 = []
                 try:
@@ -6424,7 +6430,7 @@ class VllmSparseRuntime:
                 # always serve any evicted page (restore = pure copy),
                 # so "keep old picks resident" is a rewind-era instinct:
                 # the whole budget belongs to the CURRENT ranking.
-                if self.log is not None and getattr(self, "_inh_loud", 0) < 4:
+                if self.log is not None and not str(req).startswith("_warmup") and getattr(self, "_inh_loud", 0) < 4:
                     self._inh_loud = getattr(self, "_inh_loud", 0) + 1
                     self.log({"kind": "d_inherit_retired",
                               "would_add": len(_res_mid),
@@ -6739,7 +6745,7 @@ class VllmSparseRuntime:
                 _mid_kept = None
                 _mid_kept_blocks = []
                 _rr_used = 0
-                if self.log is not None and getattr(self, "_mg_loud", 0) < 8:
+                if self.log is not None and not str(req).startswith("_warmup") and getattr(self, "_mg_loud", 0) < 8:
                     self._mg_loud = getattr(self, "_mg_loud", 0) + 1
                     self.log({"kind": "d_merge_enter", "req": str(req)[-6:],
                               "pressure": bool(pressure), "room": room,
@@ -6878,7 +6884,7 @@ class VllmSparseRuntime:
                 kept = list(_seq)
 
                 _seqn = len(_seq)
-                if self.log is not None and getattr(self, "_law_loud", 0) < 8:
+                if self.log is not None and not str(req).startswith("_warmup") and getattr(self, "_law_loud", 0) < 8:
                     # LAWFUL POSITION PIN (design 290): where the needle block
                     # lands in the final seq for THIS knife, and whether the
                     # negative-slice suffix semantics are in play (mid>room).
@@ -7261,7 +7267,7 @@ class VllmSparseRuntime:
         # consumer keyed by the books (tables sync, causal base, panel).
         st.seq_len = int(len(logical_pages) * pt)
         st.off_pages = max(0, (int(st.tokens) - st.seq_len) // max(1, pt))
-        if self.log is not None and getattr(self, "_bd_loud", 0) < 6:
+        if self.log is not None and not str(req).startswith("_warmup") and getattr(self, "_bd_loud", 0) < 6:
             self._bd_loud = getattr(self, "_bd_loud", 0) + 1
             self.log({"kind": "d_book_drop", "req": str(req)[-6:],
                       "old_visible": int(visible),
