@@ -996,6 +996,19 @@ class VllmSparseRuntime:
             try:
                 _hp437 = self._session_hashes(req)
                 _pool437 = getattr(self, "_spill_stores", {})
+                if (self.log is not None
+                        and str(req) not in getattr(self,
+                                                    "_gp_seen", set())):
+                    self._gp_seen = getattr(self, "_gp_seen", set())
+                    self._gp_seen.add(str(req))
+                    self.log({"kind": "d_graft_probe",
+                              "req": str(req)[-6:],
+                              "hashes_n": len(_hp437 or ()),
+                              "pool_n": len(_pool437),
+                              "tail": (str(_hp437[-1])[-20:]
+                                       if _hp437 else ""),
+                              "keys": [str(k)[-20:]
+                                       for k in list(_pool437)[:2]]})
                 if not _hp437 and len(_pool437) == 1:
                     # RID DOMAIN BRIDGE (design 441): the first
                     # step of a resumed request arrives under the
@@ -2379,6 +2392,8 @@ class VllmSparseRuntime:
             self.log({"kind": "d_adopt_lookup", "req": str(req)[-6:],
                       "rank": int(getattr(self, "tp_rank", -1)),
                       "found": found is not None,
+                      "hashes_n": len(hashes or ()),
+                      "pool_n": len(getattr(self, "_spill_stores", {})),
                       "owner": str(owner_session_id)[:34]})
         if found is None:
             self.log({"kind": "resume_miss", "req": req, "hit": hit_tokens})
