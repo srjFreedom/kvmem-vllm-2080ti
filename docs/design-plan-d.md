@@ -2343,3 +2343,9 @@ skip=不重放只装视图 - 顺路）。
 - 152K 组: 冷 224s 复读 filler; 针位(sink/recent)对照双发均 duct — 说明超窗压刀路径把视图打坏 (88K 未超窗所以好)。
 - 下刀: 对比 88K(好) vs 152K(坏) 的刀频/住留账, 定位压刀破坏点 (restore 覆盖/row 重排/位置映射); 优先用 88K 现成绿基线做回归锚。
 - 本回合 0 boots+5 发+3 查。ahead 437->438。引擎 482 代健康。
+
+## 485-486. Round 218: 收割改权威账 (slot_of=块号, 扫描范围改为全提示) + 152K 判别: 针在 sink 也 duct -> 病不在恢复路径, 在**超窗视图装配/位置压缩**本身
+- 86K 级 (prompt 74948) 冷 91s 命中码值 + resume 5.3s 一致 = 绿; 152K (142868) 三变体 (中/sink/recent) 全 duct/复读 -> 与针位无关, 与恢复无关 (sink 页全程驻留也坏)。
+- 读数: d_view_needle{idx:75, slot:20, in_logical:1} 针页确在 152K 视图; d_knife_restore 46 次; d_pairs480 n=128 -> 回填在跑; 仍 duct => 视图装配/位置空间 (B+R 压缩 + GDN 全量状态) 组合致退化。
+- 下刀: ①对比 88K 与 152K 的 positions/seq_lens 发布 (off_publish/positions) 与 row 宽度; ②若位置被压缩到行宽而 GDN 状态按全量推进, 检验 kvmem_rope_offset 发布值 (真位置烘焙 invariant 5) 是否被行宽截断; ③用 88K 绿基线锚定回归。
+- 本回合 1 boot+2 长跑+3 查。ahead 439->440。引擎 485 代健康。
