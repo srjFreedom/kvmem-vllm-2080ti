@@ -2429,3 +2429,8 @@ skip=不重放只装视图 - 顺路）。
 - 观察: 64,941/32 = 2029 页 (绿) ; 74,907/32 = 2341 页 (红) => 阈值疑为 **2048 页** (2^11) 的行容量/页配额; 88K 电池 74,948tok 正落红线之上。
 - 下轮: ①grep 2048/row capacity/pages_per_block 与 scheduler 页配额常量, 确认 2048 的来源 (kvmem_sched_compact? view capacity?); ②在 66K (2062 页) 与 64.5K (2015 页) 各一冷发夹逼阈值; ③阈值两侧各抓 d_view_needle/d_pairs480/d_knife_restore/row_len/seq_override, 找首刀差异。
 - 本回合 0 boots+4 发+1 查。ahead 459。引擎 健康。
+
+## 511. Round 231: 断层两侧刀活动对比 - **本窗内 d_knife_restore = 0** (identity 安装, 无回填), row_synced: 65K 请求 52/20 次, 75K 请求 116/80 次; d_view_needle 14-18; 无 2048 常量在代码 (仅 entry_policy.recent_tokens)
+- 判读: 红线两侧都不做 restore => 塌缩点在 **row 安装 (identity path) 或选择集本身**, 不在回填; 75K 行同步次数约为 65K 的 2 倍 (knife 更频繁)。
+- 下轮: ①给合成提示加"真针页见证" (在 _prompt_ids 里找针 token 序列 -> 页号 -> d_view_needle 用该页); ②75K A/B: KVMEM_D_KNIFE=0 (关刀) vs 1; KVMEM_PREFILL_PRESSURE 1 vs 0 (各 1 boot+1 发, 共 2 组); ③若关刀 75K 变绿 => 首刀安装逻辑即病灶。
+- 本回合 0 boots+0 发+2 查。ahead 460。引擎 健康。
