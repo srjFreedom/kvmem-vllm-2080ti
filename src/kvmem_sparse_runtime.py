@@ -6098,14 +6098,7 @@ class VllmSparseRuntime:
                     if _rv is not None and 0 <= _idx < len(_rv):
                         _slc = int(_rv[_idx])
                     if _slc <= 0:
-                        # UNIQUE FALLBACK (design 487): the bucket
-                        # start made 49 pages share ONE block - the
-                        # view collapsed onto one slot per block and
-                        # the model degenerated (duct). The cache is
-                        # page-granular with 8232 blocks for <=4465
-                        # pages: the page's own id is a valid,
-                        # unique destination.
-                        _slc = int(_pg)
+                        _slc = int(_pg) - int(_pg) % max(1, int(q))
                     if _slc > 0:
                         out.append((_pg, int(_slc)))
             except Exception:
@@ -6153,7 +6146,7 @@ class VllmSparseRuntime:
                 if _sl328 is not None and int(_sl328) > 0:
                     _po.append(int(_sl328) // _pt328)
                 else:
-                    _po.append(int(_pg328))
+                    _po.append(int(_pg328) - int(_pg328) % max(1, int(q)))
             try:
                 _rowsA = self.view.block_table_rows()
                 _riA = getattr(st, "row_index", None)
@@ -6384,7 +6377,7 @@ class VllmSparseRuntime:
                 if _sl328b is not None and int(_sl328b) > 0:
                     _po.append(int(_sl328b) // _pt328b)
                 else:
-                    _po.append(int(_pg328b))
+                    _po.append(int(_pg328b) - int(_pg328b) % _bpo)
             try:
                 _rowsB = self.view.block_table_rows()
                 _riB = getattr(st, "row_index", None)
