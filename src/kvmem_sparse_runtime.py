@@ -3831,6 +3831,21 @@ class VllmSparseRuntime:
                     table[row_index, :len(st.row)] = torch.tensor(
                         st.row, dtype=table.dtype, device=table.device)
             try:
+                _fp531 = int(getattr(st, "tokens", 0) or 0) // max(
+                    1, int(self.page_tokens))
+                _nz = 0
+                for _v in (st.row or ()):
+                    if int(_v) <= 0:
+                        _nz += 1
+                self.log({"kind": "d_row_cover531",
+                          "req": str(req)[-6:],
+                          "row_len": len(st.row or ()),
+                          "frontier_pages": int(_fp531),
+                          "holes": int(_nz),
+                          "short": int(_fp531 - len(st.row or ()))})
+            except Exception:
+                pass
+            try:
                 if bool(getattr(self, "install_seq", True)):
                     self._seq_override[int(row_index)] = (
                         int(len(st.row)) * int(self.page_tokens))
