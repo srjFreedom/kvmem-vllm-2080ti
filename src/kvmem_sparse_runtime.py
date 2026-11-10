@@ -6129,7 +6129,14 @@ class VllmSparseRuntime:
                           "pages": len(ordered), "written": _rest312,
                           "rowdom": len(_rowdom),
                           "pair": _pair338})
-            return (_po, ordered, [], [], _bpo)
+            # IDENTITY EXIT WITHOUT UNBOUND NAMES (design 467):
+            # this return referenced _po/_bpo that the seam-less
+            # fast paths may never have bound - every knife since the
+            # bisect tree died here with UnboundLocalError, so NO
+            # view was ever installed.
+            return (locals().get("_po") or [int(p) for p in ordered],
+                    ordered, [], [], locals().get("_bpo")
+                    or max(1, int(q or 1)))
         assign = {}
         used = set()
         for pg in want:
@@ -6332,7 +6339,14 @@ class VllmSparseRuntime:
                           "pages": len(ordered), "written": _rest312,
                           "rowdom": len(_rowdom),
                           "pair": _pair338})
-            return (_po, ordered, [], [], _bpo)
+            # IDENTITY EXIT WITHOUT UNBOUND NAMES (design 467):
+            # this return referenced _po/_bpo that the seam-less
+            # fast paths may never have bound - every knife since the
+            # bisect tree died here with UnboundLocalError, so NO
+            # view was ever installed.
+            return (locals().get("_po") or [int(p) for p in ordered],
+                    ordered, [], [], locals().get("_bpo")
+                    or max(1, int(q or 1)))
         # IDENTITY MEANS DO-NOTHING (design 282): the court-martial
         # unit law holds - a rebuilt row must be ENGINE BLOCK IDS.
         # The old exit ordered pages into the row slot-space and the
