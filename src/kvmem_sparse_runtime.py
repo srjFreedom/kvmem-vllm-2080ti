@@ -5904,6 +5904,38 @@ class VllmSparseRuntime:
                           "page": _pg, "in_pairs": _inl, "slot": _sl,
                           "live": _live, "canon": _can, "same": _same,
                           "n_pairs": len(pairs or ())})
+                # BULK SAMPLE (design 520): probe 32 restored pages -
+                # a low ratio means the content layer is still broken
+                # broadly; a high ratio leaves the address/position
+                # layer as the only suspect.
+                try:
+                    _n520 = _same520 = 0
+                    _seen520 = set()
+                    for _pp in list(pairs or ())[:64]:
+                        if len(_seen520) >= 32:
+                            break
+                        _p520 = int(_pp[0])
+                        if _p520 in _seen520:
+                            continue
+                        _seen520.add(_p520)
+                        _s520 = int(_so.get(_p520, -1))
+                        _c520 = orch.store.get(_p520)
+                        if (not _c520 or not (0 <= _s520
+                                              < _pk[0].shape[0])):
+                            continue
+                        _lv520 = float(_pk[0][_s520].float()
+                                       .abs().mean())
+                        _cv520 = float(_c520[0].float().abs().mean())
+                        _n520 += 1
+                        if abs(_lv520 - _cv520) < 1e-4:
+                            _same520 += 1
+                    if _n520:
+                        self.log({"kind": "d_restore_sample",
+                                  "req": str(req)[-6:],
+                                  "n": _n520, "same": _same520,
+                                  "ratio": round(_same520 / _n520, 3)})
+                except Exception:
+                    pass
         except Exception:
             pass
 
