@@ -2417,3 +2417,10 @@ skip=不重放只装视图 - 顺路）。
 - 现状态: 绿区 10K/50K 双发可复现; 战场 = 压刀 (超窗) 路径; 引擎已重启健康。
 - 下轮: ①在 55K/60K 双发找压刀首个坏点; ②对首个坏点抓 d_view_needle/d_pairs480/d_knife_restore/d_resume_gate505 与行宽; ③怀疑点: 超窗后 row(1666) 与全流(>=2342 页) 的寻址不一致 (invariant 5 地址压缩未生效于全流注意力)。
 - 本回合 2 boots+4 发。ahead 455。引擎 健康。
+
+## 507-509. Round 229: **两枚引擎杀手插件修** + 55K 双发全绿 (冷 62.2s / 续 3.4s, 均 '-4417-QJ7') ; 88K 仍红 (冷 95.5s duct / 续 7.3s duct, 但引擎不再死)
+- 杀手①: `NameError: _sched_cfg` (worker 崩溃, 11-09 日志证据) - 该 helper 只在 BlockChannel 安装 try 内定义, 其他路径引用即炸 -> 加模块级兜底定义 (507)。
+- 杀手②: `TypeError: int() ... not '_E440'` (本回合 505 见证自身 bug: st.resume[0] 是 entry 对象, hit 在 [1]) -> 修 (508)。修复后 resume 不再杀引擎, 55K 续跑 3.4s 正确。
+- 前沿: 55K 双发绿; 88K 双发红 (duct) => 断层在 55K-88K 之间 (窗预算 ~50K + 刀组合)。引擎稳定存活。
+- 下轮: 60K/65K/70K/75K 双发定位断层; 断层处抓 d_view_needle/d_pairs480/d_knife_restore 与 row_len/seq_override; 优先验证 invariant 5 地址压缩在该档位是否生效。
+- 本回合 2 boots+6 发+3 查。ahead 457->458。引擎 健康。
