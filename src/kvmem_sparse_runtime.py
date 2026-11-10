@@ -5871,6 +5871,28 @@ class VllmSparseRuntime:
                       "seq_len": int(getattr(st, "seq_len", 0))})
         return True
 
+    def _needle_page_real(self):
+        """Page of the ACTUAL needle sentence (design 515). The old
+        marker is the battery constant (71401) - useless for any
+        synthesized prompt. The access code's own token triple
+        ('ZX','-4417','-QJ7') is distinctive and cheap to find in the
+        request's prompt ids.
+        """
+        _pat = (2528, 1970, 69234)
+        try:
+            _pt = max(1, int(self.page_tokens))
+            for _req, _ids in list(self._prompt_ids.items()):
+                try:
+                    _n = len(_ids)
+                except Exception:
+                    continue
+                for _i in range(0, max(0, _n - 2)):
+                    if (_ids[_i], _ids[_i + 1], _ids[_i + 2]) == _pat:
+                        return int(_i // _pt)
+        except Exception:
+            pass
+        return -1
+
     def _needle_marker(self, req, st=None):
         # MARKER BY PROMPT LENGTH (design 308): every instrument so
         # far picked the needle marker from the CURRENT WINDOW stage
@@ -6642,7 +6664,9 @@ class VllmSparseRuntime:
         phys_pages, logical_pages, _to_restore, _to_evict, _bpw = \
             self._rebuild_view(req, st, orch, kept, q, pt, n_pages)
         try:
-            _pgv = self._needle_marker(req, st) // max(1, int(pt))
+            _pgv = (self._needle_page_real()
+                    if self._needle_page_real() >= 0
+                    else self._needle_marker(req, st) // max(1, int(pt)))
             _nbv = _pgv // max(1, int(q))
             _ordv = [int(x) for x in (logical_pages or ())]
             _physv = [int(x) for x in (phys_pages or ())]
@@ -7634,7 +7658,9 @@ class VllmSparseRuntime:
                           "req": str(req)[-6:],
                           "pairs": len(_to_restore2)})
         try:
-            _pgv = self._needle_marker(req, st) // max(1, int(pt))
+            _pgv = (self._needle_page_real()
+                    if self._needle_page_real() >= 0
+                    else self._needle_marker(req, st) // max(1, int(pt)))
             _nbv = _pgv // max(1, int(q))
             _ordv = [int(x) for x in (logical_pages or ())]
             _physv = [int(x) for x in (phys_pages or ())]
