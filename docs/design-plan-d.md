@@ -2490,3 +2490,9 @@ skip=不重放只装视图 - 顺路）。
 - 唯一未证: **行覆盖**。刀后 st.row 只有 len(kept 页) 项 (观测 1666-2035), 而引擎注意力按全流位置寻址; 未覆盖位置读的是 block_table 残留 -> 垃圾。
 - 下一步 (唯一动作, 1 boot+1 发): 在行安装处加 d_row_cover531{row_len, frontier_pages, holes} 见证; 若 holes>0 则未选位置需指向安全零块 (mask 语义) 或把注意力长度压到行宽并同时压缩 positions (invariant 5 全量落地)。
 - 环境: /etc/default 已无 KVMEM_NO_SEQ; 引擎运行 NO_SEQ 臂 (旧 env), 下轮重启即回到默认臂。ahead 477。
+
+## 532. Round 241 (final handover): 行覆盖见证未触发 (该分支未被走到) + 65K 仍 duct 84.0s
+- 事实: d_row_cover531 n=0 => 行安装分支 (`install_row and st.row and not sched_compact`) 在这次请求中未执行; 说明当前行的安装走的是**另一条路径** (identity 返回 + 调用方 set st.row), 见证放错分支。
+- 下一步: 把见证放到 `st.row = ...` 赋值点 (调用方) 而不是 step-end 分支; 或直接在 `_rebuild_view` 的返回处记录 (row, frontier)。
+- 已证 (跨轮): 内容 100%; builder 包装可靠; ≤65K 绿/续跑达标; >75K 及 65K 波动档红。
+- 交接: ahead 477; 引擎健康; /etc/default 无 NO_SEQ (本轮重启已回默认臂)。
