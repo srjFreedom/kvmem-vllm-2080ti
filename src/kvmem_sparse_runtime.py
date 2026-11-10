@@ -3571,6 +3571,37 @@ class VllmSparseRuntime:
                                       _o444.store, "_pages", {}) or {})})
                 except Exception:
                     pass
+                # PARK NEEDLE CONFRONTATION (design 470): does the
+                # host store actually hold THIS request's true bytes
+                # for the needle page? live slot (engine book) vs
+                # canonical copy (store) - the independent reference
+                # the restore-time probe cannot give.
+                try:
+                    _np470 = (self._needle_marker(req)
+                              // max(1, int(self.page_tokens)))
+                    _pm470 = int(self._page_map.get(req, {}).get(
+                        int(_np470), 0) or 0)
+                    _pk470 = self.view.paged_kv()
+                    _lz470 = _o444.store.get(int(_np470))
+                    _lv470 = None
+                    if (_pm470 and _pk470
+                            and int(_pm470) < _pk470[0].shape[0]):
+                        _lv470 = float(_pk470[0][int(_pm470)]
+                                       .float().abs().mean())
+                    if self.log is not None and not str(req).startswith(
+                            "_warmup"):
+                        self.log({"kind": "d_park_needle",
+                                  "req": str(req)[-6:],
+                                  "page": int(_np470),
+                                  "pmap": int(_pm470),
+                                  "live": (round(_lv470, 5)
+                                           if _lv470 is not None
+                                           else None),
+                                  "canon": (round(float(
+                                      _lz470[0].float().abs().mean()), 5)
+                                      if _lz470 else None)})
+                except Exception:
+                    pass
                 _h444 = self._session_hashes(req)
                 if _h444:
                     _p444 = self._spill_stores = getattr(
