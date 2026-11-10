@@ -2361,6 +2361,19 @@ class VllmSparseRuntime:
             # retry owner-agnostically like the scheduler side.
             found = self.session_store.lookup(
                 hashes, prefix_digest=_digest(hit_tokens))
+            if found is None:
+                # DIGEST-FREE RETRY (design 445): the block-hash
+                # chain is the content identity. A digest mismatch
+                # only means the parked frontier and the decided
+                # frontier were snapshotted at different counters
+                # (invariant 4: resume depth = observed prefix).
+                # The pages we consume are still pure copies of
+                # the same chain.
+                found = self.session_store.lookup(hashes)
+                if found is not None and self.log is not None:
+                    self.log({"kind": "d_adopt_digestfree",
+                              "req": str(req)[-6:],
+                              "blocks": int(found[1])})
         if self.log is not None:
             # READ PIN (safe form): observes the untouched lookup.
             self.log({"kind": "d_adopt_lookup", "req": str(req)[-6:],
@@ -2371,10 +2384,18 @@ class VllmSparseRuntime:
             self.log({"kind": "resume_miss", "req": req, "hit": hit_tokens})
             return None
         entry, _blocks = found
-        if int(entry.covered_tokens) != int(hit_tokens):
+        if int(entry.covered_tokens) < int(hit_tokens):
             self.log({"kind": "resume_frontier_mismatch", "req": req,
                       "covered": entry.covered_tokens, "hit": hit_tokens})
             return None
+        if int(entry.covered_tokens) > int(hit_tokens) \
+                and self.log is not None:
+            # archived frontier deeper than the decided skip: the
+            # consumed prefix is still the first hit pages of the
+            # same chain - pure copies (protocol 2).
+            self.log({"kind": "d_adopt_deeper", "req": str(req)[-6:],
+                      "covered": int(entry.covered_tokens),
+                      "hit": int(hit_tokens)})
         if self.retrieval_enabled and getattr(entry.orchestrator, "retrieval_index", None) is None:
             self.log({"kind": "resume_miss", "req": req,
                       "reason": "sealed retrieval statistics missing"})
