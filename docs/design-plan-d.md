@@ -2314,3 +2314,9 @@ skip=不重放只装视图 - 顺路）。
 - 新读数: T1 冷 (224.4s, 重复 filler): 首刀 kept=21 无 45 块; T2 续 (7.1s): needle idx=369 slot=75 in_logical=1 -> 续轮视图确含针页, 但答 "is no access code for KEY-MID in the archive..." = 读到了些却否认有码值 -> 疑恢复行与引擎行错位或 store 页序号错位。
 - 下刀: ①_restore_pair 固定采样 needle 页 2231; ②restore 记 values[2231] 与 _page_map[2231] 对照; ③规模错位时用自相关定偏移。
 - 本回合 2 boots+2 发+6 查。ahead 418->419。引擎 468 代健康。
+
+## 471-473. Round 213: 恢复对+现场对质三读数 - 针页进视图但字节来自错误收割, native-block fallback 反噬后回滚
+- 读数链: ①d_restore_pair{live==canon 2231 slot 2427} (T2) ; ②d_park_needle T1 {pmap:0, canon:106.74} = 针页从未进 T1 视图, store 里的脚印是早期收割残留; ③d_view_needle 门控后 (n_pages>2231): 末刀针页 in_logical=1 idx=75 slot=2205 n_phys=839 -> **视图确有针页但槽 2205 是 bucket-start 页号 (非块号), 字节未回填**。
+- 471 已接线: identity seam 返回 restore pairs (非驻留目标页按 row[pg] 或 pg//q 回填) - 保留; 473 的 pg//q fallback 让冷跑 duct (与既有块号约定冲突) -> 已回滚 (c67fd8a amend)。
+- 下刀: 查明该引擎 row 值/块号约定 (BLKIDS 语义) - 用 d_view_needle 打印 slot 与 row[pg] 双值 + 引擎 cache 块数, 再定 fallback; 或改由 jq 一致路径 (row 镜像) 建槽。
+- 本回合 3 boots+3 发+7 查 (超预算 1, 记账)。ahead 424->426。引擎 472 代健康。
