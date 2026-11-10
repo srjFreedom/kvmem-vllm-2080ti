@@ -2367,3 +2367,9 @@ skip=不重放只装视图 - 顺路）。
 - 判读: 非单调 (100K 比 120K 更差), 不支持"单一容量悬崖"; 更像视图/状态装配在长序列上随路径不同而失真。当前引擎处于关刀臂 (KVMEM_D_KNIFE=0)。
 - 下刀候选: ①对 88K(绿) 与 100K(duct) 同文本同针位做逐刀见证对比 (d_view_needle/d_pairs480/d_rmb_restore + positions/seq_lens 发布); ②回滚 479/487 的 rearrange 改动做 A/B (怀疑新路径在不同规模下破坏视图); ③恢复 D_KNIFE=1 后再验 100K/120K 对比 (区分关刀/开刀影响)。
 - 本回合 0 boots+2 长跑+1 查。ahead 444。引擎 关刀臂 健康。
+
+## 492. Round 222: 关 Plan D 本体也失败 - 152K 纯路径 (PLAN_D=0, KNIFE=0) 240s 答 "KEY-MID" (无码值)
+- 判读: 失败不只在 D 臂; 插件仍装载 (KVMEM_ADAPTER 路径未禁), 故下一步需**全禁插件**的真基线 (若真基线也不行 => fork/模型长上下文问题, 非 KVMem 协议问题)。
+- 现状态: /etc/default 为 PLAN_D=0 / KNIFE=0 (计划开关, 下轮恢复 PLAN_D=1 / KNIFE=1 或先做真基线)。
+- 下刀: ①找到插件总开关 (launcher 的 KVMEM_* 段), 起真基线跑 152K; ②若真基线绿 => 插件路径在长上下文破坏; 若真基线红 => 转向 fork/模型 (对照 v0.5.0 锚 7cbd5fec/2e33994b 的 server 配置差异)。
+- 本回合 1 boot+1 长跑。ahead 445。引擎 纯路径臂 健康。
