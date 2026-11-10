@@ -3282,6 +3282,34 @@ class VllmSparseRuntime:
         # The next prepare_inputs() sweep must never create a park after admission has happened.
         parked = req in self._preparked_requests
         self._preparked_requests.discard(req)
+        # POOL STASH BEFORE THE POP (design 444): harvest bytes
+        # must outlive the orchestrator. The park RPC arrives after
+        # the engine released the request (keepalive saw an empty
+        # _orch -> pool stayed empty -> graft never fired). Stash
+        # the live store HERE, while the orch still exists.
+        try:
+            _o444 = self._orch.get(req)
+            if (_o444 is not None
+                    and getattr(_o444, "store", None) is not None
+                    and not str(req).startswith("_warmup")):
+                _h444 = self._session_hashes(req)
+                if _h444:
+                    _p444 = self._spill_stores = getattr(
+                        self, "_spill_stores", {})
+                    _t444 = int(getattr(self._state.get(req),
+                                        "tokens", 0) or 0)
+                    _p444[str(_h444[-1])] = (_o444.store, _t444)
+                    while len(_p444) > max(2, int(self.sessions)):
+                        _p444.pop(next(iter(_p444)), None)
+                    if self.log is not None:
+                        self.log({"kind": "d_pool_stash",
+                                  "req": str(req)[-6:],
+                                  "tokens": _t444,
+                                  "pages": len(getattr(
+                                      _o444.store, "_pages",
+                                      {}) or {})})
+        except Exception:
+            pass
         orch = self._orch.pop(req, None)
         self._retrieval.pop(req, None)
         self._state.pop(req, None)
@@ -3379,12 +3407,15 @@ class VllmSparseRuntime:
                 self.log({"kind": "d_adopt_knife_err",
                           "err": f"{type(_e406).__name__}: "
                                  f"{_e406}"[:150]})
-        if not str(req).startswith("_warmup") and getattr(self, "_bs_loud", 0) < 8:
+        _seen444 = self._bs_seen = getattr(self, "_bs_seen", set())
+        if (not str(req).startswith("_warmup")
+                and str(req) not in _seen444):
+            _seen444.add(str(req))
             # CONSUME GATE WITNESS (design 392): announces that
             # before_step reached the resume consumption gate and
             # what the gate sees - settles whether the marker or
             # the row arrival is the missing half.
-            self._bs_loud = getattr(self, "_bs_loud", 0) + 1
+            pass
             self.log({"kind": "d_bs_gate", "req": str(req),
                       "full": True,
                       "states": [str(k)[-8:]
