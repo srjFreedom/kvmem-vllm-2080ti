@@ -2302,3 +2302,9 @@ skip=不重放只装视图 - 顺路）。
 - 现状判定: **resume 轮机械面全绿** (5.4s 带内/ resident==hit / 状态 48/48 / 字节逐页相等 / 无异常) - 内容面仍是历史遗留的**选择器战场** (needle 页 2231/4465 在 ≤52K 窗口里从未被选中; 冷跑同病 -> "no reference") - 与恢复机制无关。
 - 下轮: ①用带 max 的冷/续 A/B 对照记录内容面基线 (冷="no reference", 续='-MID'); ②选择器决定战: 邻桶保底 (396/397 在树) + 码值桶分辨率 (文档 340 案) 二者合一验证; ③battery 侧改写 (384 案: 针句段落化) 作为对照臂。
 - 本回合 2 boots+5 发+7 查。ahead 412→413。引擎 462 代健康。
+
+## 464-465. Round 210: 词面保底上盘并点火 (rare 18, added 1 = 针块 45) - 冷跑仍不读针, 下刀=重建后针页在行见证
+- 离线判据 (零 boot): 题面尾 96 个 id 中 df<=6 的稀有 token 仅 17-18 个, 命中针页 (page 2231/block 45) ✓ 只需 1 块保底。
+- 读数: d_lex_reserve{rare:18, added:1, kept_n:9} 双 rank 双发; 冷跑 339s 仍复读 filler ("ferryman keeps a ledger..."), T2 续 5.5s '_FOUND'。panel needle_rank=-1/inc_has_needle=0 = 打分面本就不含针块 (与保底无关); d_final_kept in_kept:0 为**保底前**的账。
+- 下刀: 在 `_rebuild_view` 返回后加 d_view_needle{page_in_phys, page_in_logical, slot} 见证, 区分三案: ①针块进 kept 但重建丢弃 (blk 里某页缺失被丢) ②进了行但模型不读 (位置/相位) ③保底调用点不在主刀路径 (两处调用, remobilize 与 blockwise 谁在主链)。
+- 本回合 1 boot+2 发+4 查。ahead 414→415。引擎 464 代健康。
