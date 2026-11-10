@@ -2404,3 +2404,9 @@ skip=不重放只装视图 - 顺路）。
 - 判读: resume 并非全坏 - 50K 续跑已给出验收形态 (4.4s + 正确); 10K 续跑乱码 = 状态/相位错配类; 88K 电池续跑 duct。三个样本三种表现 -> resume 的破坏与"前缀深度/刀组合"相关, 需要按 hit/pages/state 逐档对照。
 - 下轮: ①对 10K 续跑乱码抓 session_resumed{hit,pages}/state/d_restore_pair (小前缀最易定位); ②以 50K 绿续为锚, 逐档 60/70/80K 二连画 resume 绿区; ③10K 乱码修好后复测 88K。
 - 本回合 0 boots+6 发。ahead 452。引擎 健康。
+
+## 504. Round 227: 10K 续跑现场 - **d_restore_pair 每步重复触发 + d_needle_pair{idx:-1,slot:-1}** => _complete_resume 未被消费完成 (st.resume 未清), 每步重试; 针页不在 _resume_selection 的 pages 里 (canon 却存在)
+- 读数: resume_miss{hit:9408} -> d_resume_forged{hit:9408} -> d_restore_pair x 数十次 (每 step 一次!) + d_needle_pair{idx:-1,slot:-1,canon:108.16/104.17 双 rank} ; 冷跑 11.5s 这次也只答 'KEY-MID' (针未被选中, 非确定)。
+- 两个并存缺陷: ①resume 消费门每步重入 (st.resume 未清) => 视图未装/反复覆盖; ②needs page 不在 selection 集 (usable_pages/几何把针页排除)。
+- 下轮: ①查 _complete_resume 的返回/清理路径哪条分支没清 st.resume (加 d_resume_done 见证); ②打印 resume selection 的 pages 集合与 needle page 的关系 (总页数 vs usable_pages 上限); ③修好后以 10K 二连为最小回归。
+- 本回合 0 boots+2 发+1 查。ahead 453。引擎 健康。
