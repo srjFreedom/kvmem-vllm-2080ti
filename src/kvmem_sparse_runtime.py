@@ -6103,17 +6103,39 @@ class VllmSparseRuntime:
                     _rv = None
             out = []
             try:
+                # THE BOOK MUST PROVE RESIDENCY (design 518): the
+                # page map only records that a page WAS placed once;
+                # a slot it names can hold recycled bytes later (the
+                # needle page measured live!=canon on 14/14 knifes
+                # while the map called it resident). orch.slot_of is
+                # the authoritative page->block book - installs and
+                # restores both write it - so anything the book does
+                # not confirm gets a pure copy, and the book learns
+                # the slot afterwards.
+                _so518 = getattr(orch, "slot_of", None)
                 for _idx, _pg in enumerate(_ordered):
                     _pg = int(_pg)
-                    if int(_pm.get(_pg, 0) or 0) > 0:
-                        continue
                     _slc = 0
                     if _rv is not None and 0 <= _idx < len(_rv):
                         _slc = int(_rv[_idx])
                     if _slc <= 0:
                         _slc = int(_pg) - int(_pg) % max(1, int(q))
-                    if _slc > 0:
-                        out.append((_pg, int(_slc)))
+                    if _slc <= 0:
+                        continue
+                    _known = -1
+                    try:
+                        if _so518 is not None:
+                            _known = int(_so518.get(_pg, -1))
+                    except Exception:
+                        _known = -1
+                    if _known == int(_slc):
+                        continue
+                    out.append((_pg, int(_slc)))
+                    try:
+                        if _so518 is not None:
+                            _so518[_pg] = int(_slc)
+                    except Exception:
+                        pass
             except Exception:
                 pass
             try:
