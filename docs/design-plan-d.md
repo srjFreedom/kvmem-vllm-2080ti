@@ -2484,3 +2484,9 @@ skip=不重放只装视图 - 顺路）。
 - 判读: 若两种注意力长度都坏, 则问题在**行内容覆盖完整性** (行只覆盖 kept 页, 其余位置指向废弃块) 或 **positions 与字节相位不一致**; 与"压缩与否"无关。
 - 下轮: ①检查行覆盖: 对全流每个位置 p 检查 row[p] 是否为有效块 (非 0/非废弃); ②positions 发布值抽查 (前 8 个 token 的真位置); ③若行有空洞, 需把"未选位置"指向一个安全的零块或回收块 (带 mask 语义), 这是 R1 窗口化欠账。
 - 本回合 1 boot+1 发+1 查。ahead 474->476 (env 已复原, 待下轮重启生效)。引擎 健康 (NO_SEQ 臂运行中)。
+
+## 531. Round 240 (handover): 状态盘点与下一步唯一动作
+- 已证: ①内容层 100% (32/32 抽样 live==canon, 14 刀); ②builder 包装可靠 (builders_wrapped 全 1, attach 失败自动重试); ③resume 在 ≤65K 档 3.4-8.3s 且正确 (round 229/228); ④超窗档 (>~75K) 及 65K 波动档仍 duct。
+- 唯一未证: **行覆盖**。刀后 st.row 只有 len(kept 页) 项 (观测 1666-2035), 而引擎注意力按全流位置寻址; 未覆盖位置读的是 block_table 残留 -> 垃圾。
+- 下一步 (唯一动作, 1 boot+1 发): 在行安装处加 d_row_cover531{row_len, frontier_pages, holes} 见证; 若 holes>0 则未选位置需指向安全零块 (mask 语义) 或把注意力长度压到行宽并同时压缩 positions (invariant 5 全量落地)。
+- 环境: /etc/default 已无 KVMEM_NO_SEQ; 引擎运行 NO_SEQ 臂 (旧 env), 下轮重启即回到默认臂。ahead 477。
