@@ -1863,43 +1863,13 @@ class VllmSparseRuntime:
                     pass
                 _swept = 0
                 _noev = 0
-                _paged_n = 1 << 30
-                try:
-                    _paged_n = int(self.view.paged_kv()[0].shape[0])
-                except Exception:
-                    pass
-                # HARVEST RANGE (design 485): 141120 was the old
-                # checkpoint frontier - pages past it were never
-                # swept, so a 152K stream's tail never reached the
-                # store. Cover the whole prompt.
-                _hl485 = int(getattr(self, "_prompt_len", {}).get(
-                    req, 0) or 0) or 141120
-                for _pgv in range(0, _hl485 // _pt + 2):
+                for _pgv in range(0, 141120 // _pt + 2):
                     if _pgv in _have or _pgv not in _res:
                         continue
                     _slotv = None
-                    # AUTHORITATIVE SLOT (design 485): slot_of holds
-                    # the engine BLOCK each page occupies (set by the
-                    # view install and by every restore). The page
-                    # map holds TOKEN slots - using those as block
-                    # indices silently skipped every harvest (the
-                    # "written 254 of 597" signature) and stored the
-                    # wrong page under a recycled block.
-                    try:
-                        _so485 = orch.slot_of.get(int(_pgv))
-                    except Exception:
-                        _so485 = None
-                    if _so485 is not None and int(_so485) >= 0:
-                        _slotv = int(_so485)
                     _pm = getattr(self, "_page_map", {}).get(req, {})
-                    if _slotv is None and _pm:
-                        _pmv485 = _pm.get(_pgv)
-                        if _pmv485 is not None:
-                            _pmv485 = int(_pmv485)
-                            if _pmv485 >= 0:
-                                _slotv = (_pmv485 // _pt
-                                          if _pmv485 >= _paged_n
-                                          else _pmv485)
+                    if _pm:
+                        _slotv = _pm.get(_pgv)
                     if _slotv is None:
                         _rk = _pgv // max(1, int(getattr(self, "block_pages", 0) or 49))
                         _rv = [int(x) for x in (st.row or ())]
