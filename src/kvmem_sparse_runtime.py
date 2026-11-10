@@ -6052,6 +6052,19 @@ class VllmSparseRuntime:
                         _slc = int(_pg) - int(_pg) % max(1, int(q))
                     if _slc > 0:
                         out.append((_pg, int(_slc)))
+                try:
+                    _seen477 = getattr(self, "_pairs477_seen", 0)
+                    if _seen477 < 6 and self.log is not None:
+                        self._pairs477_seen = int(_seen477) + 1
+                        self.log({"kind": "d_pairs477",
+                                  "n": len(out),
+                                  "ordered_n": len(_ordered),
+                                  "pmap_n": len(_pmap),
+                                  "rv_n": (len(_rv)
+                                           if _rv is not None else -1),
+                                  "sample": out[:3]})
+                except Exception:
+                    pass
                 return out
             except Exception:
                 return []
