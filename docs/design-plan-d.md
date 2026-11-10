@@ -2452,3 +2452,10 @@ skip=不重放只装视图 - 顺路）。
 - 读数: d_view_needle 显示针页被选且分配了槽 (slot 37/38); 无 d_knife_restore 事件 => 该页被当作"已驻留"(pmap>0) 未回填; 若该槽字节是旧内容/GD 垃圾 -> 模型读到无针。
 - 下轮: ①对针页专做 restore 对质 (slot 字节 vs canon, 在答案生成前); ②检 pmap 记账 (resident 但未写) 的路径: restore/evict 时是否把 slot 写回 _page_map; ③若账本虚报, 修账 (evict 清账 + restore 写账)。
 - 本回合 1 boot+2 发+2 查。ahead 463->464。引擎 健康。
+
+## 517-518. Round 235: **针页槽字节对质 = 铁证** (14/14 same:0, live 107-124 vs canon 107-109 = 槽里是别人的 KV) ; 518 改成"slot_of 权威账证明驻留才跳过回填" - 但刀后见证仍 same:0 (见证在回填调用之前, 属测量时序), 答复仍 duct
+- 事实链: 针页被选 (idx 478 slot 37) 却从未真回填; _page_map 虚报驻留 => 模型读到垃圾槽 => duct/否认。
+- 518 已落: 只有 orch.slot_of 证明同槽时才跳过, 否则进 pairs 并回写账本 (纯拷贝)。
+- 未定: 回填是否真的执行 (见证在 restore 调用前) 与是否覆盖到针页; 需在 restore 调用之后对质 + 记针页 pair 是否在列。
+- 下轮: ①把互质见证移到 restore 之后 (或加 d_restore_after 对质); ②log pairs 是否含针页; ③以 65K 红文本回归, 期望 same:1 + 码值。
+- 本回合 2 boots+2 发+3 查。ahead 465->467。引擎 健康。
