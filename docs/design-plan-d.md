@@ -2320,3 +2320,8 @@ skip=不重放只装视图 - 顺路）。
 - 471 已接线: identity seam 返回 restore pairs (非驻留目标页按 row[pg] 或 pg//q 回填) - 保留; 473 的 pg//q fallback 让冷跑 duct (与既有块号约定冲突) -> 已回滚 (c67fd8a amend)。
 - 下刀: 查明该引擎 row 值/块号约定 (BLKIDS 语义) - 用 d_view_needle 打印 slot 与 row[pg] 双值 + 引擎 cache 块数, 再定 fallback; 或改由 jq 一致路径 (row 镜像) 建槽。
 - 本回合 3 boots+3 发+7 查 (超预算 1, 记账)。ahead 424->426。引擎 472 代健康。
+
+## 474-476. Round 214: 行约定钉死 (row_len 1666 = 视图宽度, row[i] = 位置 i 读的缓存块, n_blocks 8232) + 恢复列消费接线 - 但 blockwise 侧 _to_restore2 恒空 (0 事件), 疑只有 remobilize 主链
+- 读数: d_view_needle{idx:75 slot:2205 row_pg:-1 row_len:1666 n_blocks:8232 q:49}; d_park_needle pmap 仍 0 (针页无驻留账); 冷答 "ferryman's notes describe the river delta..." 续答 "on the archive provided, there is no mention of an access code for "K..."。
+- 已接: 475 positional pairs (row[idx] 而非 row[pg]); 476 blockwise 消费 restore 列表 + pmap 记账。读数显示 blockwise 侧未触发 (0 d_knife_restore) -> 主刀在 remobilize, 下刀给 remobilize 消费点加 d_knife_restore 见证 + 恢复后针页 live/canon 对质。
+- 本回合 3 boots+3 发+5 查。ahead 427->430。引擎 476 代健康。
