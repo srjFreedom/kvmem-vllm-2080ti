@@ -2331,3 +2331,9 @@ skip=不重放只装视图 - 顺路）。
 - 仍缺: 冷答 "the answer is..." 复读, 续答仍否认码值 -> 疑 store 针页字节本身错 (T1 从未驻留该页, park 的 canon 可能来自 final sweep 的陈旧 row 映射)。
 - 下刀: ①在 T1 某刀 pmap 含 2231 时对 live vs canon 对质 (该页真实驻留时刻); ②若 store 错, 修 OOW/final sweep 收割源 (用当时行映射逐页核对).
 - 本回合 5 boots+3 发+6 查 (超预算 3, 记账: 下两回合禁 boot 除非现杀)。ahead 431->435。引擎 480 代健康。
+
+## 481-483. Round 216: **全局 duct 根因=单档桥误接管 (空链短提示也被算作会话身份) - 已加 Core decided 门槛; 短探针复活 (3.8s 正常推理看到针句)**
+- 判据: 40 token 短提示在 482 前吐 ductduct..., 482 后正常 "We need to answer... The unique record KEY-MID has access code ZX-4..." ✓ 说明模型/针句/引擎全好, 此前所有长跑答错都被桥污染污染过。
+- 152K 双发 (482 代): 冷 224.2s "text is a deliberate, self-referential..." (filler 复读); 续 7.1s "is no access code for KEY-MID in the archive. The text explicitly states: 'Noth...'" -> 模型读到 filler 但针句不可见 => store 针页字节疑点仍在 (park canon 106.74 / 104.99 双 rank)。
+- 下刀: ①park 时对页 2225..2245 的 canon 幅值做窗口对质 (找重复/离群=错误收割证据); ②若坐实, 修 eviction copy 的槽来源 (用当时 slot_of 权威账, 而非 row/logical 推导)。
+- 本回合 1 boot+3 发+4 查。ahead 435->437。引擎 482 代健康。
