@@ -2389,6 +2389,12 @@ class VllmSparseRuntime:
                     or not self.restore_state(req, _st259)):
                 raise RuntimeError("resumed GDN StateImage could not be restored")
         st.resume = None
+        if self.log is not None:
+            self.log({"kind": "d_resume_done505",
+                      "req": str(req)[-6:],
+                      "hit": int(hit_tokens),
+                      "pages": len(pages),
+                      "cleared": st.resume is None})
         st.seq_len = len(pages) * self.page_tokens
         st.tokens = int(hit_tokens)
         st.prefill_done = False
@@ -3753,6 +3759,16 @@ class VllmSparseRuntime:
             # First step of a request that continues a parked session: fill the engine's freshly
             # allocated resident pages from the store and adopt the parked token book. This must run
             # BEFORE the `not st.row` early-return below (a resumed request has no row yet).
+            _gc505 = getattr(self, "_resume_gate_n", {})
+            _gc505[str(req)[-6:]] = int(_gc505.get(str(req)[-6:], 0)) + 1
+            self._resume_gate_n = _gc505
+            if self.log is not None and _gc505[str(req)[-6:]] <= 40:
+                self.log({"kind": "d_resume_gate505",
+                          "req": str(req)[-6:],
+                          "n": int(_gc505[str(req)[-6:]]),
+                          "hit": (int(st.resume[0]) if isinstance(
+                              getattr(st, "resume", None), tuple) else -1),
+                          "row": int(row_index)})
             if not self._complete_resume(req, st, int(row_index)):
                 raise RuntimeError("KVMem session checkpoint restore could not complete")
         if not st.row:
