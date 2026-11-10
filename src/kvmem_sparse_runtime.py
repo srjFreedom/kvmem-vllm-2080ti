@@ -3830,6 +3830,16 @@ class VllmSparseRuntime:
                 for table in self.view.block_table_rows():
                     table[row_index, :len(st.row)] = torch.tensor(
                         st.row, dtype=table.dtype, device=table.device)
+            try:
+                self._seq_override[int(row_index)] = (
+                    int(len(st.row)) * int(self.page_tokens))
+            except Exception:
+                pass
+            # COMPRESSED ATTENTION LENGTH (design 521): the row covers
+            # the VIEW; without this the engine attends the whole
+            # stream and reads past the row into recycled blocks
+            # (content proven 32/32 correct meanwhile). Slot mapping
+            # keeps TRUE positions - only the attention length shrinks.
             return st
         self._positions_must_stay_true = (
             int(st.tokens) > int(st.seq_len)
