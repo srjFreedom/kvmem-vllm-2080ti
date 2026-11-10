@@ -3831,8 +3831,11 @@ class VllmSparseRuntime:
                     table[row_index, :len(st.row)] = torch.tensor(
                         st.row, dtype=table.dtype, device=table.device)
             try:
-                self._seq_override[int(row_index)] = (
-                    int(len(st.row)) * int(self.page_tokens))
+                if bool(getattr(self, "install_seq", True)):
+                    self._seq_override[int(row_index)] = (
+                        int(len(st.row)) * int(self.page_tokens))
+                else:
+                    self._seq_override.pop(int(row_index), None)
             except Exception:
                 pass
             # COMPRESSED ATTENTION LENGTH (design 521): the row covers
