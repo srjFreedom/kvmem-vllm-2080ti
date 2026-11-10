@@ -1020,6 +1020,7 @@ class VllmSparseRuntime:
                     # continues (the Core decided it; the archive
                     # was keyed by content, not by id).
                     _hp437 = list(_pool437.keys())
+                _hit437 = False
                 for _kk437 in reversed(list(_hp437 or ())):
                     _gv437 = _pool437.get(str(_kk437))
                     if _gv437 is not None:
@@ -1028,16 +1029,27 @@ class VllmSparseRuntime:
                                   else _gv437)
                         orch.store = _ss437
                         if isinstance(_gv437, tuple) and _gv437[1]:
-                            # the parked life harvested this many
-                            # tokens; the adoption ledger rebuilds
-                            # from the store, no engine re-skip
-                            # (the Core side already skipped the
-                            # prefix in its own books).
                             self._resume_ok[req] = int(_gv437[1])
                         self.log({"kind": "d_keepalive_graft",
                                   "req": str(req)[-6:],
                                   "key": str(_kk437)[:16]})
+                        _hit437 = True
                         break
+                if not _hit437 and len(_pool437) == 1:
+                    # SINGLE-SURVIVOR BRIDGE (design 447): exact key
+                    # equality can miss on chain-tail representation
+                    # slivers; with exactly ONE survivor the session
+                    # is unambiguous (single-user arm, Core decided
+                    # the same chain). Adopt the bytes.
+                    _k447, _gv447 = next(iter(_pool437.items()))
+                    _ss447 = (_gv447[0] if isinstance(_gv447, tuple)
+                              else _gv447)
+                    orch.store = _ss447
+                    if isinstance(_gv447, tuple) and _gv447[1]:
+                        self._resume_ok[req] = int(_gv447[1])
+                    self.log({"kind": "d_keepalive_bridge",
+                              "req": str(req)[-6:],
+                              "key": str(_k447)[-16:]})
             except Exception:
                 pass
             self._owned_slots[req] = set()
