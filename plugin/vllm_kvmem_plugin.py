@@ -58,6 +58,23 @@ def _resident_prefill_on() -> bool:
     return _env_flag("KVMEM_ENTRY_RESIDENT_PREFILL")
 
 
+def _sched_cfg(scheduler):
+    """MODULE-LEVEL FALLBACK (design 507): the scheduler-config helper
+    used to be defined only inside the block-channel install try. Any
+    path that survived that install but still logged through it hit
+    `NameError: _sched_cfg` in the WORKER and killed the whole engine
+    (measured: a resume at 55K crashed both TP workers). Harmless when
+    the nested definition exists: the local def shadows this one.
+    """
+    try:
+        raw = getattr(getattr(scheduler, "vllm_config", None),
+                      "additional_config", None) or {}
+        kv = raw.get("kvmem") if isinstance(raw, dict) else None
+        return kv if isinstance(kv, dict) else {}
+    except Exception:
+        return {}
+
+
 def _config():
     """KVMem settings for this process: additional_config first, a file only as a legacy fallback."""
     if _ACTIVE_CONFIG:
