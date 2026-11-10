@@ -2251,6 +2251,30 @@ class VllmSparseRuntime:
                     self.log({"kind": "resume_restore_failed", "req": req,
                               "page": int(page)})
                     return False
+        # RESTORE BYTE PROOF (design 458): compare the device slots
+        # the engine will read against the canonical bytes we just
+        # copied, on a sparse page sample plus the last page.
+        try:
+            _pk458 = self.view.paged_kv()
+            _pairs458 = []
+            _scan458 = list(range(0, len(pages), 256))
+            if len(pages) - 1 not in _scan458:
+                _scan458.append(len(pages) - 1)
+            for _i458 in _scan458:
+                _pg458 = int(pages[_i458])
+                _sl458 = int(row_values[_i458])
+                _lz458 = orch.store.get(_pg458)
+                if (not _lz458 or _sl458 <= 0
+                        or _sl458 >= _pk458[0].shape[0]):
+                    continue
+                _lv458 = float(_pk458[0][_sl458].float().abs().mean())
+                _cz458 = float(_lz458[0].float().abs().mean())
+                _pairs458.append([_i458, _pg458, _sl458,
+                                  round(_lv458, 5), round(_cz458, 5)])
+            self.log({"kind": "d_restore_pair", "req": str(req)[-6:],
+                      "n": len(_pairs458), "sample": _pairs458[:6]})
+        except Exception:
+            pass
         restored = tuple(row_values[:len(pages)])
         # Preserve the engine's already-synced tail (this step's chunk pages). A resumed
         # request schedules the rest of its prompt in the same admission, so the row must cover
