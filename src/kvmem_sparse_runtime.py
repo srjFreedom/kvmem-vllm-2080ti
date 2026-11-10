@@ -3355,8 +3355,16 @@ class VllmSparseRuntime:
                 if _h444:
                     _p444 = self._spill_stores = getattr(
                         self, "_spill_stores", {})
-                    _t444 = int(getattr(self._state.get(req),
-                                        "tokens", 0) or 0)
+                    # PAGE-ALIGNED HIT (design 449): the restore
+                    # consumer rebuilds count = hit // page_tokens
+                    # and REFUSES anything the engine row cannot
+                    # cover (resume_no_room killed the engine when
+                    # the account carried st.tokens - output tail
+                    # included). The stored canonical pages are the
+                    # honest account: pages x page_tokens.
+                    _t444 = (len(getattr(_o444.store, "_pages",
+                                         {}) or {})
+                             * int(self.page_tokens))
                     _p444[str(_h444[-1])] = (_o444.store, _t444)
                     while len(_p444) > max(2, int(self.sessions)):
                         _p444.pop(next(iter(_p444)), None)
