@@ -2250,9 +2250,19 @@ class VllmSparseRuntime:
                         else bytes.fromhex(str(_hk)))
                 except Exception:
                     _st259 = None
-            if (self.restore_state is None or _st259 is None
+            if (_st259 is not None and isinstance(_st259, list)
+                    and getattr(self, "d_mode", False)):
+                # D ARCHIVE FORMAT (design 452): the local archive holds
+                # [(cache_tensor, block_id, clones)] - the runtime's own
+                # primitive writes that back. The plugin restore expects
+                # a {group: (slot, [t])} dict and raised ValueError on
+                # these (engine kill).
+                if not self.d_state_restore(_st259):
+                    raise RuntimeError("resumed GDN StateImage could "
+                                       "not be restored")
+            elif (self.restore_state is None or _st259 is None
                     or not self.restore_state(req, _st259)):
-                raise RuntimeError("resumed GDN StateImage could not be fully restored")
+                raise RuntimeError("resumed GDN StateImage could not be restored")
         st.resume = None
         st.seq_len = len(pages) * self.page_tokens
         st.tokens = int(hit_tokens)
