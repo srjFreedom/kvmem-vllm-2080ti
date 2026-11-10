@@ -2472,3 +2472,9 @@ skip=不重放只装视图 - 顺路）。
 - 未生效证据: 答复仍 duct => ①builder hook 是否真被包 (wrapped 计数/日志); ②override 在 metadata 构建时是否可见 (时序); ③行本身是否覆盖全流 (若 attention 长度=视图宽, 行足够即可)。
 - 下轮: ①在 attention_seq_lens 内加 d_seq522 见证 (row/base/override/生效值); ②确认 plugin 的 builder 包装 (wrapped>0); ③若时序问题, 在 prepare_pos_seq_lens 前发布。
 - 本回合 3 boots+1 发+2 查。ahead 470->472。引擎 健康。
+
+## 529. Round 238: builder 包装改为**可重试** (attach 时 attn_groups 可能为空 => builders_wrapped=0 => 压缩 seq_len 从未送达) - 现四 rank 全 1, 但 65K 仍 duct
+- 证据: 旧 boot 的 sparse_attached{builders_wrapped:0/1 混现}; 529 后全部 1 (attach 失败则 prepare_pos_seq_lens 内重试, 上限 64 次)。
+- 现状: 内容层 100% 正确 + builder 已包 + seq_override 已发布, 答复仍 duct => 下一层怀疑: ①override 值与行/模型期望不一致 (压到视图宽后模型看到的是被压缩序列, 但 GDN 状态按全流推进 -> 状态/注意力错配, invariant 1 vs 5 冲突); ②或 attention 长度压缩本身对该模型不成立 (需保留真长)。
+- 下轮: ①在 attention_seq_lens 内打 d_seq530{base,override,out} 确认生效值; ②对照实验: 让 override=全长 (不压缩) 看答复; ③若"压缩序列+全量状态"物理冲突, 转 invariant 1 的对齐方案 (状态与视图同步的压缩执行)。
+- 本回合 1 boot+1 发+2 查。ahead 473->474。引擎 健康。
