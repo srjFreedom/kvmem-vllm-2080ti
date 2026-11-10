@@ -1080,6 +1080,17 @@ class VllmSparseRuntime:
                 _en440.covered_tokens = int(_hit440)
                 _en440.mamba_state = None
                 _en440.page_tokens = int(self.page_tokens)
+                # CHAIN IDENTITY ON THE FORGED ENTRY (design 451):
+                # the GDN StateImage fetch keys on
+                # entry.block_hashes[-1], and the window knife
+                # reads it for the view identity. Same prompt chain
+                # as the parked life -> same key by construction.
+                try:
+                    _en440.block_hashes = tuple(
+                        self._session_hashes(req) or ())
+                except Exception:
+                    _en440.block_hashes = ()
+                _en440.source_request = ""
                 _stt440 = self._state[req]
                 _stt440.tokens = int(_hit440)
                 _stt440.resume = (_en440, int(_hit440),
