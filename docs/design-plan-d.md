@@ -2379,3 +2379,9 @@ skip=不重放只装视图 - 顺路）。
 - 已回滚: 485 (harvest) 与 487 (unique block) 均 revert (现 = 482 树); 引擎当前 inactive。
 - 下轮第一步: 冷启后先在**干净进程**跑 88K 单发记录基线与稳定度 (3 连), 再决定是否 485/487 重上; 并把 "进程内状态" 列为一级嫌疑 (keepalive 池/暖机请求残留/session 归档).
 - 本回合 3 boots+5 发+3 查。ahead 446。引擎 inactive (需重启)。
+
+## 494. Round 223: 干净进程 88K 三连: 冷 95.2s duct / 续 9.5s duct (同 sha a2714841) / 第三发 HTTPError 且引擎在请求时刻 "Deactivated successfully" (exit 0)
+- 事实: 连续 4 次冷启 88K 全 duct, 与 round 217 的绿点同代码不同态; 引擎在第三发时刻干净退出 (非 traceback, 非 OOM)。
+- 新线索: 引擎退出**恰好发生在含 resume 的请求时刻**, 三发里前两发 duct、第三发即死 => 疑 resume/adopt 路径触发引擎退出 (worker 或 Core 主动 exit)。
+- 下轮: 先在无 resume 场景 (每次换 session_id 冷发) 跑 88K×2 定位 duct 是否与 resume 有关; 若冷×冷也 duct, 回滚 479/480 的 rearrange/pairs 到 474 前的行为做 A/B (怀疑 identity 出口的 rearrange 在 88K 下也破坏视图)。
+- 本回合 0 boots+3 发+4 查 (+1 恢复重启)。ahead 449。引擎 已重启健康。
