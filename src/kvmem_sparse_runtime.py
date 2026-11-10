@@ -6024,6 +6024,31 @@ class VllmSparseRuntime:
         # and silently fell back to the rewind-era pool allocator
         # (measured: res_slot unit mismatch -> every logical row
         # -1, restore never fires, needle pages read as garbage).
+        def _restore_pairs_471(_ordered, _pmap):
+            """Wanted pages with NO residency book are exactly the
+            pages the identity seam used to drop (it returned an
+            empty restore list - the view then had holes and the
+            model read recycled slots). Pair each with the engine
+            block the request row holds for that logical position;
+            the caller's restore_pages_batch copies canonical bytes
+            into it (pure copy, protocol 2).
+            """
+            try:
+                _rows = self.view.block_table_rows()
+                _ri = getattr(st, "row_index", None)
+                if _ri is None or int(_ri) >= len(_rows):
+                    return []
+                _rv = [int(v) for v in _rows[int(_ri)]]
+                out = []
+                for _pg in _ordered:
+                    _pg = int(_pg)
+                    if int(_pmap.get(_pg, 0) or 0) > 0:
+                        continue
+                    if 0 < _pg < len(_rv) and int(_rv[_pg]) > 0:
+                        out.append((_pg, int(_rv[_pg])))
+                return out
+            except Exception:
+                return []
         if True:
             # IDENTITY EARLY PATH (design 172): under BLKIDS the knife
             # is PURE rearrangement - every wanted page addresses its
@@ -6196,7 +6221,8 @@ class VllmSparseRuntime:
             # bisect tree died here with UnboundLocalError, so NO
             # view was ever installed.
             return (locals().get("_po") or [int(p) for p in ordered],
-                    ordered, [], [], locals().get("_bpo")
+                    ordered, _restore_pairs_471(ordered, _pmap328),
+                    [], locals().get("_bpo")
                     or max(1, int(q or 1)))
         assign = {}
         used = set()
@@ -6406,7 +6432,8 @@ class VllmSparseRuntime:
             # bisect tree died here with UnboundLocalError, so NO
             # view was ever installed.
             return (locals().get("_po") or [int(p) for p in ordered],
-                    ordered, [], [], locals().get("_bpo")
+                    ordered, _restore_pairs_471(ordered, _pmap328),
+                    [], locals().get("_bpo")
                     or max(1, int(q or 1)))
         # IDENTITY MEANS DO-NOTHING (design 282): the court-martial
         # unit law holds - a rebuilt row must be ENGINE BLOCK IDS.
