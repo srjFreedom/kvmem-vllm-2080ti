@@ -3393,6 +3393,53 @@ class VllmSparseRuntime:
             if (_o444 is not None
                     and getattr(_o444, "store", None) is not None
                     and not str(req).startswith("_warmup")):
+                # FINAL SWEEP (design 454): the host store only ever
+                # received EVICTED pages; the pages still resident
+                # in the engine's last window (the prompt tail, the
+                # question band) were never copied out - on release
+                # their GPU slots are recycled and the bytes are
+                # gone, so a resume could restore the whole prefix
+                # except the newest pages that matter most. Copy the
+                # remaining window pages here, while the slots are
+                # still valid (pure copies then cover the full
+                # chain - protocol 2).
+                try:
+                    _st444 = self._state.get(req)
+                    _pt444 = int(self.page_tokens)
+                    _need444 = (int(getattr(_st444, "tokens", 0) or 0)
+                                // _pt444 + 1)
+                    _rowt444 = [int(x) for x in
+                                (getattr(_st444, "row", ()) or ())]
+                    _lgv444 = [int(x) for x in
+                               (getattr(_st444, "logical", ()) or ())]
+                    _swept454 = 0
+                    if _rowt444 and _lgv444:
+                        _paged444 = self.view.paged_kv()
+                        for _pg454 in range(0, _need444 + 1):
+                            if _o444.store.has(_pg454):
+                                continue
+                            try:
+                                _sl454 = _rowt444[
+                                    _lgv444.index(_pg454)]
+                            except (ValueError, IndexError):
+                                continue
+                            if (not _sl454 or int(_sl454) <= 0
+                                    or int(_sl454)
+                                    >= _paged444[0].shape[0]):
+                                continue
+                            _o444.store.put(
+                                int(_pg454),
+                                [t[int(_sl454)].cpu().clone()
+                                 for t in _paged444])
+                            _swept454 += 1
+                    if self.log is not None:
+                        self.log({"kind": "d_final_sweep",
+                                  "req": str(req)[-6:],
+                                  "swept": int(_swept454),
+                                  "pages": len(getattr(
+                                      _o444.store, "_pages", {}) or {})})
+                except Exception:
+                    pass
                 _h444 = self._session_hashes(req)
                 if _h444:
                     _p444 = self._spill_stores = getattr(
