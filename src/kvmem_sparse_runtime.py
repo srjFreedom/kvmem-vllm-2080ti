@@ -5871,6 +5871,42 @@ class VllmSparseRuntime:
                       "seq_len": int(getattr(st, "seq_len", 0))})
         return True
 
+    def _restore_after_probe(self, req, orch, pairs):
+        """AFTER-RESTORE CONFRONTATION (design 519): did the needle page
+        actually leave the knife with canonical bytes? The knife-time
+        witness fires before the copy and cannot answer that.
+        """
+        try:
+            _pg = int(self._needle_page_real())
+            if _pg < 0:
+                return
+            _inl = 0
+            try:
+                for _pp in (pairs or ()):
+                    if int(_pp[0]) == _pg:
+                        _inl = 1
+                        break
+            except Exception:
+                pass
+            _pk = self.view.paged_kv()
+            _so = getattr(orch, "slot_of", {}) or {}
+            _sl = int(_so.get(_pg, -1))
+            _lz = orch.store.get(_pg)
+            _live = None
+            if 0 <= _sl < _pk[0].shape[0]:
+                _live = round(float(_pk[0][_sl].float().abs().mean()), 5)
+            _can = (round(float(_lz[0].float().abs().mean()), 5)
+                    if _lz else None)
+            _same = (int(abs(_live - _can) < 1e-4)
+                     if (_live is not None and _can is not None) else -1)
+            if self.log is not None:
+                self.log({"kind": "d_restore_after", "req": str(req)[-6:],
+                          "page": _pg, "in_pairs": _inl, "slot": _sl,
+                          "live": _live, "canon": _can, "same": _same,
+                          "n_pairs": len(pairs or ())})
+        except Exception:
+            pass
+
     def _needle_page_real(self):
         """Page of the ACTUAL needle sentence (design 515). The old
         marker is the battery constant (71401) - useless for any
@@ -6745,6 +6781,7 @@ class VllmSparseRuntime:
         if _to_restore:
             try:
                 orch.restore_pages_batch(_to_restore)
+                self._restore_after_probe(req, orch, _to_restore)
                 if self.log is not None and \
                         getattr(self, "_rmb_loud", 0) < 8:
                     self._rmb_loud = getattr(self, "_rmb_loud", 0) + 1
@@ -7696,6 +7733,7 @@ class VllmSparseRuntime:
                 self.log({"kind": "d_knife_restore",
                           "req": str(req)[-6:],
                           "pairs": len(_to_restore2)})
+                self._restore_after_probe(req, orch, _to_restore2)
         try:
             _pgv = (self._needle_page_real()
                     if self._needle_page_real() >= 0
