@@ -2337,3 +2337,9 @@ skip=不重放只装视图 - 顺路）。
 - 152K 双发 (482 代): 冷 224.2s "text is a deliberate, self-referential..." (filler 复读); 续 7.1s "is no access code for KEY-MID in the archive. The text explicitly states: 'Noth...'" -> 模型读到 filler 但针句不可见 => store 针页字节疑点仍在 (park canon 106.74 / 104.99 双 rank)。
 - 下刀: ①park 时对页 2225..2245 的 canon 幅值做窗口对质 (找重复/离群=错误收割证据); ②若坐实, 修 eviction copy 的槽来源 (用当时 slot_of 权威账, 而非 row/logical 推导)。
 - 本回合 1 boot+3 发+4 查。ahead 435->437。引擎 482 代健康。
+
+## 483-484. Round 217: **88K needle 命中 + resume 5.3s 内容一致 (里程碑)** - 超窗 152K 仍 duct (压刀路径)
+- 判据链: ①482 桥门槛后短探针正常; ②88K 冷跑 91.3s 答 '-4417-QJ7' (针句可见, 唯一码后缀命中); ③紧接同题 resume 5.3s 内容完全一致 (sha b12d4e71) = **验收"命中轮与冷跑字节一致 + 5-10s"在 88K 上首次同时满足**。
+- 152K 组: 冷 224s 复读 filler; 针位(sink/recent)对照双发均 duct — 说明超窗压刀路径把视图打坏 (88K 未超窗所以好)。
+- 下刀: 对比 88K(好) vs 152K(坏) 的刀频/住留账, 定位压刀破坏点 (restore 覆盖/row 重排/位置映射); 优先用 88K 现成绿基线做回归锚。
+- 本回合 0 boots+5 发+3 查。ahead 437->438。引擎 482 代健康。
