@@ -6025,30 +6025,37 @@ class VllmSparseRuntime:
         # (measured: res_slot unit mismatch -> every logical row
         # -1, restore never fires, needle pages read as garbage).
         def _restore_pairs_471(_ordered, _pmap):
-            """Wanted pages with NO residency book are exactly the
-            pages the identity seam used to drop (it returned an
-            empty restore list - the view then had holes and the
-            model read recycled slots). Pair each with the engine
-            block the request row holds for that logical position;
-            the caller's restore_pages_batch copies canonical bytes
-            into it (pure copy, protocol 2).
+            """Wanted pages with NO residency book: pair each with the
+            engine block the request row holds AT ITS VIEW POSITION
+            (design 475). The row is positional (row[i] = the cache
+            block attention reads at view position i), so the index
+            space is the ORDER of `ordered`, not the page number -
+            the earlier page-indexed lookup left len(row) < page for
+            every needle page and dropped every pair. Pure copy into
+            the very block the engine will read (protocol 2).
             """
             try:
                 _rows = self.view.block_table_rows()
                 _ri = getattr(st, "row_index", None)
-                if _ri is None or int(_ri) >= len(_rows):
-                    return []
-                _rv = [int(v) for v in _rows[int(_ri)]]
+                _rv = None
+                if _ri is not None and int(_ri) < len(_rows):
+                    _rv = [int(v) for v in _rows[int(_ri)]]
                 out = []
-                for _pg in _ordered:
+                for _idx, _pg in enumerate(_ordered):
                     _pg = int(_pg)
                     if int(_pmap.get(_pg, 0) or 0) > 0:
                         continue
-                    if 0 < _pg < len(_rv) and int(_rv[_pg]) > 0:
-                        out.append((_pg, int(_rv[_pg])))
+                    _slc = 0
+                    if _rv is not None and 0 <= _idx < len(_rv):
+                        _slc = int(_rv[_idx])
+                    if _slc <= 0:
+                        _slc = int(_pg) - int(_pg) % max(1, int(q))
+                    if _slc > 0:
+                        out.append((_pg, int(_slc)))
                 return out
             except Exception:
                 return []
+
         if True:
             # IDENTITY EARLY PATH (design 172): under BLKIDS the knife
             # is PURE rearrangement - every wanted page addresses its
