@@ -2465,3 +2465,10 @@ skip=不重放只装视图 - 顺路）。
 - 剩余病灶收敛到 **地址/位置层 (invariant 5)**: 视图重排后行序/位置与字节烘焙相位不一致 -> 模型仍被噪声淹没; 或其它页(非针页)仍有错位。
 - 下刀: ①逐页抽样对质 (不止针页): 刀后随机 32 页 live vs canon, 统计 same 比例; ②检查 positions/seq_lens 发布 (真位置烘焙) 在重排视图下是否仍用真位置; ③若地址层未压缩 (seq_len=全流) 而行是 1666 槽 -> 越界读垃圾, 需落地 seq 覆盖。
 - 本回合 2 boots+1 发+3 查。ahead 467->469。引擎 健康。
+
+## 520-521. Round 237: **内容层封顶 100%** (32/32 抽样 same, 14 刀全 1.0) + 发布压缩注意力长度 (seq_override=len(row)*pt) - 但答复仍 duct
+- 意义: 页面字节、回填、驻留账三项全证; 唯一剩余面 = 地址/位置 (invariant 5)。
+- 521 已落: 行安装时同步发布 `_seq_override[row] = len(st.row)*page_tokens` (FullAttention builder 消费)。
+- 未生效证据: 答复仍 duct => ①builder hook 是否真被包 (wrapped 计数/日志); ②override 在 metadata 构建时是否可见 (时序); ③行本身是否覆盖全流 (若 attention 长度=视图宽, 行足够即可)。
+- 下轮: ①在 attention_seq_lens 内加 d_seq522 见证 (row/base/override/生效值); ②确认 plugin 的 builder 包装 (wrapped>0); ③若时序问题, 在 prepare_pos_seq_lens 前发布。
+- 本回合 3 boots+1 发+2 查。ahead 470->472。引擎 健康。
