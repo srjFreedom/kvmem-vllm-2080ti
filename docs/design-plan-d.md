@@ -2308,3 +2308,9 @@ skip=不重放只装视图 - 顺路）。
 - 读数: d_lex_reserve{rare:18, added:1, kept_n:9} 双 rank 双发; 冷跑 339s 仍复读 filler ("ferryman keeps a ledger..."), T2 续 5.5s '_FOUND'。panel needle_rank=-1/inc_has_needle=0 = 打分面本就不含针块 (与保底无关); d_final_kept in_kept:0 为**保底前**的账。
 - 下刀: 在 `_rebuild_view` 返回后加 d_view_needle{page_in_phys, page_in_logical, slot} 见证, 区分三案: ①针块进 kept 但重建丢弃 (blk 里某页缺失被丢) ②进了行但模型不读 (位置/相位) ③保底调用点不在主刀路径 (两处调用, remobilize 与 blockwise 谁在主链)。
 - 本回合 1 boot+2 发+4 查。ahead 414→415。引擎 464 代健康。
+
+## 467-468. Round 211-212: 刀复活后首次真视图读数 - T2 续轮 needle 页在视图 (idx 369, slot 75) 但模型仍答 'no access code'; T1 冷轮首刀视图无针页 (kept 21 块无 45)
+- 修认: ①_rebuild_view 两处 identity return 的 UnboundLocalError (_bpo) 已修 - 这是自 bisect 树以来 240 次/窗的刀灭根因 ("刀从未装过视图"); ②probe 纠错 - phys_pages 是块号而非页号, 按索引取槽才是真相。
+- 新读数: T1 冷 (224.4s, 重复 filler): 首刀 kept=21 无 45 块; T2 续 (7.1s): needle idx=369 slot=75 in_logical=1 -> 续轮视图确含针页, 但答 "is no access code for KEY-MID in the archive..." = 读到了些却否认有码值 -> 疑恢复行与引擎行错位或 store 页序号错位。
+- 下刀: ①_restore_pair 固定采样 needle 页 2231; ②restore 记 values[2231] 与 _page_map[2231] 对照; ③规模错位时用自相关定偏移。
+- 本回合 2 boots+2 发+6 查。ahead 418->419。引擎 468 代健康。
