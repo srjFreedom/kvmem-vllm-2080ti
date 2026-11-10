@@ -1938,8 +1938,13 @@ class VllmSparseRuntime:
             _arch = getattr(self, "_d_state_archive", None)
             if _arch is None:
                 _arch = self._d_state_archive = {}
-            if _snap is not None and len(_snap) > 1 and _snap[1] is not None:
-                _arch[_key259] = _snap[1]
+            if _snap:
+                # WHOLE SNAPSHOT (design 453): d_state_snapshot
+                # returns [(cache, block, clones), ...]; archiving
+                # only element [1] stored a single 3-tuple and the
+                # restore treated it as a group dict (ValueError ->
+                # engine kill). Store the complete table.
+                _arch[_key259] = _snap
             payload = {
                 "hashes": list(hashes),
                 "state_key_hex": _key259.hex() if _key259 else "",
