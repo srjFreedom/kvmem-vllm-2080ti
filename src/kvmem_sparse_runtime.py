@@ -1072,6 +1072,14 @@ class VllmSparseRuntime:
             # row arrival) runs _complete_resume: pages restore as
             # PURE COPIES from the grafted store (protocol 2).
             _hit440 = getattr(self, "_resume_ok", {}).pop(req, 0)
+            _mk457 = self._resume.pop(req, None)
+            if _mk457 is not None:
+                # CORE'S DEPTH WINS (457): the engine skipped
+                # exactly this many tokens; restoring anything
+                # deeper was a lie (resident != hit left the tail
+                # pages un-restored - the duct).
+                _hit440 = int(_mk457[0])
+                _vis457 = int(_mk457[1] or _mk457[0])
             if _hit440:
                 class _E440:
                     pass
@@ -1094,7 +1102,8 @@ class VllmSparseRuntime:
                 _stt440 = self._state[req]
                 _stt440.tokens = int(_hit440)
                 _stt440.resume = (_en440, int(_hit440),
-                                  int(_hit440))
+                                  int(_vis457 if _mk457 is not None
+                                      else _hit440))
                 self.log({"kind": "d_resume_forged",
                           "req": str(req)[-6:],
                           "hit": int(_hit440)})
@@ -2473,6 +2482,20 @@ class VllmSparseRuntime:
                       "owner": str(owner_session_id)[:34]})
         if found is None:
             self.log({"kind": "resume_miss", "req": req, "hit": hit_tokens})
+            # PENDING SURVIVES THE MISS (design 457): the marker
+            # carries CORE's decided skip - the only depth the
+            # engine's book actually skipped. The normal build path
+            # then forges the adoption ledger with THIS depth (not
+            # the stash page count: that overshoots by the window
+            # tail and leaves holes the engine never re-prefills).
+            try:
+                self._resume[req] = (int(hit_tokens),
+                                     int(visible_tokens))
+                self.log({"kind": "d_resume_pending_kept",
+                          "req": str(req)[-6:],
+                          "hit": int(hit_tokens)})
+            except Exception:
+                pass
             return None
         entry, _blocks = found
         if int(entry.covered_tokens) < int(hit_tokens):
