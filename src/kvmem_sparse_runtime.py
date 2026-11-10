@@ -1044,12 +1044,15 @@ class VllmSparseRuntime:
                                   "key": str(_kk437)[:16]})
                         _hit437 = True
                         break
-                if not _hit437 and len(_pool437) == 1:
-                    # SINGLE-SURVIVOR BRIDGE (design 447): exact key
-                    # equality can miss on chain-tail representation
-                    # slivers; with exactly ONE survivor the session
-                    # is unambiguous (single-user arm, Core decided
-                    # the same chain). Adopt the bytes.
+                if not _hit437 and not _hp437 and len(_pool437) == 1:
+                    # SINGLE-SURVIVOR BRIDGE (design 462, narrowed):
+                    # ONLY when this request has NO chain of its own
+                    # (the engine-rid first step with an empty prompt
+                    # ledger). A present-but-mismatched chain means
+                    # the request is NOT that session - adopting the
+                    # survivor anyway grafted T1's prefix under a
+                    # different tail (measured: a mutated prompt
+                    # resumed in 5.4s and answered garbage).
                     _k447, _gv447 = next(iter(_pool437.items()))
                     _ss447 = (_gv447[0] if isinstance(_gv447, tuple)
                               else _gv447)
@@ -1061,6 +1064,11 @@ class VllmSparseRuntime:
                     self.log({"kind": "d_keepalive_bridge",
                               "req": str(req)[-6:],
                               "key": str(_k447)[-16:]})
+                elif not _hit437:
+                    self.log({"kind": "d_keepalive_nomatch",
+                              "req": str(req)[-6:],
+                              "hashes_n": len(_hp437 or ()),
+                              "pool_n": len(_pool437)})
             except Exception:
                 pass
             self._owned_slots[req] = set()
