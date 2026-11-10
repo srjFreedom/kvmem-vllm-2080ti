@@ -2410,3 +2410,10 @@ skip=不重放只装视图 - 顺路）。
 - 两个并存缺陷: ①resume 消费门每步重入 (st.resume 未清) => 视图未装/反复覆盖; ②needs page 不在 selection 集 (usable_pages/几何把针页排除)。
 - 下轮: ①查 _complete_resume 的返回/清理路径哪条分支没清 st.resume (加 d_resume_done 见证); ②打印 resume selection 的 pages 集合与 needle page 的关系 (总页数 vs usable_pages 上限); ③修好后以 10K 二连为最小回归。
 - 本回合 0 boots+2 发+1 查。ahead 453。引擎 健康。
+
+## 505-506. Round 228: 同进程对照 - 10K 双发**全绿** (冷 11.8s / 续 8.3s 均 'ZX-4417-QJ7', 续跑 8.3s 带内) ; 紧接着 88K 电池冷 92.8s duct + 续 HTTPError (引擎退出)
+- 结论钉死: **绿区 <= 视图预算 (~50K), 超窗压刀区 (>=~50-88K) 必坏**, 与 resume 是否参与无关 (10K 续跑已绿, 同进程)。此前 60-80K "命中" 均为前缀续跑 (命中来自更短归档, 非该长度冷算)。
+- 505 见证已上盘 (d_resume_gate505/d_resume_done505), 但该次窗口未捕到 (日志窗口基偏移), 下轮重取。
+- 现状态: 绿区 10K/50K 双发可复现; 战场 = 压刀 (超窗) 路径; 引擎已重启健康。
+- 下轮: ①在 55K/60K 双发找压刀首个坏点; ②对首个坏点抓 d_view_needle/d_pairs480/d_knife_restore/d_resume_gate505 与行宽; ③怀疑点: 超窗后 row(1666) 与全流(>=2342 页) 的寻址不一致 (invariant 5 地址压缩未生效于全流注意力)。
+- 本回合 2 boots+4 发。ahead 455。引擎 健康。
