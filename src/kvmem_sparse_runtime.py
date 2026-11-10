@@ -229,6 +229,13 @@ class VllmSparseRuntime:
         self.session_checkpoint_executed_frontier = None
         # req -> (hit_tokens, visible_tokens) decided by EngineCore for a resumed session.
         self._resume = {}
+        # KEEPALIVE POOL (design 448): orphaned-orch stores and the
+        # adopt-time token account both need containers that exist
+        # from birth - the graft wrote into a never-initialized
+        # attribute and its AttributeError silently swallowed every
+        # graft/bridge (measured: two zero-event eras).
+        self._spill_stores = {}
+        self._resume_ok = {}
         # Optional hooks supplied by the plugin for the non-attention (GDN/Mamba) state, which is
         # NOT in the paged store: capture(req) -> snapshot, restore(req, snapshot) -> bool.
         self.capture_state = None
@@ -1029,7 +1036,9 @@ class VllmSparseRuntime:
                                   else _gv437)
                         orch.store = _ss437
                         if isinstance(_gv437, tuple) and _gv437[1]:
-                            self._resume_ok[req] = int(_gv437[1])
+                            _ro448 = self._resume_ok = getattr(
+                                self, "_resume_ok", {})
+                            _ro448[req] = int(_gv437[1])
                         self.log({"kind": "d_keepalive_graft",
                                   "req": str(req)[-6:],
                                   "key": str(_kk437)[:16]})
@@ -1046,7 +1055,9 @@ class VllmSparseRuntime:
                               else _gv447)
                     orch.store = _ss447
                     if isinstance(_gv447, tuple) and _gv447[1]:
-                        self._resume_ok[req] = int(_gv447[1])
+                        _ro448b = self._resume_ok = getattr(
+                            self, "_resume_ok", {})
+                        _ro448b[req] = int(_gv447[1])
                     self.log({"kind": "d_keepalive_bridge",
                               "req": str(req)[-6:],
                               "key": str(_k447)[-16:]})
