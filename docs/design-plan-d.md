@@ -2290,3 +2290,9 @@ skip=不重放只装视图 - 顺路）。
 - 语义缺口: **恢复深度必须等于状态归档 cursor (invariant 4)**。当前 skip/forged hit=页数*pt, 而 store 只保证稀疏覆盖 (4412 连续), 中间 3 页空洞落在 141184..141280 (re-prefill 边界前的 recent 带) -> 模型上下文断裂 -> duct。
 - 下轮正解 (择一, 先查 capacity/clamp 源): ①capture 时按**连续覆盖**发布 covered (contiguous_pages*pt), 并把状态归档 cursor 对齐到同一边界 (若归档时点晚于边界, 需在边界重快照 state - d_state_snapshot 可在任意 step 取); ②或让 store 全量覆盖: 查为什么 0..4414 有 3 页从未入店 (OOW 只拷被淘汰页; 检查 knife 后将被淘汰窗口页是否都过 store.put)。
 - 本回合 1 boot+3 发+6 查。ahead 405→406。引擎 455 代健康。
+
+## 457-461. Round 208: **resume 内容首次见针 (-MID) + T2=5.5s 落验收带** - 六个凶手逐一定谳: Core 深度 (141120, 非 stash 页数 141280) / 当前位置槽状态还原 (plugin 格式 group 快照) / 字节已证 (live==canonical 逐页相等)
+- 读数链: pending_kept{141120} → forged{141120} → geom{count:4410,avail:4410,store_n:4471} → d_restore_pair 19 页 live==canonical 全等 → session_resumed{hit=resident=141120} → d_state_restored_plugin{3 group} → **T2/T3=5.5s/5.4s, head='-MID' (针句可读)**。
+- 语义总结: ①forged 深度必须=Core decided (引擎账本唯一基准); ②状态必须按**当前请求行**重算槽 (原块=别人的块); ③store 需全量覆盖 (临终全扫+页对齐记账); ④字节面纯拷贝已逐页证明。
+- 残敌: 回答截断在 '-MID' (needle sentence 可读但码值桶仍缺) - 下一战=选择器 (邻桶保底/码值桶) + max_tokens 拉长看完整答案。
+- 预算: 4 boots+8 发+12 查。ahead 409→411。引擎 460 代健康。
