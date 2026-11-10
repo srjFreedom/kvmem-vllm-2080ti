@@ -1147,37 +1147,64 @@ def _attach_sparse(runner, log_path):
     # must keep the true length, and they share one tensor, so the split has to happen at the
     # builder. FlashInfer derives its paged-kv indptr at build time, so it must see the
     # compacted value HERE rather than being patched afterwards.
-    wrapped = 0
-    try:
-        for gi, groups in enumerate(getattr(runner, "attn_groups", None) or []):
-            for attn_group in groups:
-                spec = getattr(attn_group, "kv_cache_spec", None)
-                if spec is None or type(spec).__name__ != "FullAttentionSpec":
-                    continue
-                for builder in getattr(attn_group, "metadata_builders", []) or []:
-                    original_build = builder.build
-                    if getattr(original_build, "_kvmem_patched", False):
+    _wrap529 = {"n": 0, "tries": 0, "done": False}
+
+    def _wrap_attn_builders():
+        """RETRYABLE BUILDER WRAP (design 529): on some ranks
+        `runner.attn_groups` is empty at attach time, so the
+        FullAttention builder hook never installed
+        (builders_wrapped=0 in the probe) and the compacted
+        seq_lens were never delivered - the engine attended the
+        whole stream and read past the row into recycled blocks.
+        Called again from prepare_pos_seq_lens until it sticks.
+        """
+        _n = 0
+        try:
+            for _gi, _groups in enumerate(getattr(runner, "attn_groups",
+                                                  None) or []):
+                for _attn_group in _groups:
+                    _spec = getattr(_attn_group, "kv_cache_spec", None)
+                    if (_spec is None or type(_spec).__name__
+                            != "FullAttentionSpec"):
                         continue
+                    for _builder in getattr(_attn_group,
+                                            "metadata_builders", []):
+                        _orig = _builder.build
+                        if getattr(_orig, "_kvmem_patched", False):
+                            _n += 1
+                            continue
 
-                    def build(common_prefix_len=0, common_attn_metadata=None, _orig=original_build,
-                              **kwargs):
-                        if common_attn_metadata is not None:
-                            saved = common_attn_metadata.seq_lens
-                            common_attn_metadata.seq_lens = runtime.attention_seq_lens(saved)
-                            try:
-                                return _orig(common_prefix_len=common_prefix_len,
-                                             common_attn_metadata=common_attn_metadata, **kwargs)
-                            finally:
-                                common_attn_metadata.seq_lens = saved
-                        return _orig(common_prefix_len=common_prefix_len,
-                                     common_attn_metadata=common_attn_metadata, **kwargs)
+                        def _build529(common_prefix_len=0,
+                                      common_attn_metadata=None,
+                                      _o=_orig, **kwargs):
+                            if common_attn_metadata is not None:
+                                _saved = common_attn_metadata.seq_lens
+                                common_attn_metadata.seq_lens = (
+                                    runtime.attention_seq_lens(_saved))
+                                try:
+                                    return _o(
+                                        common_prefix_len=common_prefix_len,
+                                        common_attn_metadata=common_attn_metadata,
+                                        **kwargs)
+                                finally:
+                                    common_attn_metadata.seq_lens = _saved
+                            return _o(common_prefix_len=common_prefix_len,
+                                      common_attn_metadata=common_attn_metadata,
+                                      **kwargs)
 
-                    build._kvmem_patched = True
-                    builder.build = build
-                    wrapped += 1
-    except Exception:
-        _append(log_path, {"kind": "sparse_builder_error", "pid": os.getpid(),
-                           "error": traceback.format_exc()})
+                        _build529._kvmem_patched = True
+                        _builder.build = _build529
+                        _n += 1
+        except Exception:
+            _append(log_path, {"kind": "sparse_builder_error",
+                               "pid": os.getpid(),
+                               "error": traceback.format_exc()})
+        _wrap529["n"] = int(_n)
+        _wrap529["tries"] = int(_wrap529["tries"]) + 1
+        _wrap529["done"] = bool(_n > 0)
+        return _n
+
+    wrapped = _wrap_attn_builders()
 
     # Hook 1: install the view right after the engine builds positions/seq_lens.
     original_prepare = mr.prepare_pos_seq_lens
@@ -1223,6 +1250,17 @@ def _attach_sparse(runner, log_path):
 
         def prepare_pos_seq_lens(idx_mapping, query_start_loc, num_computed_tokens,
                                  positions, seq_lens):
+            try:
+                if not _wrap529["done"] and _wrap529["tries"] < 64:
+                    _wrap_attn_builders()
+                    if _wrap529["done"]:
+                        _append(log_path, {
+                            "kind": "sparse_builder_rewrap529",
+                            "pid": os.getpid(),
+                            "builders_wrapped": int(_wrap529["n"]),
+                            "tries": int(_wrap529["tries"])})
+            except Exception:
+                pass
             try:
                 rs = getattr(runner, "req_states", None)
                 _b = getattr(runner, "input_batch", None)
