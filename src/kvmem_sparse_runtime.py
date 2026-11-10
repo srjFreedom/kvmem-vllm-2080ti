@@ -2189,6 +2189,17 @@ class VllmSparseRuntime:
         # over a three-page shortfall killed the engine instead.
         try:
             _avail450 = len(orch.usable_pages(int(hit_tokens)))
+            _spages455 = sorted(int(p) for p in orch.store.pages)
+            _haslast455 = bool(
+                _spages455 and _spages455[-1] >= (count - 1))
+            self.log({"kind": "d_resume_geom455",
+                      "req": str(req)[-6:],
+                      "count": int(count),
+                      "avail": int(_avail450),
+                      "store_n": len(_spages455),
+                      "store_last": (_spages455[-1]
+                                     if _spages455 else -1),
+                      "has_last": bool(_haslast455)})
             if count > _avail450:
                 count = int(_avail450)
                 self.log({"kind": "d_restore_floor",
@@ -3412,17 +3423,23 @@ class VllmSparseRuntime:
                                 (getattr(_st444, "row", ()) or ())]
                     _lgv444 = [int(x) for x in
                                (getattr(_st444, "logical", ()) or ())]
+                    _pmap444 = dict(self._page_map.get(req, {}) or {})
                     _swept454 = 0
-                    if _rowt444 and _lgv444:
+                    if _rowt444:
                         _paged444 = self.view.paged_kv()
                         for _pg454 in range(0, _need444 + 1):
                             if _o444.store.has(_pg454):
                                 continue
                             try:
-                                _sl454 = _rowt444[
-                                    _lgv444.index(_pg454)]
+                                if _lgv444:
+                                    _sl454 = _rowt444[
+                                        _lgv444.index(_pg454)]
+                                else:
+                                    raise ValueError
                             except (ValueError, IndexError):
-                                continue
+                                _sl454 = _pmap444.get(_pg454)
+                                if _sl454 is None:
+                                    continue
                             if (not _sl454 or int(_sl454) <= 0
                                     or int(_sl454)
                                     >= _paged444[0].shape[0]):
