@@ -6450,20 +6450,27 @@ class VllmSparseRuntime:
         try:
             _pgv = self._needle_marker(req, st) // max(1, int(pt))
             _nbv = _pgv // max(1, int(q))
+            _ordv = [int(x) for x in (logical_pages or ())]
+            _physv = [int(x) for x in (phys_pages or ())]
             _seen459 = self._vn_seen = getattr(self, "_vn_seen", set())
             _tag = "%s:%d" % (str(req), id(self))
             if _tag not in _seen459:
                 _seen459.add(_tag)
                 if len(_seen459) > 512:
                     _seen459.clear()
+                # phys_pages carry BLOCK ids, logical_pages carry PAGE
+                # ids, aligned by index (the fix for a member test
+                # that compared a page number to block numbers and
+                # always said "missing").
+                _idx = (_ordv.index(_pgv) if _pgv in _ordv else -1)
+                _slot = (_physv[_idx] if 0 <= _idx < len(_physv)
+                         else -1)
                 self.log({"kind": "d_view_needle",
                           "req": str(req)[-6:],
                           "page": int(_pgv), "blk": int(_nbv),
-                          "in_phys": int(_pgv in set(
-                              int(x) for x in (phys_pages or ()))),
-                          "in_logical": int(_pgv in set(
-                              int(x) for x in (logical_pages or ()))),
-                          "n_phys": len(phys_pages or ()),
+                          "idx": int(_idx), "slot": int(_slot),
+                          "in_logical": int(_idx >= 0),
+                          "n_phys": len(_physv),
                           "kept_n": len(kept or ())})
         except Exception:
             pass
@@ -7399,20 +7406,27 @@ class VllmSparseRuntime:
         try:
             _pgv = self._needle_marker(req, st) // max(1, int(pt))
             _nbv = _pgv // max(1, int(q))
+            _ordv = [int(x) for x in (logical_pages or ())]
+            _physv = [int(x) for x in (phys_pages or ())]
             _seen459 = self._vn_seen = getattr(self, "_vn_seen", set())
             _tag = "%s:%d" % (str(req), id(self))
             if _tag not in _seen459:
                 _seen459.add(_tag)
                 if len(_seen459) > 512:
                     _seen459.clear()
+                # phys_pages carry BLOCK ids, logical_pages carry PAGE
+                # ids, aligned by index (the fix for a member test
+                # that compared a page number to block numbers and
+                # always said "missing").
+                _idx = (_ordv.index(_pgv) if _pgv in _ordv else -1)
+                _slot = (_physv[_idx] if 0 <= _idx < len(_physv)
+                         else -1)
                 self.log({"kind": "d_view_needle",
                           "req": str(req)[-6:],
                           "page": int(_pgv), "blk": int(_nbv),
-                          "in_phys": int(_pgv in set(
-                              int(x) for x in (phys_pages or ()))),
-                          "in_logical": int(_pgv in set(
-                              int(x) for x in (logical_pages or ()))),
-                          "n_phys": len(phys_pages or ()),
+                          "idx": int(_idx), "slot": int(_slot),
+                          "in_logical": int(_idx >= 0),
+                          "n_phys": len(_physv),
                           "kept_n": len(kept or ())})
         except Exception:
             pass
