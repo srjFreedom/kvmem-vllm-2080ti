@@ -1954,6 +1954,29 @@ class VllmSparseRuntime:
                 # restore treated it as a group dict (ValueError ->
                 # engine kill). Store the complete table.
                 _arch[_key259] = _snap
+                # PLUGIN-FORMAT PARALLEL (design 459): the runtime
+                # table keeps captured BLOCK ids; a resumed request
+                # gets its OWN block allocation, so writing those
+                # ids back lands the recurrent state on somebody
+                # else's blocks (measured: bytes all correct, pages
+                # exact, answer still duct - the GDN slot is the
+                # last liar). The plugin capture records group ids
+                # and lets the restore recompute slots from the
+                # CURRENT row.
+                try:
+                    if self.capture_state is not None:
+                        _ps459 = self.capture_state(req)
+                        if _ps459:
+                            _pa459 = getattr(
+                                self, "_plugin_state_archive", None)
+                            if _pa459 is None:
+                                _pa459 = self._plugin_state_archive = {}
+                            _pa459[_key259] = _ps459
+                            if self.log is not None:
+                                self.log({"kind": "d_plugin_state_archived",
+                                          "groups": len(_ps459)})
+                except Exception:
+                    pass
             payload = {
                 "hashes": list(hashes),
                 "state_key_hex": _key259.hex() if _key259 else "",
@@ -2299,6 +2322,26 @@ class VllmSparseRuntime:
                         else bytes.fromhex(str(_hk)))
                 except Exception:
                     _st259 = None
+            if _st259 is None and getattr(self, "d_mode", False):
+                try:
+                    _hk2 = (entry.block_hashes[-1]
+                            if entry.block_hashes else b"")
+                    _ps2 = getattr(self, "_plugin_state_archive",
+                                   {}).get(_hk2 if isinstance(
+                                       _hk2, bytes) else b"")
+                    if _ps2 is not None and self.restore_state is not None:
+                        if self.restore_state(req, _ps2):
+                            _st259 = None
+                            self.log({"kind": "d_state_restored_plugin",
+                                      "req": str(req)[-6:]})
+                        else:
+                            raise RuntimeError(
+                                "resumed GDN StateImage could not be "
+                                "restored")
+                except RuntimeError:
+                    raise
+                except Exception:
+                    pass
             if (_st259 is not None and isinstance(_st259, list)
                     and getattr(self, "d_mode", False)):
                 # D ARCHIVE FORMAT (design 452): the local archive holds
