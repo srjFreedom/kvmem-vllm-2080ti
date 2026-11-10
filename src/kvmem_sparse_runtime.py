@@ -6433,6 +6433,27 @@ class VllmSparseRuntime:
                                      n_pages)
         phys_pages, logical_pages, _to_restore, _to_evict, _bpw = \
             self._rebuild_view(req, st, orch, kept, q, pt, n_pages)
+        try:
+            _pgv = self._needle_marker(req, st) // max(1, int(pt))
+            _nbv = _pgv // max(1, int(q))
+            _seen459 = self._vn_seen = getattr(self, "_vn_seen", set())
+            _tag = "%s:%d" % (str(req), id(self))
+            if _tag not in _seen459:
+                _seen459.add(_tag)
+                if len(_seen459) > 512:
+                    _seen459.clear()
+                self.log({"kind": "d_view_needle",
+                          "req": str(req)[-6:],
+                          "page": int(_pgv), "blk": int(_nbv),
+                          "in_phys": int(_pgv in set(
+                              int(x) for x in (phys_pages or ()))),
+                          "in_logical": int(_pgv in set(
+                              int(x) for x in (logical_pages or ()))),
+                          "n_phys": len(phys_pages or ()),
+                          "kept_n": len(kept or ())})
+        except Exception:
+            pass
+
         if _to_restore:
             try:
                 orch.restore_pages_batch(_to_restore)
@@ -7361,6 +7382,27 @@ class VllmSparseRuntime:
                                      n_pages)
         phys_pages, logical_pages, _to_restore2, _to_evict2, _bpw2 = \
             self._rebuild_view(req, st, orch, kept, q, pt, n_pages)
+        try:
+            _pgv = self._needle_marker(req, st) // max(1, int(pt))
+            _nbv = _pgv // max(1, int(q))
+            _seen459 = self._vn_seen = getattr(self, "_vn_seen", set())
+            _tag = "%s:%d" % (str(req), id(self))
+            if _tag not in _seen459:
+                _seen459.add(_tag)
+                if len(_seen459) > 512:
+                    _seen459.clear()
+                self.log({"kind": "d_view_needle",
+                          "req": str(req)[-6:],
+                          "page": int(_pgv), "blk": int(_nbv),
+                          "in_phys": int(_pgv in set(
+                              int(x) for x in (phys_pages or ()))),
+                          "in_logical": int(_pgv in set(
+                              int(x) for x in (logical_pages or ()))),
+                          "n_phys": len(phys_pages or ()),
+                          "kept_n": len(kept or ())})
+        except Exception:
+            pass
+
         # CONFRONTATION PIN (design 297): right after the knife's
         # rebuild, sample up to 4 KEPT pages that were treated as
         # resident (no restore scheduled) and compare the slot's
