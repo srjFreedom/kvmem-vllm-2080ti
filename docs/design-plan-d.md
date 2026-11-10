@@ -2424,3 +2424,8 @@ skip=不重放只装视图 - 顺路）。
 - 前沿: 55K 双发绿; 88K 双发红 (duct) => 断层在 55K-88K 之间 (窗预算 ~50K + 刀组合)。引擎稳定存活。
 - 下轮: 60K/65K/70K/75K 双发定位断层; 断层处抓 d_view_needle/d_pairs480/d_knife_restore 与 row_len/seq_override; 优先验证 invariant 5 地址压缩在该档位是否生效。
 - 本回合 2 boots+6 发+3 查。ahead 457->458。引擎 健康。
+
+## 510. Round 230: **断层钉在 ~65K-75K token (即 2048 页)** - 65K(64,941tok) 冷 77s ✓ / 续 4.4s ✓; 75K(74,907tok) 冷 91.5s duct / 续 6.5s duct
+- 观察: 64,941/32 = 2029 页 (绿) ; 74,907/32 = 2341 页 (红) => 阈值疑为 **2048 页** (2^11) 的行容量/页配额; 88K 电池 74,948tok 正落红线之上。
+- 下轮: ①grep 2048/row capacity/pages_per_block 与 scheduler 页配额常量, 确认 2048 的来源 (kvmem_sched_compact? view capacity?); ②在 66K (2062 页) 与 64.5K (2015 页) 各一冷发夹逼阈值; ③阈值两侧各抓 d_view_needle/d_pairs480/d_knife_restore/row_len/seq_override, 找首刀差异。
+- 本回合 0 boots+4 发+1 查。ahead 459。引擎 健康。
