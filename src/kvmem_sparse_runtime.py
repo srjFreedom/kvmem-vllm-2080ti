@@ -2310,48 +2310,34 @@ class VllmSparseRuntime:
                 pass
         if self.has_recurrent:
             _st259 = getattr(entry, "mamba_state", None)
-            if _st259 is None and getattr(self, "d_mode", False):
-                # LOCAL ARCHIVE FETCH (design 259): keyed by the last
-                # block hash of the chain - identical on the capture
-                # side; nothing crosses any process boundary.
+            # CURRENT-ROW STATE RESTORE FIRST (design 460): the plugin
+            # snapshot records group ids and recomputes slots from THIS
+            # request's row; the runtime table writes captured block ids
+            # back and lands on somebody else's blocks (bytes proven
+            # correct, pages exact, answer still duct - the slot was the
+            # last liar).
+            _ps460 = None
+            if getattr(self, "d_mode", False) and self.restore_state is not None:
                 try:
-                    _hk = (entry.block_hashes[-1]
-                           if entry.block_hashes else b"")
-                    _st259 = getattr(self, "_d_state_archive", {}).get(
-                        _hk if isinstance(_hk, bytes)
-                        else bytes.fromhex(str(_hk)))
+                    _hkp460 = (entry.block_hashes[-1]
+                               if entry.block_hashes else b"")
+                    _ps460 = getattr(self, "_plugin_state_archive",
+                                     {}).get(_hkp460 if isinstance(
+                                         _hkp460, bytes) else b"")
                 except Exception:
-                    _st259 = None
-            if _st259 is None and getattr(self, "d_mode", False):
-                try:
-                    _hk2 = (entry.block_hashes[-1]
-                            if entry.block_hashes else b"")
-                    _ps2 = getattr(self, "_plugin_state_archive",
-                                   {}).get(_hk2 if isinstance(
-                                       _hk2, bytes) else b"")
-                    if _ps2 is not None and self.restore_state is not None:
-                        if self.restore_state(req, _ps2):
-                            _st259 = None
-                            self.log({"kind": "d_state_restored_plugin",
-                                      "req": str(req)[-6:]})
-                        else:
-                            raise RuntimeError(
-                                "resumed GDN StateImage could not be "
-                                "restored")
-                except RuntimeError:
-                    raise
-                except Exception:
-                    pass
-            if (_st259 is not None and isinstance(_st259, list)
+                    _ps460 = None
+            if _ps460 is not None:
+                if not self.restore_state(req, _ps460):
+                    raise RuntimeError("resumed GDN StateImage could not "
+                                       "be restored")
+                self.log({"kind": "d_state_restored_plugin",
+                          "req": str(req)[-6:],
+                          "groups": len(_ps460)})
+            elif (_st259 is not None and isinstance(_st259, list)
                     and getattr(self, "d_mode", False)):
-                # D ARCHIVE FORMAT (design 452): the local archive holds
-                # [(cache_tensor, block_id, clones)] - the runtime's own
-                # primitive writes that back. The plugin restore expects
-                # a {group: (slot, [t])} dict and raised ValueError on
-                # these (engine kill).
                 if not self.d_state_restore(_st259):
-                    raise RuntimeError("resumed GDN StateImage could "
-                                       "not be restored")
+                    raise RuntimeError("resumed GDN StateImage could not "
+                                       "be restored")
             elif (self.restore_state is None or _st259 is None
                     or not self.restore_state(req, _st259)):
                 raise RuntimeError("resumed GDN StateImage could not be restored")
