@@ -2284,3 +2284,9 @@ skip=不重放只装视图 - 顺路）。
 - 六修清单: ①热身请求豁免全部 capped 证人 (22 处) + 热身禁收养/禁入池 (443); ②boot 级归档清场 (launcher rm, 跨 boot 无字节档=毒源); ③stash 于 release (park RPC 到货时 orch 已死, keepalive 恒空); ④stash 记账=页数×pt (页对齐才过几何); ⑤可用页地板 (store 少 3 页不再拒绝整个恢复); ⑥D 状态表整表归档+运行时原语还原 (numpy 形态错配曾 ValueError 杀引擎); ⑦临终全扫把窗口内残余页写店 (store 原有页数 4468 覆盖全长)。
 - 残敌: 恢复页数被钳至 4463 (< 4468), 尾 5 页 (问题带) 未覆盖 → T2 仍 duct 恒等 sha 0c768f8b; 下刀: count 不钳/优先恢复尾部页 or 让地板取 store.pages 全集。
 - 预算: 12 boots (重超, 自记罚单: 下回合禁 boot 除非现杀)。ahead 403→404。引擎 454 代健康。
+
+## 455-456. Round 207: 恢复几何全数字落地 - store 稀疏集 4415 页 (末页 4466, 但 0..4414 缺 3 页), avail=4412 < count=4415 -> 尾 3 页近题带空洞 = T2 duct 恒等; 协议级正解入档
+- 读数 (G455): d_resume_geom455{count:4415, avail:4412, store_n:4415, store_last:4466, has_last:True} 双 rank 同值; session_resumed{hit:141280, pages:4412, resident:141184}; state 48/48 ✓。
+- 语义缺口: **恢复深度必须等于状态归档 cursor (invariant 4)**。当前 skip/forged hit=页数*pt, 而 store 只保证稀疏覆盖 (4412 连续), 中间 3 页空洞落在 141184..141280 (re-prefill 边界前的 recent 带) -> 模型上下文断裂 -> duct。
+- 下轮正解 (择一, 先查 capacity/clamp 源): ①capture 时按**连续覆盖**发布 covered (contiguous_pages*pt), 并把状态归档 cursor 对齐到同一边界 (若归档时点晚于边界, 需在边界重快照 state - d_state_snapshot 可在任意 step 取); ②或让 store 全量覆盖: 查为什么 0..4414 有 3 页从未入店 (OOW 只拷被淘汰页; 检查 knife 后将被淘汰窗口页是否都过 store.put)。
+- 本回合 1 boot+3 发+6 查。ahead 405→406。引擎 455 代健康。
