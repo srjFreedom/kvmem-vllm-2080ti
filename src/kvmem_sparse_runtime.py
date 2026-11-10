@@ -6086,6 +6086,18 @@ class VllmSparseRuntime:
                     _po.append(int(_sl328) // _pt328)
                 else:
                     _po.append(int(_pg328) - int(_pg328) % max(1, int(q)))
+            try:
+                _rowsA = self.view.block_table_rows()
+                _riA = getattr(st, "row_index", None)
+                if _riA is not None and int(_riA) < len(_rowsA):
+                    _rvA = [int(v) for v in _rowsA[int(_riA)]]
+                    for _iA, _pgA in enumerate(ordered):
+                        if int(_pmap328.get(int(_pgA), 0) or 0) > 0:
+                            continue
+                        if _iA < len(_rvA) and int(_rvA[_iA]) > 0:
+                            _po[_iA] = int(_rvA[_iA])
+            except Exception:
+                pass
             # EARLY-PATH FIELD TRUTH (design 174): print what the
             # identity path ACTUALLY produced for the needle block -
             # complete 49-page span, page count, and the returned
@@ -6305,6 +6317,18 @@ class VllmSparseRuntime:
                     _po.append(int(_sl328b) // _pt328b)
                 else:
                     _po.append(int(_pg328b) - int(_pg328b) % _bpo)
+            try:
+                _rowsB = self.view.block_table_rows()
+                _riB = getattr(st, "row_index", None)
+                if _riB is not None and int(_riB) < len(_rowsB):
+                    _rvB = [int(v) for v in _rowsB[int(_riB)]]
+                    for _iB, _pgB in enumerate(ordered):
+                        if int(_pm328b.get(int(_pgB), 0) or 0) > 0:
+                            continue
+                        if _iB < len(_rvB) and int(_rvB[_iB]) > 0:
+                            _po[_iB] = int(_rvB[_iB])
+            except Exception:
+                pass
             _pmap328 = _pm328b
             _pt328 = max(1, int(self.page_tokens))
             # BLKIDS v2 (design 139): PHYSICALS deduped to one entry
