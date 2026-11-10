@@ -2325,3 +2325,9 @@ skip=不重放只装视图 - 顺路）。
 - 读数: d_view_needle{idx:75 slot:2205 row_pg:-1 row_len:1666 n_blocks:8232 q:49}; d_park_needle pmap 仍 0 (针页无驻留账); 冷答 "ferryman's notes describe the river delta..." 续答 "on the archive provided, there is no mention of an access code for "K..."。
 - 已接: 475 positional pairs (row[idx] 而非 row[pg]); 476 blockwise 消费 restore 列表 + pmap 记账。读数显示 blockwise 侧未触发 (0 d_knife_restore) -> 主刀在 remobilize, 下刀给 remobilize 消费点加 d_knife_restore 见证 + 恢复后针页 live/canon 对质。
 - 本回合 3 boots+3 发+5 查。ahead 427->430。引擎 476 代健康。
+
+## 477-480. Round 215: 恢复链首次真正跑通 (d_knife_restore 46 次, pairs 126-128/刀) - 幻觉出口定位再进一步: identity 三出口中真正执行的是 "IDENTITY MEANS DO-NOTHING", 且 helper 内层异常静默吞掉 (block_table_rows 抛) -> 已改自包含+st.row 回退+无条件日志
+- 读数: d_pairs480{n:126-128, ordered_n:616-931, pmap_n:1666-2688, rv_n:1666, src:mirror, sample:[[1666,686]...]}; d_knife_restore 46 次 -> blockwise 消费回填生效。
+- 仍缺: 冷答 "the answer is..." 复读, 续答仍否认码值 -> 疑 store 针页字节本身错 (T1 从未驻留该页, park 的 canon 可能来自 final sweep 的陈旧 row 映射)。
+- 下刀: ①在 T1 某刀 pmap 含 2231 时对 live vs canon 对质 (该页真实驻留时刻); ②若 store 错, 修 OOW/final sweep 收割源 (用当时行映射逐页核对).
+- 本回合 5 boots+3 发+6 查 (超预算 3, 记账: 下两回合禁 boot 除非现杀)。ahead 431->435。引擎 480 代健康。
