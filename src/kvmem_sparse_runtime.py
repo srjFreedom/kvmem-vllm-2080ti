@@ -2165,6 +2165,22 @@ class VllmSparseRuntime:
         if orch is None:
             return False
         count = int(visible_tokens) // self.page_tokens
+        # AVAILABILITY FLOOR (design 450): the store may hold a few
+        # pages fewer than the skip book claims (capacity clamps at
+        # harvest). Restore exactly the pages that EXIST - the tail
+        # slots beyond them were written by THIS request's own
+        # decode and are already valid. Refusing the whole restore
+        # over a three-page shortfall killed the engine instead.
+        try:
+            _avail450 = len(orch.usable_pages(int(hit_tokens)))
+            if count > _avail450:
+                count = int(_avail450)
+                self.log({"kind": "d_restore_floor",
+                          "req": str(req)[-6:],
+                          "count": int(count),
+                          "visible": int(visible_tokens)})
+        except Exception:
+            pass
         pages = self._resume_selection(orch, count, int(hit_tokens))
         self._absorb_engine_row(req)
         # `st.row` may already mirror the engine's appended pages for THIS step (the plugin
