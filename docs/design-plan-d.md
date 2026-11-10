@@ -2447,3 +2447,8 @@ skip=不重放只装视图 - 顺路）。
 - 判读: 塌缩与"具体布局"相关 (提示->页分布->选择集/刀布局), 不是简单尺寸或随机性; 需要逐页对比绿/红两次的选择集与行布局, 而非继续按尺寸扫。
 - 下轮: ①固定 65,408 绿文本与 65,113 红文本, 各抓 d_view_needle/d_pairs480/row_len/seq_override 全量对比 (green vs red 差在哪); ②重点看针所在页是否进入选择集 (合成提示需真针页见证: 在 _prompt_ids 中定位针 token -> 页号)。
 - 本回合 0 boots+3 发+1 查。ahead 462。引擎 健康。
+
+## 515-516. Round 234: 真针页见证上盘 - **绿红文本都 duct (同文本结果翻转, 确认不稳定)**, 但针页确在视图 (page 1017 idx 478 slot 37 / page 1021 idx 482 slot 38, in_logical=1) => 选择面 OK, 塌缩在**槽内字节/驻留账**
+- 读数: d_view_needle 显示针页被选且分配了槽 (slot 37/38); 无 d_knife_restore 事件 => 该页被当作"已驻留"(pmap>0) 未回填; 若该槽字节是旧内容/GD 垃圾 -> 模型读到无针。
+- 下轮: ①对针页专做 restore 对质 (slot 字节 vs canon, 在答案生成前); ②检 pmap 记账 (resident 但未写) 的路径: restore/evict 时是否把 slot 写回 _page_map; ③若账本虚报, 修账 (evict 清账 + restore 写账)。
+- 本回合 1 boot+2 发+2 查。ahead 463->464。引擎 健康。
