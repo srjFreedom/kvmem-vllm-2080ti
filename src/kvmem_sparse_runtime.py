@@ -6688,10 +6688,27 @@ class VllmSparseRuntime:
                     _nblk474 = int(self.view.paged_kv()[0].shape[0])
                 except Exception:
                     pass
+                _cmp517 = {}
+                try:
+                    _pkv517 = self.view.paged_kv()
+                    _lz517 = orch.store.get(int(_pgv))
+                    if (_lz517 and 0 < int(_slot)
+                            < _pkv517[0].shape[0]):
+                        _cmp517 = {
+                            "live": round(float(_pkv517[0][int(_slot)]
+                                                .float().abs().mean()), 5),
+                            "canon": round(float(_lz517[0].float()
+                                                 .abs().mean()), 5)}
+                        _cmp517["same"] = int(
+                            abs(_cmp517["live"] - _cmp517["canon"])
+                            < 1e-4)
+                except Exception:
+                    _cmp517 = {}
                 self.log({"kind": "d_view_needle",
                           "req": str(req)[-6:],
                           "page": int(_pgv), "blk": int(_nbv),
                           "idx": int(_idx), "slot": int(_slot),
+                          **_cmp517,
                           "row_pg": int(_rowpg474),
                           "row_len": len(_row474),
                           "n_blocks": int(_nblk474),
@@ -7682,10 +7699,27 @@ class VllmSparseRuntime:
                     _nblk474 = int(self.view.paged_kv()[0].shape[0])
                 except Exception:
                     pass
+                _cmp517 = {}
+                try:
+                    _pkv517 = self.view.paged_kv()
+                    _lz517 = orch.store.get(int(_pgv))
+                    if (_lz517 and 0 < int(_slot)
+                            < _pkv517[0].shape[0]):
+                        _cmp517 = {
+                            "live": round(float(_pkv517[0][int(_slot)]
+                                                .float().abs().mean()), 5),
+                            "canon": round(float(_lz517[0].float()
+                                                 .abs().mean()), 5)}
+                        _cmp517["same"] = int(
+                            abs(_cmp517["live"] - _cmp517["canon"])
+                            < 1e-4)
+                except Exception:
+                    _cmp517 = {}
                 self.log({"kind": "d_view_needle",
                           "req": str(req)[-6:],
                           "page": int(_pgv), "blk": int(_nbv),
                           "idx": int(_idx), "slot": int(_slot),
+                          **_cmp517,
                           "row_pg": int(_rowpg474),
                           "row_len": len(_row474),
                           "n_blocks": int(_nblk474),
