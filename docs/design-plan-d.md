@@ -2434,3 +2434,10 @@ skip=不重放只装视图 - 顺路）。
 - 判读: 红线两侧都不做 restore => 塌缩点在 **row 安装 (identity path) 或选择集本身**, 不在回填; 75K 行同步次数约为 65K 的 2 倍 (knife 更频繁)。
 - 下轮: ①给合成提示加"真针页见证" (在 _prompt_ids 里找针 token 序列 -> 页号 -> d_view_needle 用该页); ②75K A/B: KVMEM_D_KNIFE=0 (关刀) vs 1; KVMEM_PREFILL_PRESSURE 1 vs 0 (各 1 boot+1 发, 共 2 组); ③若关刀 75K 变绿 => 首刀安装逻辑即病灶。
 - 本回合 0 boots+0 发+2 查。ahead 460。引擎 健康。
+
+## 512-513. Round 232: 关刀 75K 仍 duct (92.4s) => 刀非唯一病灶; 65K 带内**不稳定**: 65,113tok(2034页) duct / 65,408tok(2044页) 正确 / 此前 64,941tok(2029页) 正确
+- 结论修正: 不是干净的"2048 页阈值"; 65K-75K 是**随机塌缩带** (同臂同代码, 结果随请求波动), >~75K 稳定塌缩。
+- 待验: 同尺寸连发 3 次测塌缩概率 (65K/70K), 以及 GDN 状态槽/页配额在该带宽的行为 (mamba row capacity?)。
+- 现状态: KVMEM_D_KNIFE 已复原为 1, 引擎重启健康。
+- 下轮: ①65K 冷 ×3 统计绿/红; ②若随机, 抓同尺寸绿红两次的差异 (d_view_needle/d_pairs480/row_len/seq_override/state); ③对照 GDN 状态槽分配日志。
+- 本回合 2 boots+3 发+1 查。ahead 461。引擎 健康。
