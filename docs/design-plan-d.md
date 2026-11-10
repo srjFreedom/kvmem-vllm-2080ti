@@ -2373,3 +2373,9 @@ skip=不重放只装视图 - 顺路）。
 - 现状态: /etc/default 为 PLAN_D=0 / KNIFE=0 (计划开关, 下轮恢复 PLAN_D=1 / KNIFE=1 或先做真基线)。
 - 下刀: ①找到插件总开关 (launcher 的 KVMEM_* 段), 起真基线跑 152K; ②若真基线绿 => 插件路径在长上下文破坏; 若真基线红 => 转向 fork/模型 (对照 v0.5.0 锚 7cbd5fec/2e33994b 的 server 配置差异)。
 - 本回合 1 boot+1 长跑。ahead 445。引擎 纯路径臂 健康。
+
+## 493. Round 222 收束: 代码已回到 482 树 (git diff 482..HEAD 为空) 但 88K 锚**不再可复现** - 连续 4 次: 95s duct / 9.5s duct / 后续请求 HTTPError / 引擎 14:41 自退 (health 000, inactive)
+- 事实: 唯一绿点 (round 217, 91.3s 命中 '-4417-QJ7' + resume 5.3s 一致) 在同一份代码上无法复现 -> 说明绿/红取决于**进程内状态** (keepalive/session 归档/暖机顺序), 而非代码版本; 且臂当前不稳定到会自己崩。
+- 已回滚: 485 (harvest) 与 487 (unique block) 均 revert (现 = 482 树); 引擎当前 inactive。
+- 下轮第一步: 冷启后先在**干净进程**跑 88K 单发记录基线与稳定度 (3 连), 再决定是否 485/487 重上; 并把 "进程内状态" 列为一级嫌疑 (keepalive 池/暖机请求残留/session 归档).
+- 本回合 3 boots+5 发+3 查。ahead 446。引擎 inactive (需重启)。
