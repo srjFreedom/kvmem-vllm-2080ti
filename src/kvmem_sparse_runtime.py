@@ -6078,7 +6078,9 @@ class VllmSparseRuntime:
                 if _sl328 is not None and int(_sl328) > 0:
                     _po.append(int(_sl328) // _pt328)
                 else:
-                    _po.append(int(_pg328) - int(_pg328) % max(1, int(q)))
+                    # NATIVE BLOCK (design 473): block id = pg // q;
+                    # the bucket start page (2205) is not a block.
+                    _po.append(int(_pg328) // max(1, int(q)))
             # EARLY-PATH FIELD TRUTH (design 174): print what the
             # identity path ACTUALLY produced for the needle block -
             # complete 49-page span, page count, and the returned
@@ -6297,7 +6299,9 @@ class VllmSparseRuntime:
                 if _sl328b is not None and int(_sl328b) > 0:
                     _po.append(int(_sl328b) // _pt328b)
                 else:
-                    _po.append(int(_pg328b) - int(_pg328b) % _bpo)
+                    # NATIVE BLOCK (design 473): block id = pg // q;
+                    # the bucket start page (2205) is not a block.
+                    _po.append(int(_pg328) // max(1, int(q)))
             _pmap328 = _pm328b
             _pt328 = max(1, int(self.page_tokens))
             # BLKIDS v2 (design 139): PHYSICALS deduped to one entry
