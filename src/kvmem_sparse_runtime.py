@@ -3766,8 +3766,13 @@ class VllmSparseRuntime:
                 self.log({"kind": "d_resume_gate505",
                           "req": str(req)[-6:],
                           "n": int(_gc505[str(req)[-6:]]),
-                          "hit": (int(st.resume[0]) if isinstance(
-                              getattr(st, "resume", None), tuple) else -1),
+                          # resume = (entry, hit, visible): the HIT
+                          # is element 1. Element 0 is the entry
+                          # object - int() on it killed both TP
+                          # workers on the first resumed step.
+                          "hit": (int(st.resume[1]) if isinstance(
+                              getattr(st, "resume", None), tuple)
+                              and len(st.resume) > 1 else -1),
                           "row": int(row_index)})
             if not self._complete_resume(req, st, int(row_index)):
                 raise RuntimeError("KVMem session checkpoint restore could not complete")
