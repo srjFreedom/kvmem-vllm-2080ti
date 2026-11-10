@@ -6487,9 +6487,32 @@ class VllmSparseRuntime:
         # reverting it restored the OFF arm to byte-exact health).
         # Correct identity: keep the request's current native engine
         # row and its true logical page sequence untouched.
-        _row282 = list(st.row or []) or list(ordered)
-        _log282 = list(getattr(st, "logical", ()) or ()) or list(ordered)
-        return (_row282, _log282, [], [], q)
+        # TRUE REARRANGE (design 479): the do-nothing exit returned
+        # the incumbent row, so a wanted page that was not already
+        # resident never got a block and never got its bytes - the
+        # needle page sat on the wanted list for the whole run while
+        # attention read an empty block. Install a row that names a
+        # block for EVERY wanted page and restore the non-resident
+        # ones (pure copy). Under BLKIDS each page owns a page-granular
+        # cache block, so its native block is its page id (cache
+        # carries num_blocks=8232 > 4465 pages).
+        _pm479 = self._page_map.get(req, {})
+        _pt479 = max(1, int(self.page_tokens))
+        _row479, _pairs479 = [], []
+        for _pg479 in ordered:
+            _pg479 = int(_pg479)
+            _sl479 = int(_pm479.get(_pg479, 0) or 0)
+            if _sl479 > 0:
+                _row479.append(int(_sl479) // _pt479)
+            else:
+                _row479.append(_pg479)
+                _pairs479.append((_pg479, _pg479))
+        if self.log is not None:
+            self.log({"kind": "d_rearrange479",
+                      "req": str(req)[-6:],
+                      "pages": len(_row479),
+                      "restore": len(_pairs479)})
+        return (_row479, [int(p) for p in ordered], _pairs479, [], q)
 
     def _reselect_remobilize(self, req, pressure=False):
         if getattr(self, "d_mode", False) and __import__("os").environ.get(
