@@ -5800,6 +5800,48 @@ class VllmSparseRuntime:
             return 71401
         return 122401
 
+    def _lexical_reserve(self, req, kept, budget_blocks, q, n_pages):
+        """Reserve pages whose tokens share a RARE n-gram with the
+        question (design 464). The scorer's softmax share flattens a
+        single-sentence needle (design 340); exact token overlap with
+        the query is a signal it cannot wash out (a code like
+        ZX-4417-QJ7, the record key). Pure selection - no token ids
+        move, no kernel change; measured offline: the needle page is
+        one of <=6 candidate pages.
+        """
+        try:
+            ids = self._prompt_ids.get(req)
+            if not ids or len(ids) < 256 or not q:
+                return kept
+            from collections import Counter
+            pt = int(self.page_tokens)
+            sub = [int(t) for t in ids[-96:] if int(t) > 0]
+            if not sub:
+                return kept
+            df = Counter(int(t) for t in ids if int(t) > 0)
+            rare = {t for t in set(sub) if 1 <= df.get(t, 0) <= 6}
+            if not rare:
+                return kept
+            base = set(int(b) for b in kept)
+            added = 0
+            for pos, t in enumerate(ids):
+                if int(t) not in rare:
+                    continue
+                b = (pos // pt) // max(1, int(q))
+                if b in base:
+                    continue
+                base.add(b)
+                added += 1
+                if len(base) >= budget_blocks + 8:
+                    break
+            if self.log is not None:
+                self.log({"kind": "d_lex_reserve", "req": str(req)[-6:],
+                          "rare": len(rare), "added": int(added),
+                          "kept_n": len(base)})
+            return sorted(base)
+        except Exception:
+            return kept
+
     def _rebuild_view(self, req, st, orch, kept, q, pt, n_pages):
         """THE knife: pure page rearrange + selection + restore
         (design 87). Both earlier expansions were crippled variants:
@@ -6387,6 +6429,8 @@ class VllmSparseRuntime:
         if len(old_row) < q * n_blocks:
             pad = self._page_map.get(req, {})
             old_row = old_row + [int(pad.get(p, 0)) for p in range(len(old_row), q * n_blocks)]
+        kept = self._lexical_reserve(req, kept, budget_blocks, q,
+                                     n_pages)
         phys_pages, logical_pages, _to_restore, _to_evict, _bpw = \
             self._rebuild_view(req, st, orch, kept, q, pt, n_pages)
         if _to_restore:
@@ -7313,6 +7357,8 @@ class VllmSparseRuntime:
         # the original duct crime, and every page-addressed consumer
         # (store, byte confrontation, rolling writes) saw block-space
         # numbers instead. Swapping the names restores both books.
+        kept = self._lexical_reserve(req, kept, budget_blocks, q,
+                                     n_pages)
         phys_pages, logical_pages, _to_restore2, _to_evict2, _bpw2 = \
             self._rebuild_view(req, st, orch, kept, q, pt, n_pages)
         # CONFRONTATION PIN (design 297): right after the knife's
