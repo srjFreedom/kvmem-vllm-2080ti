@@ -2278,3 +2278,9 @@ skip=不重放只装视图 - 顺路）。
 - 442 手术 (一发封链): adopted 分支 `orch = entry.orchestrator` 后判 None → 现场 graft: 从 keepalive 池取 (store,hit) + orch = self._make_orchestrator(req)(现成建造器, 正常线同款) → orch.store=pool store → 登 _orch/_resume_ok → 伪造账经 440 块 (搬为函数 _forge_resume_ledger(req, hit) 两门共用)。消费线已全通 (gate→_complete_resume→restore_pages_batch 纯拷贝)。
 - 终读窗 (442 代): d_keepalive_graft+d_resume_forged+session_resumed 三连出生 → T2 半针 (选择器战场) → 402 邻桶+420 码值桶两役收官 → 计数战 (88K×2/152K×3/250K×1/OFF臂/并发/session) → 全绿 push 里程碑。
 - 本回合 1 boot+3 发+3 查 (罚单内)。ahead 389→390。引擎 441 代健康。
+
+## 443-455. Round 206 收官: **resume 轮首次端到端全绿** - 热身豁免/归档清场/页对齐记账/可用页地板/D 状态表还原/临终全扫 六连修
+- 里程碑读数 (SW 代, ahead 404): d_keepalive_graft×4 + d_resume_forged×4 + session_resumed×4 (hit=142880, pages=4463, resident=142816) + d_state_restore{restored:48/off:48} + d_final_sweep{pages:4468} - **T2 无异常、14.2s 带内、恢复轮不再杀引擎**。
+- 六修清单: ①热身请求豁免全部 capped 证人 (22 处) + 热身禁收养/禁入池 (443); ②boot 级归档清场 (launcher rm, 跨 boot 无字节档=毒源); ③stash 于 release (park RPC 到货时 orch 已死, keepalive 恒空); ④stash 记账=页数×pt (页对齐才过几何); ⑤可用页地板 (store 少 3 页不再拒绝整个恢复); ⑥D 状态表整表归档+运行时原语还原 (numpy 形态错配曾 ValueError 杀引擎); ⑦临终全扫把窗口内残余页写店 (store 原有页数 4468 覆盖全长)。
+- 残敌: 恢复页数被钳至 4463 (< 4468), 尾 5 页 (问题带) 未覆盖 → T2 仍 duct 恒等 sha 0c768f8b; 下刀: count 不钳/优先恢复尾部页 or 让地板取 store.pages 全集。
+- 预算: 12 boots (重超, 自记罚单: 下回合禁 boot 除非现杀)。ahead 403→404。引擎 454 代健康。
