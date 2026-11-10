@@ -2304,6 +2304,36 @@ class VllmSparseRuntime:
                                   round(_lv458, 5), round(_cz458, 5)])
             self.log({"kind": "d_restore_pair", "req": str(req)[-6:],
                       "n": len(_pairs458), "sample": _pairs458[:6]})
+            # NEEDLE PAGE CONFRONTATION (design 469): the sparse
+            # sample skipped page 2231 - the one page whose answer
+            # the acceptance test asks for. Compare live vs
+            # canonical there, and stare at BOTH books' slot for it
+            # (engine row vs runtime page map).
+            try:
+                _np469 = (self._needle_marker(req) // max(
+                    1, int(self.page_tokens)))
+                _i469 = next((i for i, pg in enumerate(pages)
+                              if int(pg) == int(_np469)), -1)
+                _pm469 = int(self._page_map.get(req, {}).get(
+                    int(_np469), -1))
+                _sl469 = (int(row_values[_i469])
+                          if 0 <= _i469 < len(row_values) else -1)
+                _lz469 = orch.store.get(int(_np469))
+                _lv469 = (_pk458[0][_sl469].float().abs().mean()
+                          if (_lz469 and 0 <= _sl469
+                              < _pk458[0].shape[0]) else None)
+                self.log({"kind": "d_needle_pair",
+                          "req": str(req)[-6:],
+                          "page": int(_np469),
+                          "idx": int(_i469), "slot": int(_sl469),
+                          "pmap": int(_pm469),
+                          "live": (round(float(_lv469), 5)
+                                   if _lv469 is not None else None),
+                          "canon": (round(float(_lz469[0].float()
+                                                .abs().mean()), 5)
+                                    if _lz469 else None)})
+            except Exception:
+                pass
         except Exception:
             pass
         restored = tuple(row_values[:len(pages)])
