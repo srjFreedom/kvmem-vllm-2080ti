@@ -5972,6 +5972,13 @@ class VllmSparseRuntime:
                           "seq_override": int(_ov),
                           "seq_len": int(getattr(st, "seq_len", 0) or 0),
                           "tokens": int(getattr(st, "tokens", 0) or 0),
+                          "store_n": len(getattr(orch.store,
+                                                 "pages", []) or []),
+                          "logical_sample": _lg[:6],
+                          "store_sample": sorted(
+                              int(x) for x in
+                              (getattr(orch.store, "pages", []) or [])
+                          )[:6],
                           "first_diff": _first_diff})
         except Exception:
             pass
