@@ -2707,3 +2707,7 @@ skip=不重放只装视图 - 顺路）。
 ## 600-601. Round 381-382: 入口见证落地但 **d_bs_entry=0** ⇒ before_step 仍未被调用
 - 对比: `d_step_call`(136 次, ids 含真实 'bd9ec7') 已记日志, 但 `d_bs_entry` 0 ⇒ 在 `for req in live:` 循环里, `before_step` 一次都没被调用 ⇒ 只剩两种可能: ①`view.row_index(req)` 在该循环内为 None (`continue` 跳过); ②循环前的语句抛异常被 `except` 吞掉(应见 sparse_step_error)。
 - 下一步(最后一步取证): 在循环体内、调用前打 `d_pre_call{req,row}` 并统计; 若 row 恒 None, 说明 `bind_step` 的 idx_mapping 与 req_ids 顺序不一致(或 idx_mapping 为 None 且 position 越界), 需在 bind 时按 `runner.input_batch.req_ids` 的顺序构建映射。
+
+## 601-602. Round 382-383: 循环实际在 plugin:1401-1407（插入代码使行号后移）；`d_step_call` 与 `before_step` 同段
+- 现状矛盾: `d_step_call{live:1, ids:bd9ec7}` 有、`sparse_step_error=0`，但循环内 `before_step` 未被进入（`d_bs_entry=0`）⇒ `view.row_index(req)` 对所有 live req 返回 None。
+- 逻辑上 row_index 只可能在 `req ∉ view._req_ids` 时为 None；说明 **我们 rebind 之后又有一次 bind_step 覆盖了 `_req_ids`**（或 view 对象被换新）。下一步: 打印 `id(view)` 与每次 bind_step 的 `ids[:2]` 序列, 定位最后一次覆盖。
