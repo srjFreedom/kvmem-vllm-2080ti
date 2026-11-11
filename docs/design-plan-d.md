@@ -2562,3 +2562,8 @@ skip=不重放只装视图 - 顺路）。
 - 推论: 位置面正确; 但 D 臂每步仍把 `st.row`(视图宽, 远短于全流) 写进 block_table 且发布 `_seq_override=len(st.row)*pt` => ①开 override: 注意力被截到视图宽(尾部/针不可见); ②关 override: 注意力按全流读, 但行只覆盖视图宽 -> 越界读旧块。两臂都坏, 与实测吻合。
 - 正解(下轮实施): **无刀时不得干预** - 仅当该请求真正发生过视图安装(knife)时才写行/发 override; 否则保持引擎自己的行与长度。用一个 `st.view_installed` 标志控制 row/seq 安装两处。
 - 判据: 140K 无刀请求应完全走引擎原路径 => 期望复现 PLAIN 的 'ZX-4417-QJ7'。
+
+## 563. Round 286: view_installed 门已上盘 (无刀时不写行/不发 override) - 140K 仍失败 ("is no access code, no key, no key")
+- 说明: 干扰不来自 row/seq 安装(门已关仍坏) => 剩余候选在 plugin 侧每步钩子 (_fix_book_for_view / 入口 policy / 其他 execute_model 后处理)。
+- 位置面已实测正确 (0..4095/4096.. ; seq 4096/8192/...)。
+- 下一步: 在 plugin 逐段禁用 (_fix_book_for_view 先关), 或对 D 臂与 PLAIN 做 execute_model 前后的 seq_lens/num_computed 快照 diff。
