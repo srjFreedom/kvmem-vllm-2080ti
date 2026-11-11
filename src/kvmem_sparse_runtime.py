@@ -5924,6 +5924,10 @@ class VllmSparseRuntime:
             _pt = max(1, int(self.page_tokens))
             _row = [int(v) for v in (getattr(st, "row", ()) or ())]
             _lg = [int(v) for v in (getattr(st, "logical", ()) or ())]
+            _op = [int(v) for v in
+                   (getattr(st, "ordered_pages", ()) or ())]
+            if _op and (not _lg or any(v < 0 for v in _lg)):
+                _lg = _op
             _front = int(getattr(st, "tokens", 0) or 0) // _pt
             _holes = sum(1 for v in _row if v <= 0)
             _pk = self.view.paged_kv()
@@ -6519,6 +6523,11 @@ class VllmSparseRuntime:
             # fast paths may never have bound - every knife since the
             # bisect tree died here with UnboundLocalError, so NO
             # view was ever installed.
+            # TRUE PAGE ORDER (design 542): the identity exits know the
+            # real page sequence; the caller's st.logical has been
+            # -1 on every measured knife, which left resumes, harvests
+            # and the audit flying blind on page identity.
+            st.ordered_pages = tuple(int(p) for p in ordered)
             return (locals().get("_po") or [int(p) for p in ordered],
                     ordered, _restore_pairs_471(ordered, _pmap328),
                     [], locals().get("_bpo")
@@ -6742,6 +6751,11 @@ class VllmSparseRuntime:
             # fast paths may never have bound - every knife since the
             # bisect tree died here with UnboundLocalError, so NO
             # view was ever installed.
+            # TRUE PAGE ORDER (design 542): the identity exits know the
+            # real page sequence; the caller's st.logical has been
+            # -1 on every measured knife, which left resumes, harvests
+            # and the audit flying blind on page identity.
+            st.ordered_pages = tuple(int(p) for p in ordered)
             return (locals().get("_po") or [int(p) for p in ordered],
                     ordered, _restore_pairs_471(ordered, _pmap328),
                     [], locals().get("_bpo")
