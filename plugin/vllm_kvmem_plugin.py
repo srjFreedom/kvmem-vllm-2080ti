@@ -1409,6 +1409,31 @@ def _attach_sparse(runner, log_path):
                 except Exception:
                     pass
                 try:
+                    # design 631: the delta tables are indexed by BATCH ROW and were
+                    # only cleared on error. A request that never installed a view
+                    # must not inherit the previous request's translation on that row
+                    # (measured: alternating correct/duct with identical witnesses).
+                    _dv = getattr(runner, "kvmem_slot_deltas", None)
+                    _vl = getattr(runner, "kvmem_view_lens", None)
+                    if _dv is not None and _vl is not None:
+                        import torch as _t631
+                        for _rq in live:
+                            _row = view.row_index(_rq)
+                            if _row is None:
+                                continue
+                            _st631 = None
+                            try:
+                                _st631 = runtime._state.get(_rq)
+                            except Exception:
+                                _st631 = None
+                            _has = bool(getattr(_st631, "view_installed", False))
+                            if not _has:
+                                with _t631.no_grad():
+                                    _dv[int(_row)] = 0
+                                    _vl[int(_row)] = 0
+                except Exception:
+                    pass
+                try:
                     _pend = getattr(runtime, "_cursor_reset", None)
                     if _pend:
                         _bt = getattr(runner, "block_tables", None)
