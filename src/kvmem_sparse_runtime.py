@@ -566,6 +566,15 @@ class VllmSparseRuntime:
             return None
         """Record which engine page holds each logical page (index = logical page)."""
         st = self._state[req]
+        try:
+            import json as _j2
+            with open("/tmp/kvmem_st.jsonl", "a") as _f2:
+                _f2.write(_j2.dumps({"req": str(req)[-6:],
+                                    "tok": int(getattr(st, "tokens", -1)),
+                                    "win": int(self.budget_tokens)+int(self.gen_reserve_tokens),
+                                    "row": repr(row_index)}) + "\n")
+        except Exception:
+            pass
         if bool(getattr(st, "applied_view_coord", False)):
             # POSITIONAL absorption is only valid in the dense frame.
             # After a knife installed a selection view, row rank !=
