@@ -3758,6 +3758,25 @@ class VllmSparseRuntime:
         if not (bool(getattr(self, "inrequest_compaction", False))
                 or bool(getattr(self, "d_mode", False))):
             return None
+        # design 593: the knife must fire for every over-window request.
+        # Waiting for the pressure watermark meant it never fired at all
+        # (measured: d_view_needle=0 across 140K/152K/250K), so the whole
+        # working-set path stayed dormant.
+        try:
+            if (row_index is not None
+                    and not bool(getattr(st, "view_installed", False))
+                    and int(getattr(st, "tokens", 0))
+                    > (int(self.budget_tokens)
+                       + int(self.gen_reserve_tokens))):
+                st.adopt_knife_pending = True
+                if self.log is not None:
+                    self.log({"kind": "d_knife_forced",
+                              "req": str(req)[-6:],
+                              "tokens": int(st.tokens),
+                              "window": int(self.budget_tokens)
+                              + int(self.gen_reserve_tokens)})
+        except Exception:
+            pass
         if bool(getattr(st, "adopt_knife_pending", False)) and \
                 row_index is not None:
             st.adopt_knife_pending = False
