@@ -2529,3 +2529,9 @@ skip=不重放只装视图 - 顺路）。
 - 已达成: 88K 冷/续 ✓ (91.4s/5.5s), 120K 冷 ✓ (178.8s)。未达成: 140K/152K/250K。
 - 下一步(需新预算): ①git show 5eb9a9e:/etc 或 release patch 对照 v0.5.0 的 env/入口策略; ②用 PLAN_D=0 + 同 battery 在 140K 验证引擎本身能否召回; ③若引擎可, 再查 runtime 的 row/override; 若引擎不可, 属 fork/模型长上下文, 与 KVMem 协议分开立项。
 - 预算: 8 轮已用 6, 本轮止 (上下文将尽)。
+
+## 552-553. Round 259: 决定性对照 - **PLAN_D=0 纯引擎在 140K 答对 'ZX-4417-QJ7' (223.4s)**; D 臂同题失败; 逐个 hook 关闭 (NO_ROW / NO_POS / NO_SEQ) 均不解
+- 结论: 障碍确定在 **D 运行时路径**(非 fork/模型能力); 且不是 row/positions/seq_override 中的单一 hook, 而是剩余运行时干预的组合 (capture_k/q、statistics、_absorb_engine_row、入口策略等)。
+- 已达成: 88K 冷/续 (91.4s/5.5s) ✓; 120K 冷 ✓。未达成: 140K/152K/250K。
+- 下一步(新预算): 用 KVMEM_D_KNIFE=0 + PLAN_D=1 但逐一禁用 capture/statistics 钩子 (bisect) 定位到具体钩子; 或直接对比 PLAN_D=0 与 D 臂在 140K 的 positions/seq_lens 实测值。
+- 预算: 8 轮用 8; 引擎已恢复默认 D 臂健康。
