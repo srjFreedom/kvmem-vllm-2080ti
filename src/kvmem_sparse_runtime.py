@@ -4038,9 +4038,17 @@ class VllmSparseRuntime:
             # reaches them because seq_len stops inside the window).
             row_to_install = st.row if st.row else None
         else:
+            # design 620: without a REAL installed view the engine's own row
+            # is the truth. Overwriting it with our book (which is empty or
+            # window-sized until the knife rolls) mis-addressed every write -
+            # measured: 88K on a small pool answered "ductductduct" while the
+            # plain arm answered correctly on the same pool.
             row_to_install = ((st.row if (_sched_c and bool(
                                   getattr(self, "install_row_in_view", False)))
-                              else (None if _sched_c else st.row)))
+                              else (None if _sched_c
+                                    else (st.row
+                                          if bool(getattr(st, "view_installed", False))
+                                          else None))))
         self._install(row_index, row_to_install, step_end, list(position_slots))
         if self.install_row:
             self._absorb_upto[req] = max(int(self._absorb_upto.get(req, 0)), len(st.row))
