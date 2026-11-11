@@ -2776,3 +2776,13 @@ skip=不重放只装视图 - 顺路）。
 3. **89K 小池作为验收床不成立**: 无论 D 臂还是 PLAN_D=0+legacy 压缩，100K 请求都在 ~69,632–77,824 token 处停住（prefill 无法继续分配）。说明 89K 池低于引擎在 prefill 期的实际可用下限（含 reserve/mamba/图缓冲），用它做"超池"对照会产生与 D 无关的卡死。
 4. **正确的超池判据**：保持真实池（257K），把 **KVMem 工作集**（B+R=53,248）作为约束——prompt > 53,248 就必然走 D 的视图/滚动路径。这才是产品要的"份额内服务长上下文"。
 5. 当前 D 臂在小池上的失败全部落在 (3)，不是 D 算法本身。
+
+## 641-644. 2026-11-12 凌晨：正确的验收床与当前边界
+**可用配置（140K @ 真实池 257K，180s，答案正确 'ZX-4417-QJ7'）**
+`GPU_UTIL=0.972` / `KVMEM_PLAN_D=1` / `KVMEM_D_KNIFE=1` / `KVMEM_ENTRY_RESIDENT_PREFILL=1` / **`INREQUEST_COMPACTION=0`**（关闭 legacy rewind 协议）/ 工作集触发阈值 = budget+gen_reserve (45,056)。
+- A/B 已证：legacy 压缩开 → duct；关 → 正确（180s，usage 137,873）。
+- 该配置下视图会被安装（`d_tables_published` 非零）且答案正确。
+
+**仍未实现：显存下降**。原因：没有"分配侧"协议。`scheduler` 的块需求压缩被 `request.kvmem_view_installed` 门控，而这个标记**无人置位**；Core 只按自己的 `num_computed_tokens` 分配，所以请求仍占满 137,873 token 的块（实测两卡 21,528 MiB，与基线一致）。
+
+**下一步（协议级，一步到位）**：Core 侧在请求超过工作集时只分配窗口大小的块，并允许适配器滚动行——即把 legacy 的 **block channel 提案/释放**协议保留，但去掉它的 **账本 rewind**。需要：①worker 在装视图后通过建议通道发送 (req, window_blocks)；②Core 收下后把该请求的分配上限设为窗口、并在每次滚动时释放/复用块；③适配器按视图行写入。这样才能同时得到"正确"与"显存下降"。
