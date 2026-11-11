@@ -2624,3 +2624,8 @@ skip=不重放只装视图 - 顺路）。
 2. `engines/vllm/vllm/v1/worker/gpu/model_runner.py:1658`: 当 `kvmem_row_rolled` 时, 用 adapter 提供的 `kvmem_slot_deltas`（每请求 true_base - view_base）计算 slot_positions（已有通道）;
 3. `src/kvmem_sparse_runtime.py`: 刀在每个 chunk 边界产出 `kvmem_slot_deltas[req]`（窗口内滚动）+ 同步 `st.row`（页面→槽）;
 4. 验收: 140K 开刀 -> 期望 'ZX-4417-QJ7'; 再 250K。
+
+## 580. Round 326: **修正对 cap 的理解**（重要）
+- 代码实为**临时 clamp**：`_cap = num_computed; num_computed = window - num_new - lookahead; allocate_slots(...); num_computed = _cap` —— **不是永久回卷**。
+- 因此 576 的真正意义: 该 clamp 是“物理需求压缩到窗口”的正确机制, 但**只有刀在滚行时才成立**; 刀关时 clamp 会把需求压小、而无人滚行 => 反而错。576 把它门控到刀开, 让 null-D 走“全量分配”(池 8232 块=263K token, 放得下) => null-D 140K 绿 ✓。
+- 结论: 工作全部落在 **adapter 的滚行实现**（§579 清单）, 引擎侧不再改 clamp。
