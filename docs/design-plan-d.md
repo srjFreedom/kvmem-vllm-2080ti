@@ -2599,3 +2599,7 @@ skip=不重放只装视图 - 顺路）。
 ## 570. Round 308: **找到强制开关** worker.py:141 `plan_d` 分支强制 `cfg["prefill_pressure"]=True; cfg["sched_compact"]=True` (无视 env) -> 已改为由 KVMEM_D_KNIFE 决定; 但 KNIFE=0 后 140K 仍失败 ("There is no access code, no key")。
 - 说明: 该强制项不是唯一差异; 需在 boot 时打印完整 cfg (additional_config JSON) 并与 PLAN_D=0 做键级 diff。
 - 配置: 当前 KNIFE=0 臂 (测完需复原=1)。
+
+## 572-573. Round 311-312: **关刀开关被硬编码** (scripts/kvmem-vllm-worker.py "d_knife": True) -> 已改为读 env; 真 null-D (cfg.d_knife=false 确认) 140K **仍失败**
+- 读数: /tmp/kvmem_cfg.jsonl 显示 d_knife:false 两次(双 rank), TRUENULL 140K -> "There is no access code, key, or record"。
+- 结论: 刀与 sched_compact/prefill_pressure 全部关闭后, plan_d=1 与 0 的唯一剩余差异 = **cfg["plan_d"] 本身的门** (plugin 2925 _resume_decided_is_enabled 等)。下轮把这些门也改为要求 d_knife, 再判 140K。
