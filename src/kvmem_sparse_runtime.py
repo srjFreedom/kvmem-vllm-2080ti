@@ -6919,8 +6919,13 @@ class VllmSparseRuntime:
             _nbv = _pgv // max(1, int(q))
             _ordv = [int(x) for x in (logical_pages or ())]
             _physv = [int(x) for x in (phys_pages or ())]
-            _vn_cap = self._vn_seen = getattr(self, "_vn_seen", 0)
-            if (_vn_cap < 200 and int(_pgv) < int(n_pages)):
+            # PER-REQUEST CAP (design 567): the old global 200 cap made
+            # later requests silent, which read as "no knife ran" and
+            # produced a false negative on the 140K arm.
+            _vn_map = self._vn_seen = getattr(self, "_vn_seen", {})
+            _vk = str(req)[-6:]
+            _vn_cap = int(_vn_map.get(_vk, 0))
+            if (_vn_cap < 3 and int(_pgv) < int(n_pages)):
                 # phys_pages carry BLOCK ids, logical_pages carry PAGE
                 # ids, aligned by index (the fix for a member test
                 # that compared a page number to block numbers and
@@ -6928,7 +6933,7 @@ class VllmSparseRuntime:
                 _idx = (_ordv.index(_pgv) if _pgv in _ordv else -1)
                 _slot = (_physv[_idx] if 0 <= _idx < len(_physv)
                          else -1)
-                self._vn_seen = int(_vn_cap) + 1
+                _vn_map[_vk] = int(_vn_cap) + 1
                 _row474 = [int(x) for x in (getattr(st, "row", ()) or ())]
                 _rowpg474 = (int(_row474[int(_pgv)])
                              if int(_pgv) < len(_row474) else -1)
@@ -7932,8 +7937,13 @@ class VllmSparseRuntime:
             _nbv = _pgv // max(1, int(q))
             _ordv = [int(x) for x in (logical_pages or ())]
             _physv = [int(x) for x in (phys_pages or ())]
-            _vn_cap = self._vn_seen = getattr(self, "_vn_seen", 0)
-            if (_vn_cap < 200 and int(_pgv) < int(n_pages)):
+            # PER-REQUEST CAP (design 567): the old global 200 cap made
+            # later requests silent, which read as "no knife ran" and
+            # produced a false negative on the 140K arm.
+            _vn_map = self._vn_seen = getattr(self, "_vn_seen", {})
+            _vk = str(req)[-6:]
+            _vn_cap = int(_vn_map.get(_vk, 0))
+            if (_vn_cap < 3 and int(_pgv) < int(n_pages)):
                 # phys_pages carry BLOCK ids, logical_pages carry PAGE
                 # ids, aligned by index (the fix for a member test
                 # that compared a page number to block numbers and
@@ -7941,7 +7951,7 @@ class VllmSparseRuntime:
                 _idx = (_ordv.index(_pgv) if _pgv in _ordv else -1)
                 _slot = (_physv[_idx] if 0 <= _idx < len(_physv)
                          else -1)
-                self._vn_seen = int(_vn_cap) + 1
+                _vn_map[_vk] = int(_vn_cap) + 1
                 _row474 = [int(x) for x in (getattr(st, "row", ()) or ())]
                 _rowpg474 = (int(_row474[int(_pgv)])
                              if int(_pgv) < len(_row474) else -1)
