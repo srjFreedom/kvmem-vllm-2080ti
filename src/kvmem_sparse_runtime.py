@@ -644,6 +644,27 @@ class VllmSparseRuntime:
         except Exception:
             pass
 
+    def _force_row_sync(self, req, st, row_index):
+        """design 637: give the knife a row to work on. `st.row` is filled by
+        the engine->adapter sync, which only runs for groups that map several
+        pages per block and can lag the first steps; the knife bailed with
+        `blockwise_no_row` on every over-pool step."""
+        try:
+            rn = getattr(self.view, "runner", None)
+            bt = getattr(rn, "block_tables", None)
+            nb = getattr(getattr(bt, "num_blocks", None), "np", None) if bt is not None else None
+            if nb is None or row_index is None:
+                return False
+            for g in range(nb.shape[0]):
+                n = int(nb[g, int(row_index)])
+                if n > 0:
+                    self.sync_row_from_engine(req, n,
+                                              int(getattr(st, "tokens", 0) or 0))
+                    return bool(getattr(st, "row", ()))
+        except Exception:
+            pass
+        return False
+
     def _dump_side(self, tag, req, st=None):
         """design 629: dump the DEVICE-side state the kernel actually sees."""
         rec = {"tag": tag, "req": str(req)[-6:]}
@@ -3949,6 +3970,12 @@ class VllmSparseRuntime:
         if not (bool(getattr(self, "inrequest_compaction", False))
                 or bool(getattr(self, "d_mode", False))):
             return None
+        try:
+            if (row_index is not None
+                    and not getattr(st, "row", ())):
+                self._force_row_sync(req, st, row_index)
+        except Exception:
+            pass
         try:
             _c = (row_index is not None
                   and not bool(getattr(st, "view_installed", False))
