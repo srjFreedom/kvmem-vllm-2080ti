@@ -2535,3 +2535,8 @@ skip=不重放只装视图 - 顺路）。
 - 已达成: 88K 冷/续 (91.4s/5.5s) ✓; 120K 冷 ✓。未达成: 140K/152K/250K。
 - 下一步(新预算): 用 KVMEM_D_KNIFE=0 + PLAN_D=1 但逐一禁用 capture/statistics 钩子 (bisect) 定位到具体钩子; 或直接对比 PLAN_D=0 与 D 臂在 140K 的 positions/seq_lens 实测值。
 - 预算: 8 轮用 8; 引擎已恢复默认 D 臂健康。
+
+## 554. Round 260: D 臂 140K 复测复现失败 (220.8s "no access code, no key...") => 结构性, 非偶发; 对照 PLAN_D=0 命中 (223.4s 'ZX-4417-QJ7')
+- 定界: 140K 处 D 运行时路径必坏, 纯引擎必好 => 剩余病灶在 D 的每步干预组合 (capture_k/q, statistics, _absorb_engine_row, 入口策略), 已排除 row/positions/seq_override 单钩子。
+- 验收: 88K 冷/续 ✓✓, 120K ✓, 140K/152K ✗, 250K 未测。
+- 下轮(新预算): bisect D 的采集/统计钩子 (env 逐个关) 或对比两臂 positions/seq_lens 实测。
