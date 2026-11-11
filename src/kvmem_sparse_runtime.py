@@ -92,6 +92,20 @@ class _ReqState:
         self.row = ()
         self.logical = ()
         self._r0_rank = None
+        # design 624: every field that lives in __slots__ must start defined,
+        # otherwise a fresh request inherits "unset" semantics and any code
+        # path that treats the attribute as present reads another request's
+        # state (measured: the same 88K prompt answered correctly on the
+        # first run after boot and degenerated on the second).
+        self.view_installed = False
+        self.adopt_knife_pending = False
+        self.ordered_pages = ()
+        self.inrequest_compaction = False
+        self.d_final_cut = False
+        self.resume_needs_retrieval = False
+        self.rebuild_armed = False
+        self.row_head = 0
+        self.kvmem_view_installed = False
         # logical page = row position + off_pages (set by the last APPLIED boundary compaction).
         self.off_pages = 0
         self.window_src = {}
