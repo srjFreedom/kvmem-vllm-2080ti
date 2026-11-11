@@ -2681,3 +2681,9 @@ skip=不重放只装视图 - 顺路）。
 2. 在 `before_step` 前加确定性触发(593), 但实测 `d_knife_forced=0`。
 3. 加 `d_step_call` 见证(594): **hook 跑了 90 次, 但 live 恒为 1 且 id 全是 warmup('mup_0_'), 真实 140K 请求从未出现在 live 里** ⇒ 问题不在 before_step 内部, 而在 **`live` 的来源 `runner._kvmem_req_ids` 没登记真实请求**。
 - 下一步: 查 `_kvmem_req_ids` 的写入点(plugin)与真实请求注册路径; D 模式下应把 engine 的 req id 登记进去。
+
+## 595. Round 370: `live` 来源定位
+- `plugin:3552` 在 execute_model 后把 `self._kvmem_req_ids = list(scheduler_output.num_scheduled_tokens)`; `plugin:3712` 清空。
+- `plugin:1334` 处的 `reqs` 优先取 `runner.input_batch.req_ids`(prepare 阶段可用), 失败才退回 `_kvmem_req_ids`。
+- 实测: `d_step_call` 90 次全为 warmup('mup_0_') ⇒ 真实请求既没进 `_kvmem_req_ids`, 也没进 `input_batch.req_ids` 的那条分支(len(reqs) 与 query_start_loc-1 不等的保护会静默跳过)。
+- 下一步(两条都要做): ①在 1334 处把 `len(reqs) != qsl-1` 的情况打见证(数量与 ids); ②确认 D 模式下 execute_model 后钩子是否被跳过(它与 inrequest_compaction 的历史耦合)。
