@@ -3750,7 +3750,13 @@ class VllmSparseRuntime:
         # vLLM's own, and overriding seq_lens/positions on top of an uncompacted row is exactly the
         # half-initialised state that produced gibberish answers (measured with
         # --kvmem-inrequest-compaction off). Retrieval statistics can still be collected.
-        if not bool(getattr(self, "inrequest_compaction", False)):
+        # design 592: the D view is NOT the legacy in-request compaction
+        # protocol. Keying the install on that flag kept the knife dead in
+        # every D run (measured: d_view_needle=0, d_tables_published=0),
+        # because the flag defaults off and turning it on brings back the
+        # book rewinds D forbids. D installs a view on its own.
+        if not (bool(getattr(self, "inrequest_compaction", False))
+                or bool(getattr(self, "d_mode", False))):
             return None
         if bool(getattr(st, "adopt_knife_pending", False)) and \
                 row_index is not None:
