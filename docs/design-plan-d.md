@@ -2740,3 +2740,8 @@ skip=不重放只装视图 - 顺路）。
 - 读数: 140K 请求(id `7dfdf6`) 在 89K 池上, `/tmp/kvmem_st2.jsonl` 80 行, tok: 0..77,824, row: 0；随后请求超时(池被全量占满)。
 - 触发条件三要素均已满足(tokens 77,824 > 53,248; row 非 None; 未见 view) 却未写 `/tmp/kvmem_force.jsonl` ⇒ 触发块未被执行, 或条件中某一项与日志不同(`view_installed` 可能已为真)。
 - 下一步: 在 593 触发块**之前**直写四要素 `{tokens, window, row, view_installed}`; 一次 140K 即可确定是哪一项使条件为假。
+
+## 615-616. Round 401-403: 触发块不执行的最后一种解释
+- 3782-3815 之间**唯一的 return** 就是 592 门 `if not (ic or d_mode): return None`；实测 ic=true、d_mode=true ⇒ 该门应通过。
+- 因此只剩：`if row_index is not None:` 块（含 `if position_slots:` 的 slot_span 记录）**抛出异常**，函数异常退到 plugin 的 except（其日志写往 log_path，可能不是 /tmp/kvmem_sparse.jsonl，我们一直没看到）。
+- 下一步(精确): 在 plugin:1416 调用处 try/except 包一层并直写 `/tmp/kvmem_call_err.jsonl`（异常文本）；或在 before_step 的 `if row_index is not None:` 块前后各写一个标记文件，看是否越过该块。
