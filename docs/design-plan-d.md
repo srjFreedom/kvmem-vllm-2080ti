@@ -1,3 +1,22 @@
+# Plan D 交接索引（2026-11-12）
+
+**可用且已验证的配置**
+| 目的 | 配置 | 读数 |
+|---|---|---|
+| 完整提示 + 正确（不压缩） | `GPU_UTIL=0.972` `KVMEM_PLAN_D=1` `KVMEM_D_KNIFE=1` `KVMEM_ENTRY_RESIDENT_PREFILL=1` `INREQUEST_COMPACTION=0` | 140K → `ZX-4417-QJ7`（180s，usage 137,873）|
+| 基线（v0.5.0 语义） | `KVMEM_PLAN_D=0` `INREQUEST_COMPACTION=1` + resident 入口 | 88K → `ZX-4417-QJ7`（124s，usage 74,948）|
+
+**已确认的根因（都已修）**
+1. `_ReqState.__slots__` 缺字段 → 刀相关写入全被 `except: pass` 吞掉（0d782e9）；
+2. `st.view_installed` 从未被置 True → clamp/行安装/滚行全死（657）；
+3. 入口裁剪造成“假绿”：142K 被裁成 36K（634 解耦，resident 入口后 usage=142,868）；
+4. legacy 压缩的 rewind 与 D 账本冲突 → D 模式必须 `INREQUEST_COMPACTION=0`（否则 duct）。
+
+**仍未完成（唯一剩余实现）**
+逐 chunk 的“行重排（环）”：row[i] 必须恒等于逻辑块 (base+i) 的物理槽；`delta = frontier − window`；`seq_len = window`；`num_computed` 不回卷。
+- 现状：执行通道已成立（89K 池跑完 137,873 token，171s），但缺行重排 → 答案退化。
+- 关键代码位置：`runtime._reselect_blockwise`（刀）、`plugin` 步进钩子（652/655 的 delta-slide 与 ring 旋转，当前未触发，需查 `_st631 is None`）、`_install`（写行）。
+
 # 方案 D：全量 token 流 + 压缩 attention 地址空间（完整版，用户拍板 2026-11-03）
 
 ## 0. 动机（v0.5.2 用户实测的两大症状）
