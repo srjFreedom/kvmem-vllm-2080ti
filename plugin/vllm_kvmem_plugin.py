@@ -1371,6 +1371,16 @@ def _attach_sparse(runner, log_path):
                         "ids": [str(r)[-6:] for r in
                                 (getattr(runner, "_kvmem_req_ids",
                                          None) or [])][:5]})
+                try:
+                    _rows594 = [r for r in live
+                                if view.row_index(r) is not None]
+                    _append(log_path, {"kind": "d_step_call",
+                                       "pid": os.getpid(),
+                                       "live": len(live),
+                                       "with_row": len(_rows594),
+                                       "ids": [str(r)[-6:] for r in live[:4]]})
+                except Exception:
+                    pass
                 for req in live:
                     runtime.seen_alive(req)
                 for req in live:
