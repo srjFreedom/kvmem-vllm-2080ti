@@ -645,28 +645,35 @@ class VllmSparseRuntime:
 
     def _dump_side(self, tag, req, st=None):
         """design 629: dump the DEVICE-side state the kernel actually sees."""
+        rec = {"tag": tag, "req": str(req)[-6:]}
         try:
-            open("/tmp/kvmem_side_min.jsonl", "a").write(tag + "\n")
+            rec["row"] = int(getattr(st, "row_index", -1)) if st is not None else -1
+            rec["tok"] = int(getattr(st, "tokens", -1)) if st is not None else -1
         except Exception:
             pass
+        def _head(obj, n):
+            try:
+                v = obj[:n]
+                if hasattr(v, "tolist"):
+                    return [int(x) for x in v.tolist()]
+                return [int(x) for x in v]
+            except Exception as exc:
+                return "ERR:" + type(exc).__name__
+        try:
+            rec["pos"] = _head(self.view.positions(), 8)
+        except Exception as exc:
+            rec["pos"] = "GET:" + type(exc).__name__
+        try:
+            rec["seq"] = _head(self.view.seq_lens(), 4)
+        except Exception as exc:
+            rec["seq"] = "GET:" + type(exc).__name__
+        try:
+            tb = self.view.block_table_rows()
+            rec["gpu"] = [_head(t[0], 6) for t in tb[:2]]
+        except Exception as exc:
+            rec["gpu"] = "GET:" + type(exc).__name__
         try:
             import json as _j
-            pos = self.view.positions()
-            seq = self.view.seq_lens()
-            gpu = self.view.block_table_rows()
-            inp = None
-            try:
-                inp = self.view.input_block_table_rows()
-            except Exception:
-                inp = None
-            rec = {"tag": tag, "req": str(req)[-6:],
-                   "row": int(getattr(st, "row_index", -1)) if st is not None else -1,
-                   "tok": int(getattr(st, "tokens", -1)) if st is not None else -1,
-                   "pos": [int(x) for x in pos[:8].tolist()],
-                   "seq": [int(x) for x in seq[:4].tolist()],
-                   "gpu": [[int(v) for v in t[:6].tolist()] for t in gpu[:2]],
-                   "inp": ([[int(v) for v in t[:6].tolist()] for t in inp[:2]]
-                           if inp is not None else None)}
             with open("/tmp/kvmem_side.jsonl", "a") as _f:
                 _f.write(_j.dumps(rec) + "\n")
         except Exception:
