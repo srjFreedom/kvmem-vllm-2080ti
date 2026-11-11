@@ -77,7 +77,7 @@ class _ReqState:
                  "row_index", "prefill_done", "query_reselected", "resume", "resumed",
                  "replay_snap", "replay_n", "replay_at", "replay_at_resident", "rebuilt",
                  "compacted_in_prefill", "applied_view_coord", "off_pages", "window_src",
-                 "d_question_cut", "_r0_rank",
+                 "d_question_cut", "_r0_rank", "roll_base",
                  "adopt_knife_pending",
                  "d_final_cut",
                  "inrequest_compaction",
@@ -106,6 +106,7 @@ class _ReqState:
         self.rebuild_armed = False
         self.row_head = 0
         self.kvmem_view_installed = False
+        self.roll_base = 0
         # logical page = row position + off_pages (set by the last APPLIED boundary compaction).
         self.off_pages = 0
         self.window_src = {}
