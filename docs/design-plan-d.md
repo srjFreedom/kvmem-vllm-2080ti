@@ -2557,3 +2557,8 @@ skip=不重放只装视图 - 顺路）。
 - 已排除累计 (均带证据): seq_override / statistics / capture_k / row 安装 / _absorb_engine_row。
 - 新增仪器: d_pos_probe (prepare_pos_seq_lens 后打 positions[:8]/seq_lens[:4]/ncomp[:4]); 本轮读取失败(变量名/张量转换问题), 下轮修读数。
 - 下一步: 修 d_pos_probe 读数 -> 同请求对比 PLAN_D=0 与 D 臂的首步 positions/seq_lens 实测。
+
+## 562. Round 285b: **positions/seq_lens 实测 = 真位置、全序列长** (0..4095 / 4096.. ; seq 4096/8192/12288/16384; ncomp 同步) - 两臂都不是位置问题
+- 推论: 位置面正确; 但 D 臂每步仍把 `st.row`(视图宽, 远短于全流) 写进 block_table 且发布 `_seq_override=len(st.row)*pt` => ①开 override: 注意力被截到视图宽(尾部/针不可见); ②关 override: 注意力按全流读, 但行只覆盖视图宽 -> 越界读旧块。两臂都坏, 与实测吻合。
+- 正解(下轮实施): **无刀时不得干预** - 仅当该请求真正发生过视图安装(knife)时才写行/发 override; 否则保持引擎自己的行与长度。用一个 `st.view_installed` 标志控制 row/seq 安装两处。
+- 判据: 140K 无刀请求应完全走引擎原路径 => 期望复现 PLAIN 的 'ZX-4417-QJ7'。
