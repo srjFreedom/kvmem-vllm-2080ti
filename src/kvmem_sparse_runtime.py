@@ -195,6 +195,7 @@ class VllmSparseRuntime:
         self.install = True
         self.install_row = True
         self._row_snapshot = {}
+        self._seq_snapshot = {}
         self.install_seq = True
         self.install_pos = True
         _sink388 = log or (lambda record: None)
@@ -3727,6 +3728,18 @@ class VllmSparseRuntime:
         # Measured: the second request on a warmed engine answered with noise from its first token.
         if row is not None:
             self._seq_override.pop(int(row), None)
+        try:
+            for _r in list(self._seq_override):
+                self._seq_override.pop(_r, None)
+        except Exception:
+            pass
+        if row is not None:
+            try:
+                _ss = self._seq_snapshot.pop(int(row), None)
+                if _ss is not None:
+                    self.view.seq_lens()[int(row)] = _ss
+            except Exception:
+                pass
         # design 626: put the engine's own row back so the next request that
         # lands on this batch row sees vLLM's block ids, not our book.
         try:
@@ -4119,6 +4132,15 @@ class VllmSparseRuntime:
                 table[row_index, :len(row)] = torch.tensor(row, dtype=table.dtype,
                                                            device=table.device)
         if self.install_seq:
+            # design 627: snapshot the engine's own seq_lens for this batch row
+            # before the first overwrite; entries we wrote must be restored when
+            # the request ends, otherwise the NEXT request on that row starts
+            # with our compacted length (measured: alternating duct/correct).
+            try:
+                if row_index not in self._seq_snapshot:
+                    self._seq_snapshot[row_index] = self.view.seq_lens()[row_index].clone()
+            except Exception:
+                pass
             self.view.seq_lens()[row_index] = seq_len
         positions = self.view.positions()
         # The query tokens sit right after the keys, in compacted space: their absolute positions
