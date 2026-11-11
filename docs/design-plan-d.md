@@ -2576,3 +2576,6 @@ skip=不重放只装视图 - 顺路）。
 ## 565. Round 289: PLAIN(PLAN_D=0) 140K 再次答对 'ZX-4417-QJ7' (第二次复现) => "纯引擎可、D 臂不可" 已确立为可重复对照
 - 探针对比未奏效: d_pos_probe 只记前 6 次, 被 warmup 请求(seq 2/3)占满 => 需按"首次真实请求"过滤后才可比。
 - 下轮: 探针改为只记 num_computed>0 且 seq_lens>1024 的步骤; 然后同请求两臂并排比 positions/seq_lens/行长度。
+
+## 566. 架构复盘入档（2026-11-10）
+新增 `docs/vllm-2080ti-and-kvmem-architecture.md`：记录 ①fork 的真实设计（slot mapping 由 positions 推导 `block_table.py:191/277`；`hisparse` resident/host/hot 数据面；`kv_offload` 块级 offload 框架；稀疏注意力仅 MLA；GDN/Mamba 后端齐备）；②KVMem 的设计信条（有界池 budget+gen_reserve、cell pos=真位置、恢复=纯拷贝、mean-K pre-RoPE 检索、KvMemPlan diff、H/D 两层 host、会话 LCP、GDN 整请求状态快照、不改 attention）；③两者拼接方案（三层分工 + **唯一引擎改动=positions 拆分** + 五步落地顺序 + 旧做法失败对照表）。
