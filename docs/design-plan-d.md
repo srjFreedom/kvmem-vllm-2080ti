@@ -2496,3 +2496,11 @@ skip=不重放只装视图 - 顺路）。
 - 下一步: 把见证放到 `st.row = ...` 赋值点 (调用方) 而不是 step-end 分支; 或直接在 `_rebuild_view` 的返回处记录 (row, frontier)。
 - 已证 (跨轮): 内容 100%; builder 包装可靠; ≤65K 绿/续跑达标; >75K 及 65K 波动档红。
 - 交接: ahead 477; 引擎健康; /etc/default 无 NO_SEQ (本轮重启已回默认臂)。
+
+## 540-541. 判定 harness 首轮结果 (一轮问清"还剩几层"):
+- L1 行覆盖: **PASS** (row_len 1421, frontier 1408, short -13, holes 0, badslot 0 = 行对全流位置都有有效块)
+- L2 内容: **无法判定** (nocanon 1421/1421) 因 L2.5 爆炸:
+- **L2.5 页身份账: FAIL - `st.logical` 全为 -1** (logical_sample [-1,-1,-1,-1,-1,-1]) => 运行时对视图没有页身份, store/回填/retain 全部无从对齐。
+- L3 store: 正常 (store_n 1408, 键 0..1407 连续)。
+- 结论: 不是三层, 是**两层未修 + 一层待定**: ①页身份账 (st.logical=-1, 阻塞 L2 判定); ②L2 内容/l2.5 修好后再判; ③seq_override 在该时刻未设 (-1)。
+- 下轮: 在 6975/8126 安装点检查 logical_pages 来源 (rebuild 哪条 return 给 -1); 用 kept/ordered 反推真实页身份写入 st.logical, 再跑 harness 看 L2 ratio。
