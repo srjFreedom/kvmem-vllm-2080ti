@@ -2373,11 +2373,17 @@ class VllmSparseRuntime:
                                          _hkp460, bytes) else b"")
                 except Exception:
                     _ps460 = None
-            if _ps460 is not None:
+            if (_ps460 is not None
+                    and os.environ.get("KVMEM_NO_STATE", "").strip() != "1"):
                 if not self.restore_state(req, _ps460):
                     raise RuntimeError("resumed GDN StateImage could not "
                                        "be restored")
                 self.log({"kind": "d_state_restored_plugin",
+                          "req": str(req)[-6:],
+                          "groups": len(_ps460)})
+            elif (_ps460 is not None and os.environ.get(
+                    "KVMEM_NO_STATE", "").strip() == "1"):
+                self.log({"kind": "d_state_skipped543",
                           "req": str(req)[-6:],
                           "groups": len(_ps460)})
             elif (_st259 is not None and isinstance(_st259, list)
