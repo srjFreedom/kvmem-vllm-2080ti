@@ -2769,3 +2769,10 @@ skip=不重放只装视图 - 顺路）。
 - 行内容快照还原(626)与 seq_lens 快照还原(627)都**未改变**交替。
 - 关刀(KNIFE=0)时三次全部失败(HTTPError/URLError) ⇒ 89K 池上压缩是必需项，原生放不下。
 - 结论: D 路径的执行**看起来完全一致**，却输出不同 ⇒ 残留不在我们记录的这些标量里，只在**设备侧持久缓冲**（positions 尾部 / seq_lens 行 / block_table 行）或 batch 行分配顺序上。下一步: 在请求首步直写 `view.positions()` 与 `view.seq_lens()` 的前 8 个值(按 row)做对照, 找出哪一行被上一个请求写脏。
+
+## 629-640. 2026-11-11 深挖结论（重要，改变验证方式）
+1. **总根因已确证并修复**: `_ReqState.__slots__` 缺字段 → 刀相关写入全被 except 吞掉(已修)；修复后刀会装视图(d_view_needle/d_tables_published 非零)。
+2. **入口裁剪是"假绿"**: `INREQUEST_COMPACTION=0` 时入口强制把 prompt 裁到 B(142K→36,136 token)。已用 `KVMEM_ENTRY_RESIDENT_PREFILL=1` + worker 解耦(design 634)让 prompt 完整进入(usage=142,868)。
+3. **89K 小池作为验收床不成立**: 无论 D 臂还是 PLAN_D=0+legacy 压缩，100K 请求都在 ~69,632–77,824 token 处停住（prefill 无法继续分配）。说明 89K 池低于引擎在 prefill 期的实际可用下限（含 reserve/mamba/图缓冲），用它做"超池"对照会产生与 D 无关的卡死。
+4. **正确的超池判据**：保持真实池（257K），把 **KVMem 工作集**（B+R=53,248）作为约束——prompt > 53,248 就必然走 D 的视图/滚动路径。这才是产品要的"份额内服务长上下文"。
+5. 当前 D 臂在小池上的失败全部落在 (3)，不是 D 算法本身。
