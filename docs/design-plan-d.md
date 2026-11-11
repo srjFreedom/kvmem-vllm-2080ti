@@ -2798,3 +2798,11 @@ skip=不重放只装视图 - 顺路）。
 
 **下一步（唯一实现点）**：每个 chunk 越窗时执行"刀"：①重写 row，使窗口内的块按逻辑顺序排列（页重排，不是简单偏移）；②发布该 chunk 的 `kvmem_slot_deltas/view_lens`（view 基址 = 真前沿 − 窗口）；③`request.num_computed_tokens` 不回卷（D 不变量）。
 - 验收：88K 池 + 140K 请求 → `ZX-4417-QJ7`，耗时接近 175s。
+
+## 649-651. Round 436 结论
+- 刀现在会**每个越窗 chunk 反复触发**（`d_knife_forced=58`、`d_adopt_knife=58`），但仍答错（"The text is a river delta."）⇒ 反复执行刀并不等于正确滚行。
+- 根因在 **row/delta 的语义**：Core 只分配窗口（645），因此每个 token 的写地址必须落在窗口内且**与行内顺序一致**；当前实现只给了一个 per-request 标量 delta 与一次性的行重排，无法表达"窗口随前沿滑动、行内容按逻辑顺序重排"。
+- 正确的实现需要（下一阶段）：①每个 chunk 计算新的窗口基址；②把窗口内的块按逻辑顺序**重排写入 row**（页重排）；③发布该 chunk 的 delta/view_lens；④`num_computed_tokens` 不回卷。
+
+**当前系统状态**：已复位到安全配置（GPU_UTIL=0.972、PLAN_D=0），引擎 healthy，可用于验证既有能力（88K/152K/250K 正确、resume 可用）。
+**Plan D 结论（诚实）**：执行通道已打通（88.9K 池可跑完 137.9K 请求，175s），但"正确滚行"尚未实现；因此按验收口径 Plan D 未完成。
