@@ -2517,3 +2517,9 @@ skip=不重放只装视图 - 顺路）。
 - 排除: ①HostPageStore 是无界 dict (无容量) ; ②capacity_clamped×358 是"滞后账 clamp"(benign, 有注释) ; ③host_capacity_short=0。=> 边界更像 GPU/attention pool 或 OOW 收割在深页数下的失败, 非 host 容量。
 - 关键成果: **88K/120K 冷跑 + 88K 续跑 5.5s 全部命中** - 验收 88K 项已达成, 152K/250K 未达成。
 - 下轮: ①在 4,300 页处抓 d_oow_handoff(written/pages) 与 view row_len, 看深页数时收割是否骤降; ②查 GPU KV 池 (8232 块) 在 4,300 页时的余量。
+
+## 547-550. 深流收割修复 (range 全提示 + ordered_pages 双修) 后 140K 仍无针; **关键反转读数: 该请求 0 刀 (d_view_needle=0, d_oow_handoff=0)**, 即全流驻留、未压缩, 模型仍否认码值
+- 数据: 140K(137,873tok) 220.9s -> " is no access code, no key, no key..." (连贯但无针); 而 88K/120K 冷跑命中。
+- 反转: 该请求**根本没触发刀** (无 view/oow 事件) => 全量 KV 在上下文里, 针仍不可见 => 这是**基础路径长上下文问题**, 不是 KVMem 视图问题 (与 round 222 的 PLAN_D=0 152K 失败一致)。
+- 意义: 验收 152K/250K 的剩余障碍可能一半在引擎/fork 的长上下文本身 (v0.5.0 曾 152K 2/2 命中, 说明引擎可做到, 需对照 v0.5.0 的配置/入口差异)。
+- 下一步(预算剩 6 轮, 上下文将尽): ①对照 v0.5.0 的 launcher/env 与当前差异 (尤其入口策略/CTX/位置表); ②在 140K 无刀场景验证 needle 页 KV 是否真在 GPU (选页/字节), 判断"读不到"还是"没内容"。
