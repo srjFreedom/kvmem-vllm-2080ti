@@ -2703,3 +2703,7 @@ skip=不重放只装视图 - 顺路）。
 - 读数: d_step_call=136 且 ids 有真实请求; d_knife_forced=0。
 - 说明: 步进钩子现在确实以真实请求进入 runtime.before_step; 但触发条件未满足或更早 return。
 - 下一处取证(精确): 在 before_step 入口打 `d_bs_entry{req,tokens,window,d_mode,row_index,view_installed}`, 一次 140K 即可判定是 tokens 未超窗、d_mode 为假、还是更早的 return。
+
+## 600-601. Round 381-382: 入口见证落地但 **d_bs_entry=0** ⇒ before_step 仍未被调用
+- 对比: `d_step_call`(136 次, ids 含真实 'bd9ec7') 已记日志, 但 `d_bs_entry` 0 ⇒ 在 `for req in live:` 循环里, `before_step` 一次都没被调用 ⇒ 只剩两种可能: ①`view.row_index(req)` 在该循环内为 None (`continue` 跳过); ②循环前的语句抛异常被 `except` 吞掉(应见 sparse_step_error)。
+- 下一步(最后一步取证): 在循环体内、调用前打 `d_pre_call{req,row}` 并统计; 若 row 恒 None, 说明 `bind_step` 的 idx_mapping 与 req_ids 顺序不一致(或 idx_mapping 为 None 且 position 越界), 需在 bind 时按 `runner.input_batch.req_ids` 的顺序构建映射。
