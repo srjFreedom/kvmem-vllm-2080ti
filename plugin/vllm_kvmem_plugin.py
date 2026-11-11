@@ -1362,7 +1362,13 @@ def _attach_sparse(runner, log_path):
                     pass
                 view.bind_step(idx_mapping, getattr(runner, "_kvmem_req_ids", None) or [],
                                query_start_loc)
-                live = list(getattr(runner, "_kvmem_req_ids", []) or [])
+                live = (list(getattr(getattr(runner, "input_batch", None),
+                                    "req_ids", None) or [])
+                            or list(getattr(runner, "_kvmem_req_ids", []) or []))
+                try:
+                    view.bind_step(idx_mapping, live, query_start_loc)
+                except Exception:
+                    pass
                 # A request that disappeared from the batch has finished: give its H share back,
                 # otherwise a long-lived engine leaks the shared host budget.
                 for gone in [r for r in runtime.live_requests() if r not in live]:
