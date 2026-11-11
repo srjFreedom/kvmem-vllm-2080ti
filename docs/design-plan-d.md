@@ -2567,3 +2567,8 @@ skip=不重放只装视图 - 顺路）。
 - 说明: 干扰不来自 row/seq 安装(门已关仍坏) => 剩余候选在 plugin 侧每步钩子 (_fix_book_for_view / 入口 policy / 其他 execute_model 后处理)。
 - 位置面已实测正确 (0..4095/4096.. ; seq 4096/8192/...)。
 - 下一步: 在 plugin 逐段禁用 (_fix_book_for_view 先关), 或对 D 臂与 PLAIN 做 execute_model 前后的 seq_lens/num_computed 快照 diff。
+
+## 564. Round 287: 复核 _fix_book_for_view 后发现其仅在 sched_compact=1 下运行 (当前关闭) => 该路径已自动排除
+- 当前 D 臂每步钩子已排除清单: row 安装 / seq_override / _absorb_engine_row / statistics / capture_k/q / _fix_book_for_view。
+- 剩余候选面收窄到 **入口/HTTP 侧** (adapter 的 inrequest_compaction 默认 on、entry ctx/选页) 或 **execute_model 内的其他 sparse 分支**。
+- 下一步: 在改代码前先做**最小对比**: 同 140K 请求, PLAN_D=1 vs 0, 把 engine 侧首 chunk 日志 (num_scheduled/ncomp/block_table 行长度) 并排读, 找首个分叉。
