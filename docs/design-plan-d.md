@@ -2551,3 +2551,9 @@ skip=不重放只装视图 - 顺路）。
 - **方法学警告**: NO_STATE 臂曾设置但日志仍显示 d_state_restored_plugin => 部分 env 可能未传到 worker; 后续 bisect 必须先在日志确认 env 生效 (开跑前打一行 env 快照).
 - 剩余候选: _absorb_engine_row(每步改行) / 入口策略 / step-end 行安装的其他路径。
 - 下一步: 先在 worker 内打 env 快照验证传导; 再 A/B _absorb_engine_row。
+
+## 560-561. Round 285-286 (续做): NO_ROW 与 NO_ABSORB 均在 env 快照确认传导 ("1") 下仍失败
+- 证据: sparse_attached.env{NO_ROW:"1"} -> "text describes a river delta, a river delta,"; {NO_ABSORB:"1"} -> "is no access code, key, or record of access"。
+- 已排除累计 (均带证据): seq_override / statistics / capture_k / row 安装 / _absorb_engine_row。
+- 新增仪器: d_pos_probe (prepare_pos_seq_lens 后打 positions[:8]/seq_lens[:4]/ncomp[:4]); 本轮读取失败(变量名/张量转换问题), 下轮修读数。
+- 下一步: 修 d_pos_probe 读数 -> 同请求对比 PLAN_D=0 与 D 臂的首步 positions/seq_lens 实测。
