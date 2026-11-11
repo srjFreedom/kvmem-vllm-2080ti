@@ -1452,6 +1452,12 @@ def _attach_sparse(runner, log_path):
                                     _old655 = int(getattr(_st631, "roll_base", 0) or 0)
                                     _k655 = max(0, (_base652 - _old655) // max(1, _blk655))
                                     _rowv655 = list(getattr(_st631, "row", ()) or ())
+                                    try:
+                                        open("/tmp/kvmem_ring.jsonl", "a").write(
+                                            "%s k=%s row=%s base=%s\n" % (
+                                                str(_row)[-4:], _k655, len(_rowv655), _base652))
+                                    except Exception:
+                                        pass
                                     if _k655 > 0 and _rowv655 and _k655 < len(_rowv655):
                                         _rot655 = _rowv655[_k655:] + _rowv655[:_k655]
                                         _st631.row = tuple(_rot655)
