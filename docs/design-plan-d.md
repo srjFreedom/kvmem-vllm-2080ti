@@ -2786,3 +2786,15 @@ skip=不重放只装视图 - 顺路）。
 **仍未实现：显存下降**。原因：没有"分配侧"协议。`scheduler` 的块需求压缩被 `request.kvmem_view_installed` 门控，而这个标记**无人置位**；Core 只按自己的 `num_computed_tokens` 分配，所以请求仍占满 137,873 token 的块（实测两卡 21,528 MiB，与基线一致）。
 
 **下一步（协议级，一步到位）**：Core 侧在请求超过工作集时只分配窗口大小的块，并允许适配器滚动行——即把 legacy 的 **block channel 提案/释放**协议保留，但去掉它的 **账本 rewind**。需要：①worker 在装视图后通过建议通道发送 (req, window_blocks)；②Core 收下后把该请求的分配上限设为窗口、并在每次滚动时释放/复用块；③适配器按视图行写入。这样才能同时得到"正确"与"显存下降"。
+
+## 645-648. 2026-11-12 凌晨重大进展与剩余缺口
+**机制已打通**：Core 侧在 D 模式下把每请求的分配上限设为工作集窗口（design 645，`scheduler` 无条件 clamp）后，**88,914 token 的池可以跑完 137,873 token 的请求**（175s，usage=137873，prefill 不再卡死）。这是此前从未达到的：说明"池小于请求"的执行通道成立。
+- 澄清：vLLM 启动即预留整池，所以"显存下降"**只能**用"缩小池仍能服务长请求"来证明，不能用运行期 used MiB 判断。
+
+**剩余缺口 = 滚行尚未逐 chunk 进行**：
+- `d_tables_published` 每次请求只有 2 条（=1 个请求 ×2 rank）⇒ delta/view_lens 只在刀触发时发布一次；
+- 之后每个 chunk 仍按"真位置"写，但 Core 只分配了窗口 ⇒ 写地址错位 ⇒ 答案退化（"This is a test." / "The text is a a a"）。
+- NOBLADE（不滚行）在 clamp 下同样错 ⇒ 证明 **clamp 必须与逐 chunk 滚行同时存在**。
+
+**下一步（唯一实现点）**：每个 chunk 越窗时执行"刀"：①重写 row，使窗口内的块按逻辑顺序排列（页重排，不是简单偏移）；②发布该 chunk 的 `kvmem_slot_deltas/view_lens`（view 基址 = 真前沿 − 窗口）；③`request.num_computed_tokens` 不回卷（D 不变量）。
+- 验收：88K 池 + 140K 请求 → `ZX-4417-QJ7`，耗时接近 175s。
