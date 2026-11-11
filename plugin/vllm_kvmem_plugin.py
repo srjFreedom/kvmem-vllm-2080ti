@@ -1369,6 +1369,16 @@ def _attach_sparse(runner, log_path):
                     view.bind_step(idx_mapping, live, query_start_loc)
                 except Exception:
                     pass
+                try:
+                    import json as _jl
+                    with open("/tmp/kvmem_live.jsonl", "a") as _fl:
+                        _fl.write(_jl.dumps({"pid": os.getpid(),
+                                             "live": [str(r)[-6:] for r in live[:4]],
+                                             "n": len(live),
+                                             "view_id": id(view),
+                                             "rows": [view.row_index(r) for r in live[:4]]}) + "\n")
+                except Exception:
+                    pass
                 # A request that disappeared from the batch has finished: give its H share back,
                 # otherwise a long-lived engine leaks the shared host budget.
                 for gone in [r for r in runtime.live_requests() if r not in live]:
