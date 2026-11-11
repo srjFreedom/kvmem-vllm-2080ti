@@ -2585,3 +2585,8 @@ skip=不重放只装视图 - 顺路）。
 - 推论: 140K 失败与刀/行/seq/positions 无关, 而是 **PLAN_D=1 挂载路径本身**(配置或常驻钩子) 改变了计算。排除面因此从"每步账"转向"attach 时的模式差异"(如 inrequest_compaction=on → prefix caching 关闭/ --no-async-scheduling、capture 钩子、statistics 注册)。
 - 注意: 引擎当前为 KNIFE=0 臂, 下轮需回 KNIFE=1。
 - 下一步: 对比两臂 boot 日志的配置差异段; 再在 KNIFE=0 下逐个关闭 capture/statistics 复测 140K (此前只在开刀下测过)。
+
+## 568. Round 305: null-D 四面全关 (KNIFE=0, PREFILL_PRESSURE=0, CAPTURE=0, STATS=off) 在 140K 仍失败; 无 resume 事件
+- 说明: "PLAN_D=1 挂载"差异不在 刀/压力/采集/统计/resume 任一单项 => 剩下的是**模式级配置**: inrequest_compaction=on (关 prefix caching / no-async-scheduling) 或入口 policy。
+- 配置已恢复默认 (PLAN_D=1/KNIFE=1/PRESSURE=1, 无 CAPTURE/STATS 覆盖) — 需重启生效。
+- 下一步: 对比 PLAN_D=0 与 1 的 boot 日志配置段 (只差 plan_d 分支), 找出真正改变计算的那条开关。
