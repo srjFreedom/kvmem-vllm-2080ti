@@ -2692,3 +2692,9 @@ skip=不重放只装视图 - 顺路）。
 - 读数: d_exec_seen: 80, tail ids 全 'bd9ec7'; 而 d_step_call 90 次全 'mup_0_'。
 - 结论: 钩子挂载正确; 缺口在 **plugin:1330-1380 那段**: `view.bind_step`/`live` 的来源与 `view.row_index(req)` 在真实请求上未绑定(或 bind_step 抛异常被吞)。
 - 下一步: 在 1336-1354 之间逐点打见证: bind_step 返回值、live 内容、row_index(req) 是否 None、异常类型。
+
+## 599. Round 375: **步进钩子的 ids 滞后一步**（刀不响的直接原因）
+- `bind_step(idx_mapping, req_ids, qsl)` 只做记录; `row_index(req)` 依赖 `req` 在 `req_ids` 里 (src/kvmem_live_view.py:29-45)。
+- 步进钩子(plugin:1363/1379)取 `runner._kvmem_req_ids`, 而这个表在 **execute_model 之后**(plugin:3552)才写入 ⇒ 步进时看到的是**上一步**的 ids; 真实请求在自己的 prefill chunk 上因此 `row_index=None` → `before_step` 被跳过(与 d_step_call 只见 warmup 吻合)。
+- 修法: 步进钩子改用**本步的 batch ids**(`runner.input_batch.req_ids`, 与 query_start_loc 同序), 而不是滞后的 `_kvmem_req_ids`; `bind_step` 与 `row_index` 无需改动。
+- 注: `d_exec_seen` 已证明真实请求经过后执行钩子(80 次, id 'bd9ec7')。
