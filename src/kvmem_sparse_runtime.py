@@ -3730,12 +3730,9 @@ class VllmSparseRuntime:
             import json as _j600  # design 604: direct file, self.log may be None
             _s6 = (self._state.get(req) if isinstance(getattr(self, "_state", None), dict) else None)
             with open("/tmp/kvmem_bs.jsonl", "a") as _f6:
-                _f6.write(_j600.dumps({"req": str(req)[-6:],
-                                       "tokens": int(getattr(_s6, "tokens", -1)),
-                                       "window": int(self.budget_tokens) + int(self.gen_reserve_tokens),
-                                       "d_mode": bool(getattr(self, "d_mode", False)),
-                                       "row": row_index,
-                                       "n_req": len(getattr(self, "_state", {}) or {})}) + "\n")
+                _f6.write(_j600.dumps({"cls": type(self).__name__,
+                                       "req": str(req)[-6:],
+                                       "row": repr(row_index)}) + "\n")
         except Exception:
             pass
         try:
