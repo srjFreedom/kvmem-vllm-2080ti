@@ -3848,7 +3848,7 @@ class VllmSparseRuntime:
             # `prepare_pos_seq_lens`, because that runs with the optimistic device counter, which a
             # compaction does not rewind - writing ours first would be overwritten with a stale
             # length and the attention would read pages beyond the row.
-            if self.install_row and st.row and not bool(getattr(self, "sched_compact", False)):
+            if self.install_row and st.row and not bool(getattr(self, "sched_compact", False)) and bool(getattr(st, "view_installed", False)):
                 import torch
                 for table in self.view.block_table_rows():
                     table[row_index, :len(st.row)] = torch.tensor(
@@ -3869,7 +3869,8 @@ class VllmSparseRuntime:
             except Exception:
                 pass
             try:
-                if bool(getattr(self, "install_seq", True)):
+                if (bool(getattr(self, "install_seq", True))
+                        and bool(getattr(st, "view_installed", False))):
                     self._seq_override[int(row_index)] = (
                         int(len(st.row)) * int(self.page_tokens))
                 else:
@@ -3897,7 +3898,7 @@ class VllmSparseRuntime:
             # no-plugin and hooks-off builds stayed byte-equal with spec0). The override
             # only exists to REWIND the book after a compaction, and that state is exactly
             # what `applied_view_coord` marks.
-            if self.install_row and st.row and not bool(getattr(self, "sched_compact", False)):
+            if self.install_row and st.row and not bool(getattr(self, "sched_compact", False)) and bool(getattr(st, "view_installed", False)):
                 import torch
                 for table in self.view.block_table_rows():
                     table[row_index, :len(st.row)] = torch.tensor(
@@ -6381,6 +6382,7 @@ class VllmSparseRuntime:
             # below resolves page->slot through this book, and it used
             # to be one knife stale (written=0 on the deep stream).
             st.ordered_pages = tuple(int(p) for p in ordered)
+            st.view_installed = True
             # TRUE-MAP PHYSICALS (design 328): bucket identity assumed
             # dense allocation from block 0; real engine allocation is
             # sparse (ledger: every phys bucket missed st.row, dom=0).
