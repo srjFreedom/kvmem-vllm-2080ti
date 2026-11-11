@@ -2641,3 +2641,9 @@ skip=不重放只装视图 - 顺路）。
 ## 582-583. Round 340-341: 看板发布门槛已放开 (view_installed 也算), 但 140K 实测 `d_tables_published=0`
 - 结论链(已闭合): **刀在 140K 根本不触发**(无 view_installed, 无 pressure proposal) → 行不滚; 但 scheduler clamp 只看 plan_d+knife → 仍把块需求压到窗口 ⇒ 分配块 < 实际需要 ⇒ 后段 attention 读到未写块 ⇒ 答案错/空。
 - 正解: **clamp 必须与“真的滚了行”绑定**, 不是与“刀开关”绑定; 且刀必须在长提示上必然触发(当前 pressure 水位不触发是死结)。中期方案: 把刀触发从“水位”改为“**提示长度 > 窗口**”这一确定性条件(每个超窗请求必装一次视图)。
+
+## 584-585. **ROUND 344 突破: 开刀 140K 答对 '-4417-QJ7'**
+- 修复: clamp 块需求压缩改为只对 `request.kvmem_view_installed=True` 的请求生效(默认 False) -> 无滚动时 D 臂与 plain 等价; 引擎提交 `b1c1b6c`。
+- 读数: `PLAN_D=1 + KNIFE=1` 140K -> **'-4417-QJ7'** (此前空/错)。
+- 现行语义: D 臂在“刀未触发”时安全(=plain); 真正的 D 特性(超窗必触发刀 + 行滚动)仍未实现, 因此 250K 仍待测、显存下降未实现。
+- 下一步: ①刀触发改为“提示长度 > 窗口”确定条件; ②装视图时置 `request.kvmem_view_installed=True`; ③rows/kvmem_slot_deltas 发布(§582); ④250K + resume 5-10s。
