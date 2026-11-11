@@ -1413,8 +1413,17 @@ def _attach_sparse(runner, log_path):
                 for req in live:
                     if view.row_index(req) is None:
                         continue
-                    runtime.before_step(req, row_index=view.row_index(req),
-                                        position_slots=view.query_position_slots(req))
+                    try:
+                        runtime.before_step(req, row_index=view.row_index(req),
+                                            position_slots=view.query_position_slots(req))
+                    except Exception:
+                        try:
+                            import json as _jb, traceback as _tb2
+                            with open("/tmp/kvmem_call_err.jsonl", "a") as _fb:
+                                _fb.write(_jb.dumps({"req": str(req)[-6:],
+                                                     "err": _tb2.format_exc()[-500:]}) + "\n")
+                        except Exception:
+                            pass
             except Exception as exc:
                 _append(log_path, {"kind": "sparse_step_error", "pid": os.getpid(),
                                    "error": traceback.format_exc()})
