@@ -1302,7 +1302,12 @@ def _attach_sparse(runner, log_path):
                              seq_lens)
             try:
                 _n = getattr(prepare_pos_seq_lens, "_probes", 0)
-                if _n < 6:
+                _big = False
+                try:
+                    _big = int(seq_lens[0]) > 1024
+                except Exception:
+                    _big = False
+                if _n < 8 and _big:
                     prepare_pos_seq_lens._probes = _n + 1
                     def _s(x, k=8):
                         try:
