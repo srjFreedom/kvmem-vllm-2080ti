@@ -1408,6 +1408,22 @@ def _attach_sparse(runner, log_path):
                                        "ids": [str(r)[-6:] for r in live[:4]]})
                 except Exception:
                     pass
+                try:
+                    _pend = getattr(runtime, "_cursor_reset", None)
+                    if _pend:
+                        _bt = getattr(runner, "block_tables", None)
+                        _nb = getattr(_bt, "num_blocks", None)
+                        _np = getattr(_nb, "np", None) if _nb is not None else None
+                        for _r0 in list(_pend):
+                            _row = view.row_index(_r0)
+                            if _row is None:
+                                continue
+                            if _np is not None:
+                                for _g in range(_np.shape[0]):
+                                    _np[_g, int(_row)] = 0
+                            _pend.discard(_r0)
+                except Exception:
+                    pass
                 for req in live:
                     runtime.seen_alive(req)
                 for req in live:
@@ -4299,6 +4315,10 @@ def _install(cls, module_name, probe, smoke, state):
                             try:
                                 _ids = getattr(_nr, "prompt_token_ids", None)
                                 rt.note_prompt_ids(_rid, _ids)
+                                try:
+                                    rt.mark_cursor_reset(_rid)
+                                except Exception:
+                                    pass
                                 rt.note_session_id(_rid, getattr(_nr, "session_id", None),
                                                    getattr(_nr, "cache_salt", None))
                                 if bool(_config().get("session_reuse", False)):

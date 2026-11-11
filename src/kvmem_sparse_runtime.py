@@ -246,6 +246,7 @@ class VllmSparseRuntime:
         self.session_store = None
         self.kv_block_size = 0
         self._prompt_ids = {}
+        self._cursor_reset = set()
         self._session_ids = {}
         self._session_checkpoints = {}  # req -> (frontier, exact tokens, StateImage, sealed statistics)
         self._preparked_requests = set()
@@ -1258,6 +1259,17 @@ class VllmSparseRuntime:
                 pool.close(session)
             except Exception:
                 pass
+
+    def mark_cursor_reset(self, req):
+        """design 630: ask the worker to reset this request's block-table
+        append cursor. A reused batch row keeps the previous request's cursor,
+        so vLLM appends the new blocks AFTER the old ids and the row head still
+        points at the dead request's blocks (measured: failing run had row
+        [196,197,...] while the good runs had fresh ids)."""
+        try:
+            self._cursor_reset.add(req)
+        except Exception:
+            pass
 
     def note_prompt_ids(self, req, ids):
         """Remember the prompt tokens: they are the resume key and the logical book origin."""
