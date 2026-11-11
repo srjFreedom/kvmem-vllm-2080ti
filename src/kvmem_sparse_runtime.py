@@ -5861,6 +5861,18 @@ class VllmSparseRuntime:
         finally:
             self._in_quiescent = False
         proposal = getattr(self, "_last_proposal", None)
+        if (getattr(self, "d_mode", False) and proposal is not None
+                and not bool(getattr(st, "view_installed", False))):
+            # design 658: THIS is where the D view is actually installed - the
+            # four legacy apply sites never run in plan D, so the flag stayed
+            # False forever and every consumer (clamp, row install, roll) was
+            # dead (measured: 0 "view": true in 148 step entries).
+            try:
+                st.view_installed = True
+                st.roll_base = max(0, int(getattr(st, "tokens", 0) or 0)
+                                   - (int(self.budget_tokens) + int(self.gen_reserve)))
+            except Exception:
+                pass
         if getattr(self, "d_mode", False) and (
                 proposal is not None
                 or bool(getattr(st, "view_installed", False))):
