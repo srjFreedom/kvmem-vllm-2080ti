@@ -1337,6 +1337,17 @@ def _attach_sparse(runner, log_path):
                     batch = getattr(runner, "input_batch", None)
                     reqs = list(getattr(batch, "req_ids", None) or []) or \
                         list(getattr(runner, "_kvmem_req_ids", None) or [])
+                    if rt is not None and len(reqs) != query_start_loc.shape[0] - 1:
+                        try:
+                            _append(log_path, {
+                                "kind": "d_reqs_mismatch",
+                                "len_reqs": len(reqs),
+                                "qsl": int(query_start_loc.shape[0]) - 1,
+                                "ids": [str(x)[-6:] for x in reqs[:4]],
+                                "batch_ids": [str(x)[-6:] for x in
+                                              (getattr(batch, "req_ids", None) or [])[:4]]})
+                        except Exception:
+                            pass
                     if rt is not None and len(reqs) == query_start_loc.shape[0] - 1:
                         for i, req in enumerate(reqs):
                             n = int(query_start_loc[i + 1] - query_start_loc[i])
