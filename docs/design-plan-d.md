@@ -2753,3 +2753,9 @@ skip=不重放只装视图 - 顺路）。
 - 但 140K @ 89K 池仍超时；进一步确认 `request.kvmem_view_installed` **无人置位**(scheduler 只读、runtime 只会写 _ReqState)，clamp 永不生效。
 - 尝试 618：把 clamp 条件恢复为 `plan_d and d_knife`（刀现在真滚行）。结果：**CUDA device-side assert**（129s）⇒ 块需求被压缩后，写地址/slot_positions 仍按真位置 → 越界写，kernel 断言。
 - 结论: clamp 与“滚行后的 slot_positions/view_lens”必须同步；下一步要把 delta 计算接到实际的行滚动（滚动多少页、view_base 是多少），而不是只压缩分配需求。
+
+## 620-623. 现状与下一步（2026-11-11 收尾）
+- 已修并确认: `_ReqState.__slots__` 缺字段(总根因, 0d782e9); 刀能工作(d_view_needle=6, d_tables_published=948)。
+- 关键观察: **同一 88K 请求在 89K 池上, 重启后第 1 次答对(-4417-QJ7), 第 2 次 duck/duct** ⇒ 跨请求状态残留污染(候选: st.row/st.ordered_pages/_absorb_upto/_slot_span 按 row_index 记账, vLLM 复用 batch 槽)。
+- 次生问题: 运行时拿不到引擎池容量(622 补丁未落盘, 语法错误已回退), 导致 in-pool 请求被误判为需压缩(窗口 45,056 < 74,948)。
+- 下一步(精确): ①在 st.tokens==0 的首步打印 st.row/ordered_pages/_absorb_upto[row] 验证泄漏; ②修 _ensure 新建状态时的清理 + 按 req 记账; ③重做 622(独立 try 读 runner.kv_cache_config.num_gpu_blocks); ④复测 88K×2 与 140K。
