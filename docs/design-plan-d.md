@@ -2614,3 +2614,13 @@ skip=不重放只装视图 - 顺路）。
 - 说明: 该 window cap 原本承担“物理块需求约束”; 关掉后刀路径失配 => 刀必须自己把物理需求约束在视图内 (行滚动/有界池), 这正是方案 ②③ 步。
 - 现状总结: **null-D (刀关) 已达 plain 等价 (140K 'ZX-4417-QJ7')**; 开刀路径待补实现; 250K 未测。
 - 下轮(新预算): ①在刀路径实现“computed 只增 + 行滚动 + 有界池(未选块零占位)”; ②140K 开刀验收; ③250K 超池; ④resume 5-10s。
+
+## 579. Round 325: 刀臂 140K 失败形态取证 + 行滚动实现清单
+- 读数: 刀开 140K 返回**空内容**(非 duct); 引擎日志 6 条 preempt/shortage/no-free-blocks 类告警 => 关掉回卷 cap 后物理块需求无人约束。
+- 结论: 回卷 cap 虽违反 never-rewind, 但承担“把物理块需求压进窗口”; 替代 = **行滚动**: row 长度封顶 window 页, 新 chunk 的 slot_positions 指向被淘汰槽 (kvmem_slot_deltas 通道已存在)。
+
+### 实现清单（下轮照做）
+1. `engines/vllm/vllm/v1/core/sched/scheduler.py:~1005`: 回卷分支替换为“**不改 num_computed**; 当 `num_computed+num_new > window` 时, 不再 request 新块(标记 `request.kvmem_row_rolled=True`), 由 worker 把该 chunk 的 slot 指向滚动槽”;
+2. `engines/vllm/vllm/v1/worker/gpu/model_runner.py:1658`: 当 `kvmem_row_rolled` 时, 用 adapter 提供的 `kvmem_slot_deltas`（每请求 true_base - view_base）计算 slot_positions（已有通道）;
+3. `src/kvmem_sparse_runtime.py`: 刀在每个 chunk 边界产出 `kvmem_slot_deltas[req]`（窗口内滚动）+ 同步 `st.row`（页面→槽）;
+4. 验收: 140K 开刀 -> 期望 'ZX-4417-QJ7'; 再 250K。
