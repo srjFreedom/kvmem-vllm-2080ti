@@ -3779,6 +3779,14 @@ class VllmSparseRuntime:
                 pass
             raise
         st = self._state[req]
+        try:
+            import json as _j2b
+            with open("/tmp/kvmem_st2.jsonl", "a") as _f2b:
+                _f2b.write(_j2b.dumps({"req": str(req)[-6:],
+                                     "tok": int(getattr(st, "tokens", -1)),
+                                     "row": repr(row_index)}) + "\n")
+        except Exception:
+            pass
         if row_index is not None:
             # Bind the ROW even before a view exists: the first reselect must know which block
             # table row is the request's own (it compacts inside the request's own pages).
