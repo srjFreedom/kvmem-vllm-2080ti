@@ -1427,10 +1427,27 @@ def _attach_sparse(runner, log_path):
                             except Exception:
                                 _st631 = None
                             _has = bool(getattr(_st631, "view_installed", False))
+                            _tok631 = int(getattr(_st631, "tokens", 0) or 0)
+                            _win631 = int(getattr(runtime, "budget_tokens", 0) or 0) \
+                                + int(getattr(runtime, "gen_reserve", 0) or 0)
                             if not _has:
                                 with _t631.no_grad():
                                     _dv[int(_row)] = 0
                                     _vl[int(_row)] = 0
+                            elif _win631 > 0 and _tok631 > _win631:
+                                # design 652: the ROLL. The window slides with the
+                                # frontier; the row array itself is a circular ring
+                                # of physical slots, so publishing base = frontier -
+                                # window is all that is needed for every new token
+                                # to land in the right ring slot.
+                                _base652 = _tok631 - _win631
+                                with _t631.no_grad():
+                                    _dv[int(_row)] = _base652
+                                    _vl[int(_row)] = _win631
+                                try:
+                                    runtime.kvmem_view_active = True
+                                except Exception:
+                                    pass
                 except Exception:
                     pass
                 try:
