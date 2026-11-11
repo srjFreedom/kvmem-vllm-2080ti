@@ -2922,7 +2922,14 @@ def register():
                     running = [r for r in getattr(scheduler, "running", ())
                                if not bool(getattr(r, "kvmem_rebuilt", False))]
                     _bud = int(cfg.get("budget_tokens", 36864))
-                    _isd = bool(_sched_cfg(scheduler).get("plan_d"))
+                    # design 574: resume belongs to the D KNIFE. plan_d
+                    # alone opened it, and with the knife off the arm must
+                    # behave exactly like PLAN_D=0.
+                    _isd = (bool(_sched_cfg(scheduler).get("plan_d"))
+                            and (bool(_sched_cfg(scheduler).get("d_knife"))
+                                 or os.environ.get(
+                                     "KVMEM_D_KNIFE", "") in (
+                                     "1", "true", "yes", "on")))
                     # D gate: prompt-complete alone qualifies. Measured truth:
                     # num_output_placeholders is >0 for EVERY scheduled decode
                     # step (the engine posts the placeholder it is about to
