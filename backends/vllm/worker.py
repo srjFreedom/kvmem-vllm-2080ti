@@ -137,6 +137,20 @@ def main(argv=None) -> int:
     # OFF by default: production keeps the whole-prompt dense prefill + prompt-end rebuild.
     if _env_flag("KVMEM_REBUILD_FULL_HOOKS"):
         cfg["rebuild_full_hooks"] = True
+    # CONFIG SNAPSHOT (design 571): keys only, so the two arms can be
+    # diffed exactly instead of guessing which switch changed behaviour.
+    try:
+        import json as _json571
+        with open("/tmp/kvmem_cfg.jsonl", "a") as _f571:
+            _f571.write(_json571.dumps(
+                {"pid": __import__("os").getpid(),
+                 "plan_d": _env_flag("KVMEM_PLAN_D"),
+                 "d_knife": _env_flag("KVMEM_D_KNIFE"),
+                 "cfg": {k: v for k, v in cfg.items()
+                         if not isinstance(v, (bytes, bytearray))}},
+                default=str) + "\n")
+    except Exception:
+        pass
     if _env_flag("KVMEM_PLAN_D"):
         cfg["plan_d"] = True
         # PLAN D supersedes the whole rewind family: the pressure knife, the
