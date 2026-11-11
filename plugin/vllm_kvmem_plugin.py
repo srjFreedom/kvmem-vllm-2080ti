@@ -3005,7 +3005,17 @@ def register():
                                   # the view back to statistics pages).
                                   and not getattr(r, "kvmem_d_final_cut", False)
                                   and (int(getattr(r, "num_in_flight_tokens", 0) or 0) == 0
-                                       or _sched_cfg(scheduler).get("plan_d"))
+                                       # design 569: the in-flight bypass is a
+                                       # D-KNIFE privilege. plan_d alone kept it
+                                       # open with the knife OFF, so Core could
+                                       # still compact mid-flight - the last
+                                       # behavioural difference between
+                                       # PLAN_D=1 and 0 with every hook off.
+                                       or (_sched_cfg(scheduler).get("plan_d")
+                                           and (bool(_sched_cfg(scheduler).get("d_knife"))
+                                                or os.environ.get(
+                                                    "KVMEM_D_KNIFE", "") in (
+                                                    "1", "true", "yes", "on"))))
                                   # prompt-complete requests belong to the FINAL path; a (c)
                                   # rewind there starves the last chunk (measured: logical
                                   # stuck at 86016 < 86670, need 4751 > window 4096 forever)
