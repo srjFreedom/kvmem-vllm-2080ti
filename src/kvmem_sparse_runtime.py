@@ -3819,8 +3819,7 @@ class VllmSparseRuntime:
         # every D run (measured: d_view_needle=0, d_tables_published=0),
         # because the flag defaults off and turning it on brings back the
         # book rewinds D forbids. D installs a view on its own.
-        if not (bool(getattr(self, "inrequest_compaction", False))
-                or bool(getattr(self, "d_mode", False))):
+        if not bool(getattr(self, "inrequest_compaction", False)):
             return None
         try:
             _c = (row_index is not None
