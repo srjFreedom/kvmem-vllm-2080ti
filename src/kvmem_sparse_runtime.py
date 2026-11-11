@@ -3814,6 +3814,11 @@ class VllmSparseRuntime:
                 or bool(getattr(self, "d_mode", False))):
             return None
         try:
+            _c = (row_index is not None
+                  and not bool(getattr(st, "view_installed", False))
+                  and int(getattr(st, "tokens", 0))
+                  > (int(self.budget_tokens) + int(self.gen_reserve)))
+            open("/tmp/kvmem_m2.jsonl","a").write("cond %s\n" % _c)
             open("/tmp/kvmem_m2.jsonl","a").write(
                 "m2 %s %s %s %s\n" % (int(getattr(st, "tokens", -1)),
                                       int(self.budget_tokens),
