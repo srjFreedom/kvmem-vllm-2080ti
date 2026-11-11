@@ -3142,7 +3142,12 @@ def register():
                         _t_val = _time.perf_counter()
                         result = validate_quiescent_compaction(
                             request, records, tp_size, epoch, manager,
-                            d_mode=bool(_sched_cfg(scheduler).get("plan_d")))
+                            d_mode=(bool(_sched_cfg(scheduler).get("plan_d"))
+                                        and (bool(_sched_cfg(
+                                            scheduler).get("d_knife"))
+                                             or os.environ.get(
+                                                 "KVMEM_D_KNIFE", "") in (
+                                                 "1", "true", "yes", "on"))))
                         if _sched_cfg(scheduler).get("plan_d"):
                             # D apply: NOTHING to do on the Core books. The worker
                             # installed the view (pages moved inside the frozen
