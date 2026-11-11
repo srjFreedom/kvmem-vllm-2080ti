@@ -2670,3 +2670,8 @@ skip=不重放只装视图 - 顺路）。
 ## 590. ROUND 357: 离线全套基线全绿 (sparse_runtime / session_clip / commit_guard / sparse_concurrency)
 - 当前 D 臂 (PLAN_D=1/KNIFE=1) 状态: 140K/152K/250K needle ✅; resume 152K 6.1-6.5s / 250K 5.5-5.6s 均与冷跑一致; 离线四套绿。
 - 唯一未实现: 丢块/滚动导致的显存下降 (刀触发仍是水位条件, 需确定性化)。
+
+## 591. Round 365: 刀触发落点结构（实现前置）
+- `_ensure(req)` 覆盖 src/kvmem_sparse_runtime.py:612-1131；刀挂起标记两处 `st.adopt_knife_pending = True`（:823 采用路径 / :880 延迟到带行的 before_step）。
+- `_ensure` 尾部（1110-1131）是 resume 伪造入口（d_resume_forged），不适合插入触发。
+- 结论: 确定性触发应加在 **消费 adopt_knife_pending 的击发点**（即真正执行刀的 before_step），在那里判断 `st.tokens > budget+gen_reserve` 且 `not view_installed` 才强制置位；需要先定位击发函数（下一步: grep "adopt_knife_pending" 读取方）。
