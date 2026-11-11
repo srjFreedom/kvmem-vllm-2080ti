@@ -2504,3 +2504,9 @@ skip=不重放只装视图 - 顺路）。
 - L3 store: 正常 (store_n 1408, 键 0..1407 连续)。
 - 结论: 不是三层, 是**两层未修 + 一层待定**: ①页身份账 (st.logical=-1, 阻塞 L2 判定); ②L2 内容/l2.5 修好后再判; ③seq_override 在该时刻未设 (-1)。
 - 下轮: 在 6975/8126 安装点检查 logical_pages 来源 (rebuild 哪条 return 给 -1); 用 kept/ordered 反推真实页身份写入 st.logical, 再跑 harness 看 L2 ratio。
+
+## 542-543. **突破: 88K 冷跑首次命中** '-4417-QJ7' (93.1s) - 修因 = st.ordered_pages (knife 真实页序) 让页身份账有了真值; 65K 也回绿
+- 读数: ORD542 65K ok=True '-4417-QJ7'; 88K 冷 93.1s ok=True '-4417-QJ7'。
+- 续跑 88K: 8.0s **乱码** ('定向graf_ETH...') - 但见证全绿: resume_decided{hit:72128=46blk} / d_resume_forged / d_needle_pair{slot:1366 live==canon} / d_state_restored_plugin{groups:3} / session_resumed{hit=resident=72128, pages:2254=2342-88(尾部)}。
+- 判读: 几何/内容/状态写入都"成功", 乱码 => 疑 GDN 状态内容或位置相位 (restore_state 的 groups 写对槽但状态本身可能不是该请求 cursor 处的状态); 下一刀=用 env 门临时禁 state restore, 看乱码是否变成"连贯但无针"以隔离状态层。
+- 轮次: 已续期 8 轮 (256->264), 本轮=第1轮。
