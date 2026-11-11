@@ -2572,3 +2572,7 @@ skip=不重放只装视图 - 顺路）。
 - 当前 D 臂每步钩子已排除清单: row 安装 / seq_override / _absorb_engine_row / statistics / capture_k/q / _fix_book_for_view。
 - 剩余候选面收窄到 **入口/HTTP 侧** (adapter 的 inrequest_compaction 默认 on、entry ctx/选页) 或 **execute_model 内的其他 sparse 分支**。
 - 下一步: 在改代码前先做**最小对比**: 同 140K 请求, PLAN_D=1 vs 0, 把 engine 侧首 chunk 日志 (num_scheduled/ncomp/block_table 行长度) 并排读, 找首个分叉。
+
+## 565. Round 289: PLAIN(PLAN_D=0) 140K 再次答对 'ZX-4417-QJ7' (第二次复现) => "纯引擎可、D 臂不可" 已确立为可重复对照
+- 探针对比未奏效: d_pos_probe 只记前 6 次, 被 warmup 请求(seq 2/3)占满 => 需按"首次真实请求"过滤后才可比。
+- 下轮: 探针改为只记 num_computed>0 且 seq_lens>1024 的步骤; 然后同请求两臂并排比 positions/seq_lens/行长度。
