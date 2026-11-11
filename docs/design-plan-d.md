@@ -2609,3 +2609,8 @@ skip=不重放只装视图 - 顺路）。
 - 修复 (design 576): cap 改为只在 `d_knife` 开启时生效; 刀关时绝不回卷。引擎侧提交 `9e464c5` (engines/vllm 是独立 git 仓库, engines/ 在适配器仓库被 gitignore)。
 - 读数: `PLAN_D=1 + KNIFE=0` (cfg d_knife:false) 140K -> **'ZX-4417-QJ7'** ✅ (此前同一条件全坏)。
 - 下一步: 开刀 (KNIFE=1) 复测 140K —— 此时刀不再依赖 cap 的回卷, 需要它自己把物理块需求约束在视图内; 若通过则上 250K。
+
+## 578. Round 323: 开刀 (cfg d_knife:true) + cap 关 -> 140K 失败 ("passage describes river deltas...")
+- 说明: 该 window cap 原本承担“物理块需求约束”; 关掉后刀路径失配 => 刀必须自己把物理需求约束在视图内 (行滚动/有界池), 这正是方案 ②③ 步。
+- 现状总结: **null-D (刀关) 已达 plain 等价 (140K 'ZX-4417-QJ7')**; 开刀路径待补实现; 250K 未测。
+- 下轮(新预算): ①在刀路径实现“computed 只增 + 行滚动 + 有界池(未选块零占位)”; ②140K 开刀验收; ③250K 超池; ④resume 5-10s。
