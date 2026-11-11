@@ -1379,6 +1379,21 @@ def _attach_sparse(runner, log_path):
 
     _append(log_path, {"kind": "sparse_attached", "pid": os.getpid(),
                        "builders_wrapped": wrapped,
+                       # ENV SNAPSHOT (design 557): bisect arms are
+                       # worthless if the flag never reached the
+                       # worker (measured: KVMEM_NO_STATE set in
+                       # /etc/default while the state restore still
+                       # ran). Record what THIS process actually has.
+                       "env": {k: os.environ.get(k)
+                               for k in ("KVMEM_STATS",
+                                         "KVMEM_STATS_DECODE",
+                                         "KVMEM_CAPTURE",
+                                         "KVMEM_NO_SEQ",
+                                         "KVMEM_NO_ROW",
+                                         "KVMEM_NO_POS",
+                                         "KVMEM_NO_STATE",
+                                         "KVMEM_PLAN_D",
+                                         "KVMEM_D_KNIFE")},
                        "page_tokens": view.page_tokens,
                        "budget_tokens": sel_cfg.budget_tokens,
                        "reselect_interval": runtime.reselect_interval})
