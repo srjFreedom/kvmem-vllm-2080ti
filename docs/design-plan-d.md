@@ -2711,3 +2711,9 @@ skip=不重放只装视图 - 顺路）。
 ## 601-602. Round 382-383: 循环实际在 plugin:1401-1407（插入代码使行号后移）；`d_step_call` 与 `before_step` 同段
 - 现状矛盾: `d_step_call{live:1, ids:bd9ec7}` 有、`sparse_step_error=0`，但循环内 `before_step` 未被进入（`d_bs_entry=0`）⇒ `view.row_index(req)` 对所有 live req 返回 None。
 - 逻辑上 row_index 只可能在 `req ∉ view._req_ids` 时为 None；说明 **我们 rebind 之后又有一次 bind_step 覆盖了 `_req_ids`**（或 view 对象被换新）。下一步: 打印 `id(view)` 与每次 bind_step 的 `ids[:2]` 序列, 定位最后一次覆盖。
+
+## 603. ROUND 385: **超池对照建立** — 池压到 88,914 token，140K 请求 850s 超时（全量路径服务不了）
+- 方法: /etc/default `GPU_UTIL=0.85` -> 启动日志 `GPU KV cache size: 88,914 tokens`（此前 0.972 -> 257,544）。
+- 对照读数: 同一 140K 请求在 89K 池上 **TimeoutError(850s)**；而在 257K 池上 210s 答对。
+- 结论: 这证明此前的绿全部是“池够大”，不是工作集；**89K 池 + 140K 请求 = 真正的超池测试床**。
+- 后续: 在此池上让刀真正装视图/滚行，期望 140K 答对且显存不涨（这才是 Plan D 验收）。
