@@ -2510,3 +2510,10 @@ skip=不重放只装视图 - 顺路）。
 - 续跑 88K: 8.0s **乱码** ('定向graf_ETH...') - 但见证全绿: resume_decided{hit:72128=46blk} / d_resume_forged / d_needle_pair{slot:1366 live==canon} / d_state_restored_plugin{groups:3} / session_resumed{hit=resident=72128, pages:2254=2342-88(尾部)}。
 - 判读: 几何/内容/状态写入都"成功", 乱码 => 疑 GDN 状态内容或位置相位 (restore_state 的 groups 写对槽但状态本身可能不是该请求 cursor 处的状态); 下一刀=用 env 门临时禁 state restore, 看乱码是否变成"连贯但无针"以隔离状态层。
 - 轮次: 已续期 8 轮 (256->264), 本轮=第1轮。
+
+## 544-546. 绿区扩展到 120K (冷跑 178.8s 命中) ; 88K 续跑 5.5s 命中 ; 140K(137,873tok)/152K 仍 duct
+- 数据: 88K 冷 91.4s ✓ / 续 5.5s ✓ ; 120K 冷 178.8s ✓ ; 140K 246.5s ✗ ; 152K 291.6s ✗ (续 13.1s ✗)。
+- 边界: 3,785 页(120K) 绿 ↔ 4,308 页(140K) 红 => ~4,000-4,300 页 (128-138K token)。
+- 排除: ①HostPageStore 是无界 dict (无容量) ; ②capacity_clamped×358 是"滞后账 clamp"(benign, 有注释) ; ③host_capacity_short=0。=> 边界更像 GPU/attention pool 或 OOW 收割在深页数下的失败, 非 host 容量。
+- 关键成果: **88K/120K 冷跑 + 88K 续跑 5.5s 全部命中** - 验收 88K 项已达成, 152K/250K 未达成。
+- 下轮: ①在 4,300 页处抓 d_oow_handoff(written/pages) 与 view row_len, 看深页数时收割是否骤降; ②查 GPU KV 池 (8232 块) 在 4,300 页时的余量。
