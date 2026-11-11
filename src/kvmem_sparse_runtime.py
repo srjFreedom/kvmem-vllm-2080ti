@@ -3726,6 +3726,21 @@ class VllmSparseRuntime:
     # --- hook 1 ------------------------------------------------------------------------
     def before_step(self, req, n_query_tokens=1, row_index=None, position_slots=None,
                     rows_only=False):
+        try:
+            _s600 = (self._state.get(req)
+                     if isinstance(getattr(self, "_state", None), dict)
+                     else None)
+            if self.log is not None:
+                self.log({"kind": "d_bs_entry",
+                          "req": str(req)[-6:],
+                          "tokens": int(getattr(_s600, "tokens", -1)),
+                          "window": int(self.budget_tokens)
+                          + int(self.gen_reserve_tokens),
+                          "d_mode": bool(getattr(self, "d_mode", False)),
+                          "view": bool(getattr(_s600, "view_installed", False)),
+                          "row": row_index})
+        except Exception:
+            pass
         """Install the request's sparse view. `row_index` is the batch row of the request and
         `position_slots` the positions[] indices of its query tokens (live runner: derived from
         idx_mapping and query_start_loc)."""
