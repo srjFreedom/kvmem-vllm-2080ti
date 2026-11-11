@@ -2687,3 +2687,8 @@ skip=不重放只装视图 - 顺路）。
 - `plugin:1334` 处的 `reqs` 优先取 `runner.input_batch.req_ids`(prepare 阶段可用), 失败才退回 `_kvmem_req_ids`。
 - 实测: `d_step_call` 90 次全为 warmup('mup_0_') ⇒ 真实请求既没进 `_kvmem_req_ids`, 也没进 `input_batch.req_ids` 的那条分支(len(reqs) 与 query_start_loc-1 不等的保护会静默跳过)。
 - 下一步(两条都要做): ①在 1334 处把 `len(reqs) != qsl-1` 的情况打见证(数量与 ids); ②确认 D 模式下 execute_model 后钩子是否被跳过(它与 inrequest_compaction 的历史耦合)。
+
+## 597-598. Round 373-374: **真实请求确实经过后执行钩子** (d_exec_seen 80 次, id 'bd9ec7'), 但步进钩子只见 warmup
+- 读数: d_exec_seen: 80, tail ids 全 'bd9ec7'; 而 d_step_call 90 次全 'mup_0_'。
+- 结论: 钩子挂载正确; 缺口在 **plugin:1330-1380 那段**: `view.bind_step`/`live` 的来源与 `view.row_index(req)` 在真实请求上未绑定(或 bind_step 抛异常被吞)。
+- 下一步: 在 1336-1354 之间逐点打见证: bind_step 返回值、live 内容、row_index(req) 是否 None、异常类型。
