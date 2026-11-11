@@ -1300,6 +1300,18 @@ def _attach_sparse(runner, log_path):
                 pass
             original_prepare(idx_mapping, query_start_loc, num_computed_tokens, positions,
                              seq_lens)
+            try:
+                _pr = state.get("pos_probe", 0)
+                if _pr < 3:
+                    state["pos_probe"] = _pr + 1
+                    _append(log_path, {
+                        "kind": "d_pos_probe",
+                        "positions": [int(x) for x in positions[:8]],
+                        "seq_lens": [int(x) for x in seq_lens[:4]],
+                        "ncomp": [int(x) for x in num_computed_tokens[:4]],
+                        "n": int(len(seq_lens))})
+            except Exception:
+                pass
             if os.environ.get("KVMEM_HOOK1_POST", "1") == "0":
                 return
             try:
