@@ -3793,6 +3793,15 @@ class VllmSparseRuntime:
                     > (int(self.budget_tokens)
                        + int(self.gen_reserve_tokens))):
                 st.adopt_knife_pending = True
+                try:
+                    import json as _jf
+                    with open("/tmp/kvmem_force.jsonl", "a") as _ff:
+                        _ff.write(_jf.dumps({"req": str(req)[-6:],
+                                             "tokens": int(getattr(st, "tokens", -1)),
+                                             "window": int(self.budget_tokens)
+                                             + int(self.gen_reserve_tokens)}) + "\n")
+                except Exception:
+                    pass
                 if self.log is not None:
                     self.log({"kind": "d_knife_forced",
                               "req": str(req)[-6:],
