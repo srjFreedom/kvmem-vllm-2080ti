@@ -2745,3 +2745,11 @@ skip=不重放只装视图 - 顺路）。
 - 3782-3815 之间**唯一的 return** 就是 592 门 `if not (ic or d_mode): return None`；实测 ic=true、d_mode=true ⇒ 该门应通过。
 - 因此只剩：`if row_index is not None:` 块（含 `if position_slots:` 的 slot_span 记录）**抛出异常**，函数异常退到 plugin 的 except（其日志写往 log_path，可能不是 /tmp/kvmem_sparse.jsonl，我们一直没看到）。
 - 下一步(精确): 在 plugin:1416 调用处 try/except 包一层并直写 `/tmp/kvmem_call_err.jsonl`（异常文本）；或在 before_step 的 `if row_index is not None:` 块前后各写一个标记文件，看是否越过该块。
+
+## 617-618. Round 406-408: **`__slots__` 是“刀永不触发”的总根因**；修复后刀工作，但 clamp 恢复导致 CUDA assert
+- 根因: `_ReqState.__slots__` 缺 `view_installed/adopt_knife_pending/ordered_pages/...`，每次写入抛 AttributeError 被 `except: pass` 吞掉 ⇒ 所有依赖这些字段的逻辑全部静默失效（也解释了 `st.logical` 恒 -1、`ordered_pages` 为空）。
+- 修复(0d782e9): 补齐 9 个 slot + 修掉漏逗号的字符串拼接坑; 离线 PASS。
+- **修复后读数**: `d_view_needle=6`、`d_tables_published=948`（此前恒 0）⇒ 刀真正装视图并发布翻译表。
+- 但 140K @ 89K 池仍超时；进一步确认 `request.kvmem_view_installed` **无人置位**(scheduler 只读、runtime 只会写 _ReqState)，clamp 永不生效。
+- 尝试 618：把 clamp 条件恢复为 `plan_d and d_knife`（刀现在真滚行）。结果：**CUDA device-side assert**（129s）⇒ 块需求被压缩后，写地址/slot_positions 仍按真位置 → 越界写，kernel 断言。
+- 结论: clamp 与“滚行后的 slot_positions/view_lens”必须同步；下一步要把 delta 计算接到实际的行滚动（滚动多少页、view_base 是多少），而不是只压缩分配需求。
