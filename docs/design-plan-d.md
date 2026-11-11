@@ -2603,3 +2603,9 @@ skip=不重放只装视图 - 顺路）。
 ## 572-573. Round 311-312: **关刀开关被硬编码** (scripts/kvmem-vllm-worker.py "d_knife": True) -> 已改为读 env; 真 null-D (cfg.d_knife=false 确认) 140K **仍失败**
 - 读数: /tmp/kvmem_cfg.jsonl 显示 d_knife:false 两次(双 rank), TRUENULL 140K -> "There is no access code, key, or record"。
 - 结论: 刀与 sched_compact/prefill_pressure 全部关闭后, plan_d=1 与 0 的唯一剩余差异 = **cfg["plan_d"] 本身的门** (plugin 2925 _resume_decided_is_enabled 等)。下轮把这些门也改为要求 d_knife, 再判 140K。
+
+## 576-577. **ROUND 322 突破: null-D 140K 答对 'ZX-4417-QJ7'**
+- 根因确认: `engines/vllm/vllm/v1/core/sched/scheduler.py:1005` 的 window cap 在 plan_d=1 时把 `num_computed_tokens` 回卷到 `budget+gen_reserve=53248` —— 直接违反 D 的“token 流永不 rewind”。所有 >53K+chunk 的长提示在 D 臂上必坏。
+- 修复 (design 576): cap 改为只在 `d_knife` 开启时生效; 刀关时绝不回卷。引擎侧提交 `9e464c5` (engines/vllm 是独立 git 仓库, engines/ 在适配器仓库被 gitignore)。
+- 读数: `PLAN_D=1 + KNIFE=0` (cfg d_knife:false) 140K -> **'ZX-4417-QJ7'** ✅ (此前同一条件全坏)。
+- 下一步: 开刀 (KNIFE=1) 复测 140K —— 此时刀不再依赖 cap 的回卷, 需要它自己把物理块需求约束在视图内; 若通过则上 250K。
