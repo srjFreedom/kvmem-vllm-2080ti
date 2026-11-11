@@ -392,6 +392,7 @@ class VllmSparseRuntime:
         if st is not None:
             st.off_pages = 0
             st.applied_view_coord = True
+        st.view_installed = True
         for mapping in (self._prev_n, self._pending_new, self._pending_frontier,
                         self._inflight, self._engine_computed, self._engine_logical,
                         self._page_map, self._absorb_upto):
@@ -6168,6 +6169,7 @@ class VllmSparseRuntime:
         st.tokens = int(st.tokens)          # logical frontier untouched (prefix mode = resident)
         st.off_pages = 0
         st.applied_view_coord = True
+        st.view_installed = True
         st.compacted_in_prefill = True
         st.window_src = {rank: int(lp) for rank, lp in enumerate(selected)}
         self._owned_slots[req] = set(int(p) for p in st.row)
@@ -6218,6 +6220,7 @@ class VllmSparseRuntime:
         the model sees a view whose keys disagree with every position it generates)."""
         st = self.state(req)
         st.applied_view_coord = True
+        st.view_installed = True
         # The engine no longer addresses positions >= visible. If the proposal-apply path did
         # not already record the frame (ordering, or the apply went through the socket path),
         # adopt it now so the lagged commit and the row mirror keep the right offset.
@@ -7385,6 +7388,7 @@ class VllmSparseRuntime:
         st.spare = None
         st.off_pages = 0
         st.applied_view_coord = True
+        st.view_installed = True
         orch.slot_of = dict(zip(logical_pages, phys_pages))
         orch.resident = set(logical_pages)
         self._install_row_now[req] = tuple(phys_pages)
