@@ -681,19 +681,28 @@ class VllmSparseRuntime:
             pass
 
     def _kvmem_pool_tokens(self):
-        """design 621: a view is needed only when the request cannot fit the
-        PHYSICAL pool. Keying the trigger on the KVMem window (B+R) made the
-        knife compress requests that the engine could hold outright: 88K on
-        an 89K pool fired 34 view installs and then answered "ductduct"."""
+        """design 632: the ENGINE pool size, not the KVMem working-set window.
+
+        `view.num_blocks()` is the working-set bound (budget+R ~= 45K), which is
+        far below the pool; keying the knife trigger on it made every in-pool
+        prompt look like it needed compression (measured: 88K on an 89K pool
+        installed a view on every run and alternated correct/duct).
+        """
         cached = getattr(self, "_pool_tokens_cache", None)
         if cached:
             return cached
         val = 0
         try:
-            val = int(self.view.num_blocks()) * int(self.page_tokens)
+            rn = getattr(self.view, "runner", None)
+            cc = getattr(rn, "cache_config", None)
+            nb = int(getattr(cc, "num_gpu_blocks", 0) or 0) if cc is not None else 0
+            if nb > 0:
+                val = nb * int(self.page_tokens)
         except Exception:
+            val = 0
+        if val <= 0:
             try:
-                val = int(self.view.paged_kv()[0].shape[0]) * int(self.page_tokens)
+                val = int(self.view.num_blocks()) * int(self.page_tokens)
             except Exception:
                 val = int(self.budget_tokens) + int(self.gen_reserve)
         self._pool_tokens_cache = val
