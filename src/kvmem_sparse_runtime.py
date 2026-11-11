@@ -627,6 +627,25 @@ class VllmSparseRuntime:
         except Exception:
             pass
 
+    def _kvmem_pool_tokens(self):
+        """design 621: a view is needed only when the request cannot fit the
+        PHYSICAL pool. Keying the trigger on the KVMem window (B+R) made the
+        knife compress requests that the engine could hold outright: 88K on
+        an 89K pool fired 34 view installs and then answered "ductduct"."""
+        cached = getattr(self, "_pool_tokens_cache", None)
+        if cached:
+            return cached
+        val = 0
+        try:
+            val = int(self.view.num_blocks()) * int(self.page_tokens)
+        except Exception:
+            try:
+                val = int(self.view.paged_kv()[0].shape[0]) * int(self.page_tokens)
+            except Exception:
+                val = int(self.budget_tokens) + int(self.gen_reserve)
+        self._pool_tokens_cache = val
+        return val
+
     def _ensure(self, req):
         if req not in self._orch:
             try:
@@ -3842,8 +3861,7 @@ class VllmSparseRuntime:
             if (row_index is not None
                     and not bool(getattr(st, "view_installed", False))
                     and int(getattr(st, "tokens", 0))
-                    > (int(self.budget_tokens)
-                       + int(self.gen_reserve))):
+                    > int(self._kvmem_pool_tokens())):
                 setattr(st, "adopt_knife_pending", True)
                 try:
                     open("/tmp/kvmem_m3.jsonl","a").write("m3\n")
