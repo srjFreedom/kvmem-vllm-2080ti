@@ -3836,7 +3836,7 @@ class VllmSparseRuntime:
                     and int(getattr(st, "tokens", 0))
                     > (int(self.budget_tokens)
                        + int(self.gen_reserve))):
-                st.adopt_knife_pending = True
+                setattr(st, "adopt_knife_pending", True)
                 try:
                     open("/tmp/kvmem_m3.jsonl","a").write("m3\n")
                 except Exception:
@@ -3857,7 +3857,12 @@ class VllmSparseRuntime:
                               "window": int(self.budget_tokens)
                               + int(self.gen_reserve)})
         except Exception:
-            pass
+            try:
+                import traceback as _tf
+                open("/tmp/kvmem_force_err.jsonl", "a").write(
+                    _tf.format_exc()[-300:] + "\n")
+            except Exception:
+                pass
         if bool(getattr(st, "adopt_knife_pending", False)) and \
                 row_index is not None:
             st.adopt_knife_pending = False
