@@ -2698,3 +2698,8 @@ skip=不重放只装视图 - 顺路）。
 - 步进钩子(plugin:1363/1379)取 `runner._kvmem_req_ids`, 而这个表在 **execute_model 之后**(plugin:3552)才写入 ⇒ 步进时看到的是**上一步**的 ids; 真实请求在自己的 prefill chunk 上因此 `row_index=None` → `before_step` 被跳过(与 d_step_call 只见 warmup 吻合)。
 - 修法: 步进钩子改用**本步的 batch ids**(`runner.input_batch.req_ids`, 与 query_start_loc 同序), 而不是滞后的 `_kvmem_req_ids`; `bind_step` 与 `row_index` 无需改动。
 - 注: `d_exec_seen` 已证明真实请求经过后执行钩子(80 次, id 'bd9ec7')。
+
+## 598-600. Round 378-379: **bind 修复生效**（step ids 已含真实请求 'bd9ec7'/'7de1c4'，136 次），但刀仍不响
+- 读数: d_step_call=136 且 ids 有真实请求; d_knife_forced=0。
+- 说明: 步进钩子现在确实以真实请求进入 runtime.before_step; 但触发条件未满足或更早 return。
+- 下一处取证(精确): 在 before_step 入口打 `d_bs_entry{req,tokens,window,d_mode,row_index,view_installed}`, 一次 140K 即可判定是 tokens 未超窗、d_mode 为假、还是更早的 return。
