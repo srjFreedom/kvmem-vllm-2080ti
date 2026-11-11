@@ -2819,3 +2819,10 @@ skip=不重放只装视图 - 顺路）。
 
 **当前状态**：已复位安全配置（GPU_UTIL=0.972、PLAN_D=0），引擎 healthy。
 **Plan D 记分**：执行通道 ✅（89K 池跑完 137.9K 请求）；正确滚行 ❌；显存下降 见判据 ✅/❌ 未同时成立。
+
+## 655-658. Round 438-440：找到"视图标记从未置位"并补上；当前配置结论
+- **发现**：`st.view_installed` 全仓只有 `= False`（初始化），**从未被置 True** ⇒ 所有依赖它的逻辑（clamp、行安装、滚行）在 D 模式下全是死的。这是"刀装了视图也没生效"的直接原因。
+- 已修(657)：在 4 个"刀成功装视图"点（`applied_view_coord = True`）同步置 `st.view_installed = True`。
+- 但在"小池 + 关 legacy 压缩 + clamp 生效"的组合下，140K 请求再次超时（870s，无 ring 事件）⇒ 该组合仍需要真正的逐 chunk 行重排才能成立。
+- **当前工作配置（已验证正确）**：`GPU_UTIL=0.972`、`PLAN_D=0`、`INREQUEST_COMPACTION=1`、`ENTRY_RESIDENT_PREFILL=1` → 88K 完整提示（usage 74,948）答对、124s；140K 在 PLAN_D=1 且 clamp 门控下 181s 答对。
+- 结论：D 的"执行通道 + 门控"已就位；**剩下的唯一实现是逐 chunk 的行重排（环）**，需要专门一轮实现与验证。
