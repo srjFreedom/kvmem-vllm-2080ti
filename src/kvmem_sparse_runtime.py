@@ -571,7 +571,7 @@ class VllmSparseRuntime:
             with open("/tmp/kvmem_st.jsonl", "a") as _f2:
                 _f2.write(_j2.dumps({"req": str(req)[-6:],
                                     "tok": int(getattr(st, "tokens", -1)),
-                                    "win": int(self.budget_tokens)+int(self.gen_reserve_tokens),
+                                    "win": int(self.budget_tokens)+int(self.gen_reserve),
                                     "row": repr(row_index)}) + "\n")
         except Exception:
             pass
@@ -3756,7 +3756,7 @@ class VllmSparseRuntime:
                           "req": str(req)[-6:],
                           "tokens": int(getattr(_s600, "tokens", -1)),
                           "window": int(self.budget_tokens)
-                          + int(self.gen_reserve_tokens),
+                          + int(self.gen_reserve),
                           "d_mode": bool(getattr(self, "d_mode", False)),
                           "view": bool(getattr(_s600, "view_installed", False)),
                           "row": row_index})
@@ -3817,7 +3817,7 @@ class VllmSparseRuntime:
             open("/tmp/kvmem_m2.jsonl","a").write(
                 "m2 %s %s %s %s\n" % (int(getattr(st, "tokens", -1)),
                                       int(self.budget_tokens),
-                                      int(self.gen_reserve_tokens),
+                                      int(self.gen_reserve),
                                       bool(getattr(st, "view_installed", False))))
         except Exception:
             pass
@@ -3830,7 +3830,7 @@ class VllmSparseRuntime:
                     and not bool(getattr(st, "view_installed", False))
                     and int(getattr(st, "tokens", 0))
                     > (int(self.budget_tokens)
-                       + int(self.gen_reserve_tokens))):
+                       + int(self.gen_reserve))):
                 st.adopt_knife_pending = True
                 try:
                     open("/tmp/kvmem_m3.jsonl","a").write("m3\n")
@@ -3842,7 +3842,7 @@ class VllmSparseRuntime:
                         _ff.write(_jf.dumps({"req": str(req)[-6:],
                                              "tokens": int(getattr(st, "tokens", -1)),
                                              "window": int(self.budget_tokens)
-                                             + int(self.gen_reserve_tokens)}) + "\n")
+                                             + int(self.gen_reserve)}) + "\n")
                 except Exception:
                     pass
                 if self.log is not None:
@@ -3850,7 +3850,7 @@ class VllmSparseRuntime:
                               "req": str(req)[-6:],
                               "tokens": int(st.tokens),
                               "window": int(self.budget_tokens)
-                              + int(self.gen_reserve_tokens)})
+                              + int(self.gen_reserve)})
         except Exception:
             pass
         if bool(getattr(st, "adopt_knife_pending", False)) and \
