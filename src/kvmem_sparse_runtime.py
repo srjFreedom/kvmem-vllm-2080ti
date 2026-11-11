@@ -643,6 +643,31 @@ class VllmSparseRuntime:
         except Exception:
             pass
 
+    def _dump_side(self, tag, req, st=None):
+        """design 629: dump the DEVICE-side state the kernel actually sees."""
+        try:
+            import json as _j
+            pos = self.view.positions()
+            seq = self.view.seq_lens()
+            gpu = self.view.block_table_rows()
+            inp = None
+            try:
+                inp = self.view.input_block_table_rows()
+            except Exception:
+                inp = None
+            rec = {"tag": tag, "req": str(req)[-6:],
+                   "row": int(getattr(st, "row_index", -1)) if st is not None else -1,
+                   "tok": int(getattr(st, "tokens", -1)) if st is not None else -1,
+                   "pos": [int(x) for x in pos[:8].tolist()],
+                   "seq": [int(x) for x in seq[:4].tolist()],
+                   "gpu": [[int(v) for v in t[:6].tolist()] for t in gpu[:2]],
+                   "inp": ([[int(v) for v in t[:6].tolist()] for t in inp[:2]]
+                           if inp is not None else None)}
+            with open("/tmp/kvmem_side.jsonl", "a") as _f:
+                _f.write(_j.dumps(rec) + "\n")
+        except Exception:
+            pass
+
     def _kvmem_pool_tokens(self):
         """design 621: a view is needed only when the request cannot fit the
         PHYSICAL pool. Keying the trigger on the KVMem window (B+R) made the
@@ -3726,6 +3751,10 @@ class VllmSparseRuntime:
         # the request, the next request reusing that row inherits the old compacted length while
         # it is still prefilling (row empty -> before_step returns early and never rewrites it).
         # Measured: the second request on a warmed engine answered with noise from its first token.
+        try:
+            self._dump_side("end", req, None)
+        except Exception:
+            pass
         if row is not None:
             self._seq_override.pop(int(row), None)
         try:
@@ -3853,6 +3882,11 @@ class VllmSparseRuntime:
                                      "tok": int(getattr(st, "tokens", -1)),
                                      "view": bool(getattr(st, "view_installed", False)),
                                      "row": repr(row_index)}) + "\n")
+        except Exception:
+            pass
+        try:
+            if int(getattr(st, "tokens", 0)) == 0:
+                self._dump_side("start", req, st)
         except Exception:
             pass
         if row_index is not None:
