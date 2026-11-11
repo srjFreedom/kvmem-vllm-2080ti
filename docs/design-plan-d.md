@@ -2675,3 +2675,9 @@ skip=不重放只装视图 - 顺路）。
 - `_ensure(req)` 覆盖 src/kvmem_sparse_runtime.py:612-1131；刀挂起标记两处 `st.adopt_knife_pending = True`（:823 采用路径 / :880 延迟到带行的 before_step）。
 - `_ensure` 尾部（1110-1131）是 resume 伪造入口（d_resume_forged），不适合插入触发。
 - 结论: 确定性触发应加在 **消费 adopt_knife_pending 的击发点**（即真正执行刀的 before_step），在那里判断 `st.tokens > budget+gen_reserve` 且 `not view_installed` 才强制置位；需要先定位击发函数（下一步: grep "adopt_knife_pending" 读取方）。
+
+## 592-594. Round 365-369: 刀不响的两级病根
+1. `runtime:3752` 曾用 `inrequest_compaction` 当装视图许可(默认关) -> 已改为 `inrequest_compaction or d_mode` (592)。
+2. 在 `before_step` 前加确定性触发(593), 但实测 `d_knife_forced=0`。
+3. 加 `d_step_call` 见证(594): **hook 跑了 90 次, 但 live 恒为 1 且 id 全是 warmup('mup_0_'), 真实 140K 请求从未出现在 live 里** ⇒ 问题不在 before_step 内部, 而在 **`live` 的来源 `runner._kvmem_req_ids` 没登记真实请求**。
+- 下一步: 查 `_kvmem_req_ids` 的写入点(plugin)与真实请求注册路径; D 模式下应把 engine 的 req id 登记进去。
