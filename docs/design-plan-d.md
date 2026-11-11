@@ -2759,3 +2759,7 @@ skip=不重放只装视图 - 顺路）。
 - 关键观察: **同一 88K 请求在 89K 池上, 重启后第 1 次答对(-4417-QJ7), 第 2 次 duck/duct** ⇒ 跨请求状态残留污染(候选: st.row/st.ordered_pages/_absorb_upto/_slot_span 按 row_index 记账, vLLM 复用 batch 槽)。
 - 次生问题: 运行时拿不到引擎池容量(622 补丁未落盘, 语法错误已回退), 导致 in-pool 请求被误判为需压缩(窗口 45,056 < 74,948)。
 - 下一步(精确): ①在 st.tokens==0 的首步打印 st.row/ordered_pages/_absorb_upto[row] 验证泄漏; ②修 _ensure 新建状态时的清理 + 按 req 记账; ③重做 622(独立 try 读 runner.kv_cache_config.num_gpu_blocks); ④复测 88K×2 与 140K。
+
+## 625. 间歇性确认: 同一 88K 请求在 89K 池上连续三次 -> [False, True, False]（duct, OK, duct），d_view_needle=18, d_tables_published=108
+- 交替模式强烈指向 **按 batch row 记账的残留**（vLLM 在两次请求间复用/交替 row 槽：一个槽被上一次的视图/行账占着，另一个干净）=> row 侧的账(block_table 行内容、_absorb_upto、_slot_span) 必须在**请求开始时清空**，且一律按 req 而非 row 记账。
+- 这与"第 1 次绿/第 2 次坏"和"第 1 次坏/第 2 次绿"两种相反观测一致（取决于哪一行先被用到）。
