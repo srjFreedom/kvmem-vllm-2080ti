@@ -6374,6 +6374,10 @@ class VllmSparseRuntime:
             #残块-K starvation explains every clean-chain answer miss:
             # the model read 12% of each block.
             ordered = sorted(set(want))
+            # PAGE ORDER FOR THE HARVEST (design 549): the OOW handoff
+            # below resolves page->slot through this book, and it used
+            # to be one knife stale (written=0 on the deep stream).
+            st.ordered_pages = tuple(int(p) for p in ordered)
             # TRUE-MAP PHYSICALS (design 328): bucket identity assumed
             # dense allocation from block 0; real engine allocation is
             # sparse (ledger: every phys bucket missed st.row, dom=0).
