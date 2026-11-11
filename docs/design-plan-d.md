@@ -2763,3 +2763,9 @@ skip=不重放只装视图 - 顺路）。
 ## 625. 间歇性确认: 同一 88K 请求在 89K 池上连续三次 -> [False, True, False]（duct, OK, duct），d_view_needle=18, d_tables_published=108
 - 交替模式强烈指向 **按 batch row 记账的残留**（vLLM 在两次请求间复用/交替 row 槽：一个槽被上一次的视图/行账占着，另一个干净）=> row 侧的账(block_table 行内容、_absorb_upto、_slot_span) 必须在**请求开始时清空**，且一律按 req 而非 row 记账。
 - 这与"第 1 次绿/第 2 次坏"和"第 1 次坏/第 2 次绿"两种相反观测一致（取决于哪一行先被用到）。
+
+## 626-628. Round 426-430: 交替现象的关键读数
+- 同一 88K 请求连跑 3 次(89K 池, 刀开): `[False, True, False]`；三次的见证**完全相同**: `d_view_needle=6, d_tables_published=36`。
+- 行内容快照还原(626)与 seq_lens 快照还原(627)都**未改变**交替。
+- 关刀(KNIFE=0)时三次全部失败(HTTPError/URLError) ⇒ 89K 池上压缩是必需项，原生放不下。
+- 结论: D 路径的执行**看起来完全一致**，却输出不同 ⇒ 残留不在我们记录的这些标量里，只在**设备侧持久缓冲**（positions 尾部 / seq_lens 行 / block_table 行）或 batch 行分配顺序上。下一步: 在请求首步直写 `view.positions()` 与 `view.seq_lens()` 的前 8 个值(按 row)做对照, 找出哪一行被上一个请求写脏。
