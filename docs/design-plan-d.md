@@ -2523,3 +2523,9 @@ skip=不重放只装视图 - 顺路）。
 - 反转: 该请求**根本没触发刀** (无 view/oow 事件) => 全量 KV 在上下文里, 针仍不可见 => 这是**基础路径长上下文问题**, 不是 KVMem 视图问题 (与 round 222 的 PLAN_D=0 152K 失败一致)。
 - 意义: 验收 152K/250K 的剩余障碍可能一半在引擎/fork 的长上下文本身 (v0.5.0 曾 152K 2/2 命中, 说明引擎可做到, 需对照 v0.5.0 的配置/入口差异)。
 - 下一步(预算剩 6 轮, 上下文将尽): ①对照 v0.5.0 的 launcher/env 与当前差异 (尤其入口策略/CTX/位置表); ②在 140K 无刀场景验证 needle 页 KV 是否真在 GPU (选页/字节), 判断"读不到"还是"没内容"。
+
+## 551. Round 258: 140K A/B 两臂皆败 (seq_override 开: "no access code, no key…"; 关: "a a a a…") => 基础长上下文层问题与 override 无关
+- 关键: 140K 请求无刀 (全量 KV 驻留) 仍无针 => 剩余障碍在引擎/fork 的长上下文召回, 非 KVMem 视图; v0.5.0 曾 152K 2/2, 差异需对照 launcher/env (当前 /etc/default 已无 ENTRY_RESIDENT_PREFILL / SKIP_KV_CHECK 显式项, 只有 PREFILL_PRESSURE=1)。
+- 已达成: 88K 冷/续 ✓ (91.4s/5.5s), 120K 冷 ✓ (178.8s)。未达成: 140K/152K/250K。
+- 下一步(需新预算): ①git show 5eb9a9e:/etc 或 release patch 对照 v0.5.0 的 env/入口策略; ②用 PLAN_D=0 + 同 battery 在 140K 验证引擎本身能否召回; ③若引擎可, 再查 runtime 的 row/override; 若引擎不可, 属 fork/模型长上下文, 与 KVMem 协议分开立项。
+- 预算: 8 轮已用 6, 本轮止 (上下文将尽)。
