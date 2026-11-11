@@ -2590,3 +2590,8 @@ skip=不重放只装视图 - 顺路）。
 - 说明: "PLAN_D=1 挂载"差异不在 刀/压力/采集/统计/resume 任一单项 => 剩下的是**模式级配置**: inrequest_compaction=on (关 prefix caching / no-async-scheduling) 或入口 policy。
 - 配置已恢复默认 (PLAN_D=1/KNIFE=1/PRESSURE=1, 无 CAPTURE/STATS 覆盖) — 需重启生效。
 - 下一步: 对比 PLAN_D=0 与 1 的 boot 日志配置段 (只差 plan_d 分支), 找出真正改变计算的那条开关。
+
+## 569. Round 307: in-flight 旁路门控修复后 null-D 仍失败 (140K "is no access code, no key")
+- 结论: 该旁路不是元凶; plan_d 在 Core 侧的剩余门 = `_resume_decided_is_enabled`(2925, 已证实无 resume 事件) 与 3023-3040 观测段 => 需直接读 3023-3040 全段判断是否还有**会改变调度**的分支。
+- 配置已复原 (PLAN_D=1/KNIFE=1/PRESSURE=1), 待重启。
+- 备选路线: 直接用 PLAN_D=0 与 1 的 boot 日志做 diff (只差 plan_d 注入), 或用 git diff 找出 cfg["plan_d"] 的**所有**设置点 (config 注入处), 确认除了 flag 还改了什么。
