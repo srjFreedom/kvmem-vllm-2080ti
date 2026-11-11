@@ -2729,3 +2729,9 @@ skip=不重放只装视图 - 顺路）。
   `try: d_bs_entry` → `if self.is_rebuilt(req): return None` → `self._ensure(req)` → `st = self._state[req]`。
 - 因此只剩两种可能: ①`is_rebuilt(req)` 返回 True 直接 return；②`_ensure(req)` 抛异常(被 plugin 捕获, 但错误写在别的 log_path)。
 - 下一步(精确): 在 `if self.is_rebuilt(...)` 前后各写一个标记文件, 并把 `self._ensure(req)` 包 try/except 记录异常文本到 /tmp/kvmem_ensure_err.jsonl。
+
+## 611-612. Round 394-395: `is_rebuilt` 在 d_mode 直接返回 False ⇒ ①排除; 断点回到 `_ensure`
+- 读码: `is_rebuilt`(311-321) `if d_mode: return False`; 故不可能在此 return。
+- 剩余: `_ensure(req)` 或 `st = self._state[req]`。注意超池请求在 89K 池上**全程超时**：更可能是**调度准入阶段就没跑起来**(请求根本未执行), 因此 `before_step` 只对其他请求执行过。
+- 关键线索: `scheduler_reserve_full_isl = False` 只在 `kvmem_resident` 分支设置(不是 plan_d)；若该开关未生效, vLLM 会拒绝"整条 prompt 放不进池"的请求 ⇒ 与"超时无输出"一致。
+- 下一步: 读启动日志/scheduler 关于 admission 的日志 + 打印 `scheduler.scheduler_reserve_full_isl` 实际值。
