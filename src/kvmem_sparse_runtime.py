@@ -5550,7 +5550,9 @@ class VllmSparseRuntime:
         finally:
             self._in_quiescent = False
         proposal = getattr(self, "_last_proposal", None)
-        if proposal is not None and getattr(self, "d_mode", False):
+        if getattr(self, "d_mode", False) and (
+                proposal is not None
+                or bool(getattr(st, "view_installed", False))):
             # Plan D R2b: the worker installed the rearranged view (row CONTENT
             # written inside the FROZEN physical set). Publish the translation
             # tables the engine consumes from the next step on:
