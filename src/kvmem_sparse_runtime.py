@@ -3814,7 +3814,11 @@ class VllmSparseRuntime:
                 or bool(getattr(self, "d_mode", False))):
             return None
         try:
-            open("/tmp/kvmem_m2.jsonl","a").write("m2\n")
+            open("/tmp/kvmem_m2.jsonl","a").write(
+                "m2 %s %s %s %s\n" % (int(getattr(st, "tokens", -1)),
+                                      int(self.budget_tokens),
+                                      int(self.gen_reserve_tokens),
+                                      bool(getattr(st, "view_installed", False))))
         except Exception:
             pass
         # design 593: the knife must fire for every over-window request.
