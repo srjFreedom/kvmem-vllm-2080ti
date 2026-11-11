@@ -151,8 +151,14 @@ def main(argv=None) -> int:
         # apply: Core does nothing to the books (no adopt - the physical set
         # never changes - no truncate, no rewind). compact_rebuild stays OFF:
         # no prompt-end child, escape predicates are inert by construction.
-        cfg["prefill_pressure"] = True
-        cfg["sched_compact"] = True
+        # design 570: the compaction machines belong to the D KNIFE. With
+        # the knife off, plan_d must run the PURE token stream (the comment
+        # above says exactly that) - forcing them on made "null D" still
+        # compact at the Core boundary and broke long contexts while
+        # PLAN_D=0 stayed correct.
+        _knife = _env_flag("KVMEM_D_KNIFE")
+        cfg["prefill_pressure"] = _knife
+        cfg["sched_compact"] = _knife
         cfg["compact_rebuild"] = False
         print("[kvmem backends/vllm] PLAN D on: token stream never rewinds; "
               "attention row/seq lens/slot mapping run on the adapter view "
