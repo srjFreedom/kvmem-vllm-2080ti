@@ -1863,10 +1863,24 @@ class VllmSparseRuntime:
                     pass
                 _swept = 0
                 _noev = 0
-                for _pgv in range(0, 141120 // _pt + 2):
+                _hl547 = int(getattr(self, "_prompt_len", {}).get(req, 0) or 0) or 141120
+                for _pgv in range(0, _hl547 // _pt + 2):
                     if _pgv in _have or _pgv not in _res:
                         continue
                     _slotv = None
+                    # TRUE PAGE ORDER FIRST (design 547): ordered_pages gives the
+                    # real page per view position; the older books are -1 on the
+                    # deep-stream requests, so every page failed resolution and the
+                    # handoff stored ZERO pages (measured written=0 vs 8036).
+                    try:
+                        _op547 = [int(x) for x in (getattr(st, "ordered_pages", ()) or ())]
+                        if _op547:
+                            _i547 = _op547.index(int(_pgv))
+                            _row547 = [int(x) for x in (st.row or ())]
+                            if 0 <= _i547 < len(_row547):
+                                _slotv = int(_row547[_i547])
+                    except (ValueError, IndexError):
+                        _slotv = None
                     _pm = getattr(self, "_page_map", {}).get(req, {})
                     if _pm:
                         _slotv = _pm.get(_pgv)
