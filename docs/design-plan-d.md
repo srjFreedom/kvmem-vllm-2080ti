@@ -2717,3 +2717,8 @@ skip=不重放只装视图 - 顺路）。
 - 对照读数: 同一 140K 请求在 89K 池上 **TimeoutError(850s)**；而在 257K 池上 210s 答对。
 - 结论: 这证明此前的绿全部是“池够大”，不是工作集；**89K 池 + 140K 请求 = 真正的超池测试床**。
 - 后续: 在此池上让刀真正装视图/滚行，期望 140K 答对且显存不涨（这才是 Plan D 验收）。
+
+## 604-605. Round 386: 89K 池上 140K 超时(380s) — 对照成立; 但 /tmp/kvmem_bs.jsonl **0 行** ⇒ before_step 对任何请求都没执行
+- 结构核对: 1363 `bind_step(idx_mapping, req_ids)`; 1367 `live = input_batch.req_ids or _kvmem_req_ids`; 1369 `bind_step(idx_mapping, live, qsl)`; 之后循环 `for req in live: ... before_step(...)`。绑定与循环用同一 live, 逻辑上 row_index 不可能是 None。
+- 剩余解释: ①循环体因某个更早的异常整体跳过, 且该异常写到别的 log_path(我们只看了 /tmp/kvmem_sparse.jsonl); ②`view` 对象在两个位置不是同一个实例。
+- 下一步: 在 1367 后直写 `/tmp/kvmem_live.jsonl`(live 内容、row_index、view id), 并在循环体逐 req 直写, 一次超时跑即可定位。
