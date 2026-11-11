@@ -3784,6 +3784,7 @@ class VllmSparseRuntime:
             with open("/tmp/kvmem_st2.jsonl", "a") as _f2b:
                 _f2b.write(_j2b.dumps({"req": str(req)[-6:],
                                      "tok": int(getattr(st, "tokens", -1)),
+                                     "view": bool(getattr(st, "view_installed", False)),
                                      "row": repr(row_index)}) + "\n")
         except Exception:
             pass
