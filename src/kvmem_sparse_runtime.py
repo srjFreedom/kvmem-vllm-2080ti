@@ -3965,8 +3965,14 @@ class VllmSparseRuntime:
         try:
             if (row_index is not None
                     and not bool(getattr(st, "view_installed", False))
+                    # design 635: fire EARLY. Waiting for tokens to exceed the
+                    # whole pool is too late - by then the scheduler has already
+                    # filled it and the request is parked (no more steps run, so
+                    # nothing can roll the row). Fire once the free headroom is
+                    # smaller than the window the roll needs.
                     and int(getattr(st, "tokens", 0))
-                    > int(self._kvmem_pool_tokens())):
+                    > (int(self._kvmem_pool_tokens())
+                       - (int(self.budget_tokens) + int(self.gen_reserve)))):
                 setattr(st, "adopt_knife_pending", True)
                 try:
                     open("/tmp/kvmem_m3.jsonl","a").write("m3\n")
