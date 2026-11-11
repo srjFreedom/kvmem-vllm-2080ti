@@ -2735,3 +2735,8 @@ skip=不重放只装视图 - 顺路）。
 - 剩余: `_ensure(req)` 或 `st = self._state[req]`。注意超池请求在 89K 池上**全程超时**：更可能是**调度准入阶段就没跑起来**(请求根本未执行), 因此 `before_step` 只对其他请求执行过。
 - 关键线索: `scheduler_reserve_full_isl = False` 只在 `kvmem_resident` 分支设置(不是 plan_d)；若该开关未生效, vLLM 会拒绝"整条 prompt 放不进池"的请求 ⇒ 与"超时无输出"一致。
 - 下一步: 读启动日志/scheduler 关于 admission 的日志 + 打印 `scheduler.scheduler_reserve_full_isl` 实际值。
+
+## 614-615. Round 399-400: **`st.tokens` 确实增长到 77,824 (> 窗口 53,248)**，但 `d_knife_forced` 仍未出现
+- 读数: 140K 请求(id `7dfdf6`) 在 89K 池上, `/tmp/kvmem_st2.jsonl` 80 行, tok: 0..77,824, row: 0；随后请求超时(池被全量占满)。
+- 触发条件三要素均已满足(tokens 77,824 > 53,248; row 非 None; 未见 view) 却未写 `/tmp/kvmem_force.jsonl` ⇒ 触发块未被执行, 或条件中某一项与日志不同(`view_installed` 可能已为真)。
+- 下一步: 在 593 触发块**之前**直写四要素 `{tokens, window, row, view_installed}`; 一次 140K 即可确定是哪一项使条件为假。
