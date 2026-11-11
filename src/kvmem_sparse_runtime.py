@@ -646,6 +646,10 @@ class VllmSparseRuntime:
     def _dump_side(self, tag, req, st=None):
         """design 629: dump the DEVICE-side state the kernel actually sees."""
         try:
+            open("/tmp/kvmem_side_min.jsonl", "a").write(tag + "\n")
+        except Exception:
+            pass
+        try:
             import json as _j
             pos = self.view.positions()
             seq = self.view.seq_lens()
