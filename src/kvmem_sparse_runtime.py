@@ -194,6 +194,7 @@ class VllmSparseRuntime:
         # verifies, but never writes that piece into the engine (isolates hook damage).
         self.install = True
         self.install_row = True
+        self._row_snapshot = {}
         self.install_seq = True
         self.install_pos = True
         _sink388 = log or (lambda record: None)
@@ -3726,6 +3727,17 @@ class VllmSparseRuntime:
         # Measured: the second request on a warmed engine answered with noise from its first token.
         if row is not None:
             self._seq_override.pop(int(row), None)
+        # design 626: put the engine's own row back so the next request that
+        # lands on this batch row sees vLLM's block ids, not our book.
+        try:
+            if row is not None:
+                _snap = self._row_snapshot.pop(int(row), None)
+                if _snap is not None:
+                    for _t in self.view.block_table_rows():
+                        _n = min(int(_snap.shape[0]), _t.shape[1])
+                        _t[int(row), :_n] = _snap[:_n]
+        except Exception:
+            pass
         # Free the device slots as well: dropping only `_owned_slots` left `_slot_owner` entries
         # pointing at dead requests, so a later request could never reuse them (the slot pool
         # silently shrinks to exhaustion) and the stale owner table outlived the request.
@@ -4090,6 +4102,16 @@ class VllmSparseRuntime:
         import torch
 
         if self.install_row and row is not None:
+            # design 626: remember the engine's own row content before the
+            # first overwrite of this batch row. vLLM never rewrites the
+            # entries we clobbered, so a later request reusing the same row
+            # inherited our pages and answered "ductductduct".
+            try:
+                if row_index not in self._row_snapshot:
+                    for _t in self.view.block_table_rows():
+                        self._row_snapshot[row_index] = _t[row_index].clone()
+            except Exception:
+                pass
             for table in self.view.block_table_rows():
                 # Only overwrite the slots we own: vLLM reads `seq_len` tokens, so entries past it
                 # are ignored, and clobbering the whole row would disturb the engine's own
