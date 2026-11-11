@@ -2545,3 +2545,9 @@ skip=不重放只装视图 - 顺路）。
 - 已排除: row 安装 / positions 安装 / seq_override / 统计采集 (单钩子均不解)。
 - 剩余候选: capture_k/q (KVMEM_CAPTURE=1 的查询/KV 捕获), _absorb_engine_row, 入口策略, 以及"无刀时 runtime 仍改写 block_table 行"的其他路径。
 - 下一步: 关 KVMEM_CAPTURE (若可单独关) 再测 140K; 或对比 PLAN_D=0 与 D 臂每步 positions[0..8] 实测。
+
+## 556. Round 266: 140K A/B - KVMEM_CAPTURE=0 仍无针 (221.0s)
+- 已排除: row/positions/seq_override/statistics/capture_k (单钩子)。
+- **方法学警告**: NO_STATE 臂曾设置但日志仍显示 d_state_restored_plugin => 部分 env 可能未传到 worker; 后续 bisect 必须先在日志确认 env 生效 (开跑前打一行 env 快照).
+- 剩余候选: _absorb_engine_row(每步改行) / 入口策略 / step-end 行安装的其他路径。
+- 下一步: 先在 worker 内打 env 快照验证传导; 再 A/B _absorb_engine_row。
