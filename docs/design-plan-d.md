@@ -2595,3 +2595,7 @@ skip=不重放只装视图 - 顺路）。
 - 结论: 该旁路不是元凶; plan_d 在 Core 侧的剩余门 = `_resume_decided_is_enabled`(2925, 已证实无 resume 事件) 与 3023-3040 观测段 => 需直接读 3023-3040 全段判断是否还有**会改变调度**的分支。
 - 配置已复原 (PLAN_D=1/KNIFE=1/PRESSURE=1), 待重启。
 - 备选路线: 直接用 PLAN_D=0 与 1 的 boot 日志做 diff (只差 plan_d 注入), 或用 git diff 找出 cfg["plan_d"] 的**所有**设置点 (config 注入处), 确认除了 flag 还改了什么。
+
+## 570. Round 308: **找到强制开关** worker.py:141 `plan_d` 分支强制 `cfg["prefill_pressure"]=True; cfg["sched_compact"]=True` (无视 env) -> 已改为由 KVMEM_D_KNIFE 决定; 但 KNIFE=0 后 140K 仍失败 ("There is no access code, no key")。
+- 说明: 该强制项不是唯一差异; 需在 boot 时打印完整 cfg (additional_config JSON) 并与 PLAN_D=0 做键级 diff。
+- 配置: 当前 KNIFE=0 臂 (测完需复原=1)。
