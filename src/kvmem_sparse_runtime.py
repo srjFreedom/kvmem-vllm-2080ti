@@ -3767,7 +3767,17 @@ class VllmSparseRuntime:
         idx_mapping and query_start_loc)."""
         if self.is_rebuilt(req):
             return None
-        self._ensure(req)
+        try:
+            self._ensure(req)
+        except Exception:
+            try:
+                import json as _je, traceback as _te
+                with open("/tmp/kvmem_ensure_err.jsonl", "a") as _fe:
+                    _fe.write(_je.dumps({"req": str(req)[-6:],
+                                         "err": _te.format_exc()[-400:]}) + "\n")
+            except Exception:
+                pass
+            raise
         st = self._state[req]
         if row_index is not None:
             # Bind the ROW even before a view exists: the first reselect must know which block
