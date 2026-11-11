@@ -68,6 +68,12 @@ def entry_compaction_env(cfg, env):
     falsy = current in ("0", "false", "no", "off")
     if on:
         return "1", ("entry was off" if falsy else None)
+    # design 634: PLAN D keeps the prompt intact while the engine-side compaction
+    # protocol stays off. Without this the entry policy trims every prompt to B
+    # (measured: a 142K request reached the engine as 36,136 tokens and "passed"
+    # without touching the over-pool path at all).
+    if _env_flag("KVMEM_PLAN_D") and _env_flag("KVMEM_ENTRY_RESIDENT_PREFILL"):
+        return "1", "plan d keeps the entry intact"
     if truthy:
         # A raised ceiling without engine-side compaction overflows the pool (B + R cannot hold
         # the output), so the CLI wins here as well.
