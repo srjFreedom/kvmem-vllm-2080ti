@@ -2579,3 +2579,9 @@ skip=不重放只装视图 - 顺路）。
 
 ## 566. 架构复盘入档（2026-11-10）
 新增 `docs/vllm-2080ti-and-kvmem-architecture.md`：记录 ①fork 的真实设计（slot mapping 由 positions 推导 `block_table.py:191/277`；`hisparse` resident/host/hot 数据面；`kv_offload` 块级 offload 框架；稀疏注意力仅 MLA；GDN/Mamba 后端齐备）；②KVMem 的设计信条（有界池 budget+gen_reserve、cell pos=真位置、恢复=纯拷贝、mean-K pre-RoPE 检索、KvMemPlan diff、H/D 两层 host、会话 LCP、GDN 整请求状态快照、不改 attention）；③两者拼接方案（三层分工 + **唯一引擎改动=positions 拆分** + 五步落地顺序 + 旧做法失败对照表）。
+
+## 567. Round 292: **决定性**: PLAN_D=1 + KNIFE=0 (完全无压缩) 在 140K 仍失败 ("is no access code, key, or record of an"); PLAN_D=0 成功
+- 同时: 按请求计数后 d_view_needle=0 确认 140K 真的**没有刀**(此前全局 200 上限造成假阴性, 已改为按请求 3 条)。
+- 推论: 140K 失败与刀/行/seq/positions 无关, 而是 **PLAN_D=1 挂载路径本身**(配置或常驻钩子) 改变了计算。排除面因此从"每步账"转向"attach 时的模式差异"(如 inrequest_compaction=on → prefix caching 关闭/ --no-async-scheduling、capture 钩子、statistics 注册)。
+- 注意: 引擎当前为 KNIFE=0 臂, 下轮需回 KNIFE=1。
+- 下一步: 对比两臂 boot 日志的配置差异段; 再在 KNIFE=0 下逐个关闭 capture/statistics 复测 140K (此前只在开刀下测过)。
