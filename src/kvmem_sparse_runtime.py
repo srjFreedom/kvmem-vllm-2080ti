@@ -3813,6 +3813,10 @@ class VllmSparseRuntime:
         if not (bool(getattr(self, "inrequest_compaction", False))
                 or bool(getattr(self, "d_mode", False))):
             return None
+        try:
+            open("/tmp/kvmem_m2.jsonl","a").write("m2\n")
+        except Exception:
+            pass
         # design 593: the knife must fire for every over-window request.
         # Waiting for the pressure watermark meant it never fired at all
         # (measured: d_view_needle=0 across 140K/152K/250K), so the whole
@@ -3824,6 +3828,10 @@ class VllmSparseRuntime:
                     > (int(self.budget_tokens)
                        + int(self.gen_reserve_tokens))):
                 st.adopt_knife_pending = True
+                try:
+                    open("/tmp/kvmem_m3.jsonl","a").write("m3\n")
+                except Exception:
+                    pass
                 try:
                     import json as _jf
                     with open("/tmp/kvmem_force.jsonl", "a") as _ff:
