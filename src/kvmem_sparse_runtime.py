@@ -4001,9 +4001,12 @@ class VllmSparseRuntime:
                     # filled it and the request is parked (no more steps run, so
                     # nothing can roll the row). Fire once the free headroom is
                     # smaller than the window the roll needs.
+                    # design 641: the working set, not the physical pool, is the
+                    # product's budget (the user reserves a share per session). A
+                    # request longer than budget+R must run on a view even when the
+                    # pool could hold it whole - that is the point of KVMem.
                     and int(getattr(st, "tokens", 0))
-                    > (int(self._kvmem_pool_tokens())
-                       - (int(self.budget_tokens) + int(self.gen_reserve)))):
+                    > (int(self.budget_tokens) + int(self.gen_reserve))):
                 setattr(st, "adopt_knife_pending", True)
                 try:
                     open("/tmp/kvmem_m3.jsonl","a").write("m3\n")
