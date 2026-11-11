@@ -1441,6 +1441,27 @@ def _attach_sparse(runner, log_path):
                                 # window is all that is needed for every new token
                                 # to land in the right ring slot.
                                 _base652 = _tok631 - _win631
+                                # design 655: ROTATE the ring. The row is a ring of
+                                # physical slots; when the window slides by k blocks
+                                # the mapping row[i] -> logical block (base+i) must be
+                                # rotated, otherwise attention reads a mix of old and
+                                # new blocks (measured: fluent but wrong answers).
+                                try:
+                                    _pt655 = int(getattr(runtime, "page_tokens", 32) or 32)
+                                    _blk655 = _pt655 * 32
+                                    _old655 = int(getattr(_st631, "roll_base", 0) or 0)
+                                    _k655 = max(0, (_base652 - _old655) // max(1, _blk655))
+                                    _rowv655 = list(getattr(_st631, "row", ()) or ())
+                                    if _k655 > 0 and _rowv655 and _k655 < len(_rowv655):
+                                        _rot655 = _rowv655[_k655:] + _rowv655[:_k655]
+                                        _st631.row = tuple(_rot655)
+                                        _st631.roll_base = _base652
+                                        runtime._install(int(_row), _rot655,
+                                                         int(getattr(_st631, "seq_len", 0) or _win631),
+                                                         list(range(*((int(view.query_start_loc[0]),)
+                                                                     + (int(view.query_start_loc[1]),)))) if False else [])
+                                except Exception:
+                                    pass
                                 with _t631.no_grad():
                                     _dv[int(_row)] = _base652
                                     _vl[int(_row)] = _win631
