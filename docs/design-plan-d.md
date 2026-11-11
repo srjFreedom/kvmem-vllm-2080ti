@@ -2722,3 +2722,10 @@ skip=不重放只装视图 - 顺路）。
 - 结构核对: 1363 `bind_step(idx_mapping, req_ids)`; 1367 `live = input_batch.req_ids or _kvmem_req_ids`; 1369 `bind_step(idx_mapping, live, qsl)`; 之后循环 `for req in live: ... before_step(...)`。绑定与循环用同一 live, 逻辑上 row_index 不可能是 None。
 - 剩余解释: ①循环体因某个更早的异常整体跳过, 且该异常写到别的 log_path(我们只看了 /tmp/kvmem_sparse.jsonl); ②`view` 对象在两个位置不是同一个实例。
 - 下一步: 在 1367 后直写 `/tmp/kvmem_live.jsonl`(live 内容、row_index、view id), 并在循环体逐 req 直写, 一次超时跑即可定位。
+
+## 609-611. Round 391-394: 逐步排除后的精确断点
+- `before_step` **确实在跑**(入口直写 16 行, 真实 req, row=0), 入口处 `d_mode=true`、`inrequest_compaction=true`；入口读 `_state[req]` 得 -1(状态尚未建立, 正常)。
+- 超池 140K 请求: `st = self._state[req]` 之后的探针 **0 行** ⇒ 函数在 `st` 绑定前就返回/抛错。函数体顺序:
+  `try: d_bs_entry` → `if self.is_rebuilt(req): return None` → `self._ensure(req)` → `st = self._state[req]`。
+- 因此只剩两种可能: ①`is_rebuilt(req)` 返回 True 直接 return；②`_ensure(req)` 抛异常(被 plugin 捕获, 但错误写在别的 log_path)。
+- 下一步(精确): 在 `if self.is_rebuilt(...)` 前后各写一个标记文件, 并把 `self._ensure(req)` 包 try/except 记录异常文本到 /tmp/kvmem_ensure_err.jsonl。
