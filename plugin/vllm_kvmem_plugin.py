@@ -1392,6 +1392,7 @@ def _attach_sparse(runner, log_path):
                                          "KVMEM_NO_ROW",
                                          "KVMEM_NO_POS",
                                          "KVMEM_NO_STATE",
+                                         "KVMEM_NO_ABSORB",
                                          "KVMEM_PLAN_D",
                                          "KVMEM_D_KNIFE")},
                        "page_tokens": view.page_tokens,

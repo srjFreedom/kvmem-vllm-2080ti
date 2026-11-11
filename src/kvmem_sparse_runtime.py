@@ -561,6 +561,9 @@ class VllmSparseRuntime:
             return None
 
     def _absorb_engine_row(self, req):
+        if os.environ.get("KVMEM_NO_ABSORB", "").strip() == "1":
+            # BISECT GATE (design 560): skip the per-step row sync
+            return None
         """Record which engine page holds each logical page (index = logical page)."""
         st = self._state[req]
         if bool(getattr(st, "applied_view_coord", False)):
