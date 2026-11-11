@@ -3561,6 +3561,23 @@ def _install(cls, module_name, probe, smoke, state):
         # ids, which only the scheduler output knows.
         try:
             self._kvmem_req_ids = list(getattr(scheduler_output, "num_scheduled_tokens", {}) or {})
+            # design 597: does the REAL request pass through this post-hook?
+            try:
+                _n597 = getattr(plugin_state, "_exec_seen", 0) if False else 0
+            except Exception:
+                _n597 = 0
+            try:
+                _cnt = getattr(self, "_kvmem_exec_log", 0)
+                if _cnt < 40:
+                    self._kvmem_exec_log = _cnt + 1
+                    _append("/tmp/kvmem_sparse.jsonl", {
+                        "kind": "d_exec_seen",
+                        "pid": os.getpid(),
+                        "n": len(self._kvmem_req_ids),
+                        "ids": [str(x)[-6:] for x in
+                                self._kvmem_req_ids[:4]]})
+            except Exception:
+                pass
             _rt = state.get("sparse")
             _counts = getattr(scheduler_output, "num_scheduled_tokens", None) or {}
             if _rt is not None and _counts:
