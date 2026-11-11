@@ -5899,11 +5899,92 @@ class VllmSparseRuntime:
                       "seq_len": int(getattr(st, "seq_len", 0))})
         return True
 
+    def _audit540(self, req, orch):
+        """DECISION HARNESS (design 540): answer "how many layers are
+        still broken" in ONE pass instead of one witness per round.
+
+        Layer 1 - row coverage: does st.row name a valid block for
+                  EVERY position of the token frontier (holes/short)?
+        Layer 2 - content: for every row position, does the slot hold
+                  the canonical bytes of the page that row[name]s?
+        Layer 3 - bookkeeping: store coverage (pages with no canon).
+        Positions are logged from the published books as context.
+        Runs once per request.
+        """
+        try:
+            _seen = getattr(self, "_audit540_seen", None)
+            if _seen is None:
+                _seen = self._audit540_seen = set()
+            if str(req) in _seen:
+                return
+            _seen.add(str(req))
+            st = self._state.get(req)
+            if st is None:
+                return
+            _pt = max(1, int(self.page_tokens))
+            _row = [int(v) for v in (getattr(st, "row", ()) or ())]
+            _lg = [int(v) for v in (getattr(st, "logical", ()) or ())]
+            _front = int(getattr(st, "tokens", 0) or 0) // _pt
+            _holes = sum(1 for v in _row if v <= 0)
+            _pk = self.view.paged_kv()
+            _nb = int(_pk[0].shape[0])
+            _n = min(len(_row), 2048)
+            _same = _diff = _nocanon = _badslot = 0
+            _first_diff = []
+            for _i in range(_n):
+                _slot = _row[_i]
+                if _slot <= 0 or _slot >= _nb:
+                    _badslot += 1
+                    continue
+                _pg = _lg[_i] if _i < len(_lg) else -1
+                if _pg < 0:
+                    _nocanon += 1
+                    continue
+                _cz = orch.store.get(int(_pg))
+                if not _cz:
+                    _nocanon += 1
+                    continue
+                try:
+                    _lv = float(_pk[0][_slot].float().abs().mean())
+                    _cv = float(_cz[0].float().abs().mean())
+                except Exception:
+                    continue
+                if abs(_lv - _cv) < 1e-4:
+                    _same += 1
+                else:
+                    _diff += 1
+                    if len(_first_diff) < 4:
+                        _first_diff.append([_i, int(_pg), int(_slot),
+                                            round(_lv, 4), round(_cv, 4)])
+            _ov = getattr(self, "_seq_override", {}).get(
+                int(getattr(st, "row_index", -1)), -1)
+            if self.log is not None:
+                self.log({"kind": "d_audit540",
+                          "req": str(req)[-6:],
+                          "row_len": len(_row),
+                          "frontier_pages": int(_front),
+                          "short": int(_front - len(_row)),
+                          "holes": int(_holes),
+                          "checked": _n,
+                          "same": _same, "diff": _diff,
+                          "nocanon": _nocanon, "badslot": _badslot,
+                          "ratio": (round(_same / max(1, _same + _diff), 3)),
+                          "seq_override": int(_ov),
+                          "seq_len": int(getattr(st, "seq_len", 0) or 0),
+                          "tokens": int(getattr(st, "tokens", 0) or 0),
+                          "first_diff": _first_diff})
+        except Exception:
+            pass
+
     def _restore_after_probe(self, req, orch, pairs):
         """AFTER-RESTORE CONFRONTATION (design 519): did the needle page
         actually leave the knife with canonical bytes? The knife-time
         witness fires before the copy and cannot answer that.
         """
+        try:
+            self._audit540(req, orch)
+        except Exception:
+            pass
         try:
             _pg = int(self._needle_page_real())
             if _pg < 0:
