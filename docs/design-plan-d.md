@@ -2637,3 +2637,7 @@ skip=不重放只装视图 - 顺路）。
 - 实现(下轮直接做): 在 runtime 刀路径 chunk 边界产出 `runner.kvmem_slot_deltas`(int32 [max_num_reqs]):
   `delta[req] = true_base - view_base`（true_base=该 chunk 真流起点, view_base=窗口内槽起点*页）,
   同步 `st.row`(页面→槽) 与 `st.ordered_pages`(真页序)。验收: 开刀 140K -> 'ZX-4417-QJ7'。
+
+## 582-583. Round 340-341: 看板发布门槛已放开 (view_installed 也算), 但 140K 实测 `d_tables_published=0`
+- 结论链(已闭合): **刀在 140K 根本不触发**(无 view_installed, 无 pressure proposal) → 行不滚; 但 scheduler clamp 只看 plan_d+knife → 仍把块需求压到窗口 ⇒ 分配块 < 实际需要 ⇒ 后段 attention 读到未写块 ⇒ 答案错/空。
+- 正解: **clamp 必须与“真的滚了行”绑定**, 不是与“刀开关”绑定; 且刀必须在长提示上必然触发(当前 pressure 水位不触发是死结)。中期方案: 把刀触发从“水位”改为“**提示长度 > 窗口**”这一确定性条件(每个超窗请求必装一次视图)。
