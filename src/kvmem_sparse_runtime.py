@@ -8823,7 +8823,11 @@ class VllmSparseRuntime:
                 except Exception:
                     pass
                 return st
-        elif visible <= 0 or visible >= resident_before:
+        elif visible <= 0 or (visible >= resident_before
+                              and not getattr(self, "d_mode", False)):
+            # design 700: plan D always needs the selection (the ring keeps the
+            # resident length equal to the view, so the legacy "no shrink" bail
+            # fired on every request and the proposal was never built).
             self._last_proposal = None
             if self.log is not None:
                 self.log({"kind": "blockwise_no_shrink", "req": req, "visible": int(visible),
