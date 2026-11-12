@@ -752,6 +752,12 @@ class VllmSparseRuntime:
         packed view degenerated to one repeated token). Only pages that left the
         ring are restored from the host store into spare slots.
         """
+        import os as _os719
+        if _os719.environ.get("KVMEM_D_APPLY") != "1":
+            # design 719: the packing path is EXPERIMENTAL and off by default - the
+            # ring answers correctly and packing degenerates until the view
+            # position/length invariant is fully worked out (see the ledger).
+            return
         prop = getattr(self, "_last_proposal", None)
         row = list(getattr(st, "row", ()) or ())
         if not prop or not row:
