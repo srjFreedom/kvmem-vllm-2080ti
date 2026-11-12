@@ -3355,3 +3355,15 @@ bp=49 pt=32 rowlen=2343 longest_run=677 seq_lens=74948   （88K 请求，绿跑 
 `num_computed_tokens`/`positions` 回卷到视图长度，且 rebake 与回卷量必须严格一致。
 **下一步**：在 Core 侧实现 B 回卷（clamp 已回卷 `num_computed`，但 `positions` 由 engine 的
 book 生成，需要让 builder/positions 一并按视图长度生成），然后复测。
+
+## 755. Round 491：B 回卷的判定方法（下一轮第一件事，先取证再改）
+要确认"查询侧坐标是否已回卷到视图长度"，只需在 apply 那一刻打印三个值（一次 2 分钟运行即可）：
+```python
+pos = self.view.query_position_slots(req)   # 本步新 token 的真实位置
+nc  = int(self.view.runner...num_computed)  # 或 st.tokens 与 clamp 值
+seq = int(self.view.seq_lens()[row])
+```
+判读：
+- 若 `pos[-1] ≈ seq`（≈45,472）⇒ 查询已在视图坐标，退化另有原因（rebake δ 的方向/单位）；
+- 若 `pos[-1] ≈ 74,9xx` ⇒ **回卷没生效**，必须让 Core 的 `positions` 与 `num_computed` 一起回卷（这就是工作项 B）。
+在拿到这三个值之前，不要动 rebake。
