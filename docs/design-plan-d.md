@@ -3157,3 +3157,16 @@ rotate_k_pages_fp8(kv_tensor, page_map, page_tokens, inv_freq, rotary_dim, k_sli
   `st_seq=-1/st_tok=-1/st_rowlen=1` 说明该 rank 的 `_state` 里查不到这个请求（D 状态只在一个 rank 上建立/或 key 不同）。
 - 因此：**D 的安装（行/seq/位置）在 rank 维度上没有对齐** —— 这解释了为什么环形的"绿"来自引擎原生路径，而打包后的写法只影响了某个 rank。
 - 下一步（唯一）：确认 D 状态/安装需要在**每个 rank** 建立（`_state` 的 key 是 req 字符串，应当两 rank 都有；若只有一 rank，需查 `_attach_sparse` 的 rank 过滤），然后逐 rank 断言 `seq_lens == 窗口`。
+
+## 730-731. Round 476：找到"安装不生效"的最终机制 —— rank1 的 override 是空的
+**读数（本轮）**
+| 取证点 | 值 |
+|---|---|
+| 安装后立刻读 `view.seq_lens()[row]` | `92,089`（真长度）|
+| 同刻 `st.seq_len` | `53,254`（我们的视图，说明 `st` 更新了）|
+| **注意力 builder 拿到的 override** | `ovr={}`（**空**）| 
+| builder 的 base/new | `92089 → 92089`（没被替换）|
+
+⇒ `_seq_override` 在 builder 所在的 rank 上是**空的**：D 的安装只发生在 rank0 的 runtime 上，rank1 的 runtime 里连请求 state 都没有（此前 `st_tok=-1`）。
+**这就是"任何设置都不生效"的最终机制**：TP=2 时需要**逐 rank 镜像** D 状态与 `_seq_override`；当前只有单 rank 有。
+**下一步（唯一）**：让 `_state`/`_seq_override`/行安装在**每个 rank** 建立（在 `before_step` 里按 `runner.tp_rank` 全量执行，或由 rank0 广播 rank 无关的覆盖值），并断言两 rank 的 builder 都看到 `new == 窗口`。这一步通过后，打包视图才可能生效。
