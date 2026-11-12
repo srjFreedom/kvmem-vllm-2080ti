@@ -612,6 +612,25 @@ def _attach_sparse(runner, log_path):
         return None
 
     cfg = _config()
+    try:
+        _cs = getattr(runner, "kv_caches", None) or []
+        _gid = getattr(runner, "kv_cache_group_ids", None) or []
+        with open("/tmp/kvmem_caches.jsonl", "a") as _cf:
+            _cf.write("n=%s groups=%s shapes=%s" % (
+                len(_cs), list(_gid)[:8],
+                [(i, tuple(int(x) for x in t.shape), int(t.dim()))
+                 for i, t in enumerate(_cs[:8])]))
+            _cf.write(chr(10))
+            try:
+                _cc = getattr(runner, "kv_cache_config", None)
+                _cf.write("num_blocks=%s groups=%s" % (
+                    getattr(_cc, "num_blocks", None),
+                    len(getattr(_cc, "kv_cache_groups", None) or [])))
+                _cf.write(chr(10))
+            except Exception:
+                pass
+    except Exception:
+        pass
     view = resolve_live_view(runner, _paged_attn_tensors)
     if view is None:
         _append(log_path, {"kind": "sparse_skip", "pid": os.getpid(),
