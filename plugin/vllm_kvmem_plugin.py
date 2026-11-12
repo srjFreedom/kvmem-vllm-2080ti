@@ -1654,7 +1654,9 @@ def _attach_sparse(runner, log_path):
                                 with _t631.no_grad():
                                     _dv[int(_row)] = 0
                                     _vl[int(_row)] = 0
-                            elif _win631 > 0 and _tok631 > _win631:
+                            elif (_win631 > 0 and _tok631 > _win631
+                                  and _env_flag("KVMEM_D_APPLY") != True
+                                  and os.environ.get("KVMEM_D_APPLY") != "1"):
                                 try:
                                     if _env_flag("KVMEM_D_POS"):
                                         _ps9 = _st631 and list(

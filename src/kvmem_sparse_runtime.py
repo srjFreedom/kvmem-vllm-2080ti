@@ -927,8 +927,12 @@ class VllmSparseRuntime:
                     raise ValueError("no row index")
                 _vl791 = getattr(_rn, "kvmem_view_lens", None)
                 if _vl791 is not None and _ri791 >= 0:
-                    _vl791[_ri791] = int(st.seq_len)
-                _off791 = max(0, int(getattr(st, "tokens", 0) or 0) - int(st.seq_len))
+                    # the table carries the VIEW BASE (length before this step's
+                    # write); the decode step adds back its own query length.
+                    _vl791[_ri791] = max(0, int(st.seq_len) - 1)
+                # positions are chunk-relative (measured 0..chunk-1), so RoPE needs
+                # the TRUE frontier added back - not the view offset.
+                _off791 = int(getattr(st, "tokens", 0) or 0)
                 _ro = getattr(_rn, "kvmem_rope_offset", None)
                 if _ro is None:
                     import torch as _t791
