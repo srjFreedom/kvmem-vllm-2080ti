@@ -4156,6 +4156,11 @@ class VllmSparseRuntime:
                 # fired 1156 times while d_adopt_knife stayed 0).
                 _fire681 = True
                 try:
+                    open("/tmp/kvmem_bail.jsonl", "a").write(
+                        "CALLER id=%s state=%s\n" % (id(self), len(self._state)))
+                except Exception:
+                    pass
+                try:
                     st.adopt_knife_pending = False
                     st.knife_frontier = int(getattr(st, "tokens", 0) or 0)
                     self._reselect_blockwise(req, pressure=True)
@@ -7693,6 +7698,11 @@ class VllmSparseRuntime:
         return _kc[0]
 
     def _reselect_blockwise(self, req, pressure=False):
+        try:
+            open("/tmp/kvmem_bail.jsonl", "a").write(
+                "FUNC-ENTER id=%s state=%s\n" % (id(self), len(self._state)))
+        except Exception:
+            pass
         # ABLATION SWITCHES (design 102/104):
         # KVMEM_D_NOKNIFE=1  - question knife (final lane) no-op
         # KVMEM_D_NOBLADE=1  - BOTH lanes no-op: the request runs the
