@@ -3185,3 +3185,10 @@ rotate_k_pages_fp8(kv_tensor, page_map, page_tokens, inv_freq, rotary_dim, k_sli
 - 735 的"重复>32 次即视为占位"判据没命中（`missing=0`）⇒ 占位块的出现次数在这一行里不足 32，需要按 **引擎的 null_block id** 精确识别（fork 里 `null_block` 常量可直接读：`runner.block_tables.null_block` 或 `kv_cache_config`）。
 - **结论**：打包链路只剩这一步——用引擎自己的 null_block id 判定"该页无字节 → 必须从 store 恢复"，而不是按计数启发式。
 **当前状态**：`KVMEM_D_APPLY=0`（默认），绿点配置已恢复（`NOBLADE=1`）；全部实验代码在门后。
+
+## 737. Round 479 状态定格（本轮为最后取证轮）
+- 引擎的 `null_block` 是 **Core 侧**属性（`single_type_kv_cache_manager._null_block = block_pool.null_block`），worker 读不到；而 `[6,6,…]` 也可能只是**该请求正常的前几个块 id**（未验证）。
+- 因此"占位块识别"下一步必须先做**对照取证**：同一 88K 请求在两种配置下各打印一次 `st.row[:8]` 与 `table[:8]`：
+  ① `KVMEM_D_NOBLADE=1`（绿，原生）；② `KVMEM_D_APPLY=1`（打包）。
+  若①也是 `[6,6,…]`，说明 6 正常，退化来自别处；若①是递增块 id 而②退化为 6，则确认是打包路径把占位/重复写进行。
+- 这是本阶段最后一个未取证的二选一，之后才能决定修哪一侧。
