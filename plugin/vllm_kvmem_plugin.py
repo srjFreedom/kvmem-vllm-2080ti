@@ -1739,6 +1739,15 @@ def _attach_sparse(runner, log_path):
                                 # window is all that is needed for every new token
                                 # to land in the right ring slot.
                                 _sl631 = int(getattr(_st631, "seq_len", 0) or 0)
+                                try:
+                                    with open("/tmp/kvmem_ringin.jsonl", "a") as _ri:
+                                        _ri.write("tok=%s win=%s sl=%s has=%s rowlen=%s" % (
+                                            _tok631, _win631, _sl631,
+                                            bool(getattr(_st631, "view_installed", False)),
+                                            len(getattr(_st631, "row", ()) or ())))
+                                        _ri.write(chr(10))
+                                except Exception:
+                                    pass
                                 # design 709: the view-length delta is a PLAN D
                                 # rule. Applying it in the classic path changed the
                                 # legacy write addresses (measured: the baseline
