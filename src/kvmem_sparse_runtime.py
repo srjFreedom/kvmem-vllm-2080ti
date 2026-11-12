@@ -948,7 +948,17 @@ class VllmSparseRuntime:
                     _rn.kvmem_rope_offset = _ro
                 _ro.fill_(_off791)
                 _rn.kvmem_rope_offset = _ro
-                _rn.kvmem_slot_offset = _ro
+                # design 797: the slot offset must stay ZERO here. Positions are
+                # already compacted, so subtracting the rope offset from them made
+                # the slot indices negative for the first chunk tokens and the
+                # Triton launch asserted (measured: device-side assert in
+                # execute_model right after the view tables were written).
+                _so797 = getattr(_rn, "kvmem_slot_offset", None)
+                if _so797 is None:
+                    import torch as _t797
+                    _so797 = _t797.zeros((), dtype=_t797.int64, device="cuda")
+                _so797.fill_(0)
+                _rn.kvmem_slot_offset = _so797
                 _rn.kvmem_view_active = True
                 with open("/tmp/kvmem_activate.jsonl", "a") as _ac:
                     _ac.write("row=%s view=%s off=%s" % (
