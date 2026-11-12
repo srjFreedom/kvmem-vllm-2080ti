@@ -4334,9 +4334,12 @@ class VllmSparseRuntime:
                     and __import__("os").environ.get("KVMEM_D_APPLY") == "1"
                     and int(n_query_tokens or 0) == 1
                     and str(req) not in getattr(self, "_applied_set", set())
-                    and max(int(getattr(st, "tokens", 0) or 0),
-                            int(self._prompt_len.get(req, 0) or 0))
-                    > int(self.budget_tokens) + int(self.gen_reserve)):
+                    # design 766: wait for PREFILL to finish. `n_query_tokens == 1`
+                    # also occurs mid prefill, and the first such step consumed the
+                    # view at 4,096 tokens (measured VIEW seq_len=3136 tok=4096).
+                    and int(getattr(st, "tokens", 0) or 0)
+                    >= max(int(self._prompt_len.get(req, 0) or 0),
+                           int(self.budget_tokens) + int(self.gen_reserve))):
                 # design 759: use the PROMPT length, not the token book, for the
                 # "longer than the working set" test - with the clamp off the
                 # token book can lag the prompt and the view never fired.
