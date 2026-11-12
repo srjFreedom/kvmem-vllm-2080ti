@@ -3471,3 +3471,13 @@ Core 收到后置 `kvmem_view_ready/view_tokens`，并把 `blocks` 记为该请�
 - 781：同步平移 `mrope_positions*` 后仍退化。
 - 至此四件事同时成立仍 `duct…`：①`seq_lens=45,472` ②行/块/重旋已装 ③positions 已在视图帧 ④mrope 同步。
 - **剩下唯一怀疑**：Qwen3-Next 的 **GDN（线性注意力）每请求状态槽的 frontier** 仍按真长度推进，与 attention 的视图长度不一致。下一步在安装时把 GDN 读取的 num_computed/frontier 钉到视图长度（mamba 状态仍只一份、不搬），一次 88K 验证。
+
+## 783-786. Round 535-542：positions 前沿终于对齐（45,471 vs 视图 45,472），仍退化
+- 783：只在 positions 仍为真帧时平移（避免二次平移）。
+- 784：offset 改为按**当步前沿**推导：`off = pre_last - (view_len - 1)`。实测：
+  `pre_last=66,778 → post_last=45,471, viewlen=45,472` ✅ **查询正好落在视图最后一位**。
+  此前 `pre_last=95,420、off=29,476` 减完仍是 65,944（视图只有 45,472）⇒ 全部键被掩 ⇒ 这就是长期退化的原因。
+- 785：只对解码步（`len(positions)==1`）平移，避免把 prefill chunk 写乱。
+- 结果：89 s，仍 `duct…`。
+**当前状态**：seq_lens=45,472 ✅、positions 前沿=45,471 ✅、行/块/重旋已装 ✅，输出仍退化。
+**下一步**：需要一次带 `n=1` 解码步的取证（确认 785 的分支在解码步是否真的执行；`/tmp/kvmem_posshift.jsonl` 在 785 运行中为空），并检查 GDN 层在该步的 frontier。
