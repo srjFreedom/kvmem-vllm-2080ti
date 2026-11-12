@@ -732,6 +732,14 @@ class VllmSparseRuntime:
             st.row = tuple(row[k:] + row[:k])
             st.roll_base = base
             st.install_pending = True
+            # design 685: the VIEW length is the window, not the frontier. With
+            # seq_len left at the true count the kernel reads past the ring and
+            # the model degenerates (measured: 'duct' prefixes and fluent
+            # nonsense while the needle itself was present).
+            try:
+                st.seq_len = min(int(win), int(tok))
+            except Exception:
+                pass
 
     def _dump_side(self, tag, req, st=None):
         """design 629: dump the DEVICE-side state the kernel actually sees."""
