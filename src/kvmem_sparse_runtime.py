@@ -976,7 +976,8 @@ class VllmSparseRuntime:
                     _ps = list(self.view.query_position_slots(req))
                 except Exception:
                     _ps = []
-                self._install(int(_ri), list(st.row), int(st.seq_len), _ps)
+                if __import__("os").environ.get("KVMEM_D_NOINSTALL") != "1":
+                    self._install(int(_ri), list(st.row), int(st.seq_len), _ps)
                 _inst = 1
             _p1 = -1
             _p2 = -1
