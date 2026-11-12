@@ -839,6 +839,11 @@ class VllmSparseRuntime:
                     (nb if "nb" in dir() else -1), q, len(_rv),
                     (min(_rv) if _rv else -1), (max(_rv) if _rv else -1),
                     (int(paged[0].shape[0]) if paged else -1)))
+                _g824.write("shapes n=%s %s blocks=%s" % (
+                    (len(paged) if paged else -1),
+                    (str(tuple(int(x) for x in paged[0].shape)) if paged else "-"),
+                    int(self.view.num_blocks())))
+                _g824.write(chr(10))
                 _g824.write(chr(10))
         except Exception:
             pass
