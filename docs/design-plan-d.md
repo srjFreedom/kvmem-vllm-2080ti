@@ -3081,3 +3081,22 @@ skip=不重放只装视图 - 顺路）。
 - ⇒ 想在视图里放"任意选中的历史块"，必须 **rebake**：把这些块的 KV **重旋到视图位置**（视图内重新编号）。
   这也解释了 v0.19 设计里"压缩后必须重算/重旋"的硬性要求。
 - 顺序因此是：**打包 → 回卷 num_computed（A）→ rebake（B）→ 装行 → decode**，缺 B 必然退化（本轮三次实验一致）。
+
+## 715. Rebake 的现成原语与集成方案（下一轮直接照此实现）
+**原语（已存在，`src/kvmem_sparse_rope.py:90`）**
+```python
+rotate_k_pages_fp8(kv_tensor, page_map, page_tokens, inv_freq, rotary_dim, k_slice=slice(0,256))
+# 对 page_map 里的 (src, dst)：delta = (dst - src) * page_tokens
+# 只旋转 K 半边；V 不动；fp8 解量化→旋转→重量化。注意它把结果写回 kv_tensor[src]，
+# 因此可以用 (slot, slot + shift) 只借 dst 计算 delta，实现"原地重旋"。
+```
+**在 `_apply_selection_d` 中的集成步骤**
+1. 零搬运打包（已实现，711）：`row[i] = 选中页 p 当前所在的物理槽 s`，`sel[i] = p`。
+2. 对每个 `i`：`shift = i - p`；若 `shift != 0`，对该槽 **每一层** 调用
+   `rotate_k_pages_fp8(layer_kv, [(s, s + shift)], pt, inv_freq[layer], rotary_dim, k_slice_for[layer])`。
+   - `layer_kv` = 该层 `paged_kv` 的字节张量（shape `[num_slots, kv_heads, page_tokens, content]`）；
+   - `inv_freq`/`rotary_dim`/`k_slice` 从模型 config 与现有 `_rotary` 代码取（`kvmem_sparse_rope` 内已有构造）。
+3. 装行（已实现，704 `inst=1`），`seq_len`=窗口（已实现，712）。
+4. 回卷（A）：仍需 Core 把 `num_computed_tokens` 设成视图长度（见 §708；不能用 legacy compact）。
+**验收**：89K 池 + 92K 请求（先恢复"绿点"），再 140K → `ZX-4417-QJ7`。
+**风险**：17 层 × 605 页的 fp8 重旋是一次性开销（预估算术：`restore_pages_batch` 在同一量级 ~0.3s），可接受。
