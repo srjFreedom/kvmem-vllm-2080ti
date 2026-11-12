@@ -1319,6 +1319,22 @@ def _attach_sparse(runner, log_path):
                             _off8 = int(list(_VO8.values())[0] or 0)
                             if _off8 > 0:
                                 positions -= _off8
+                                # design 781: the hybrid model also derives mrope
+                                # positions; they must move with the same offset.
+                                try:
+                                    _ib8 = getattr(runner, "input_batch", None)
+                                    for _nm8 in ("mrope_positions",
+                                                 "mrope_positions_cpu",
+                                                 "mrope_position_deltas"):
+                                        _v8 = getattr(_ib8, _nm8, None) if _ib8 is not None else None
+                                        if _v8 is None:
+                                            continue
+                                        try:
+                                            _v8 -= _off8
+                                        except Exception:
+                                            pass
+                                except Exception:
+                                    pass
                                 try:
                                     with open("/tmp/kvmem_posshift.jsonl", "a") as _ps8:
                                         _ps8.write("single off=%s n=%s" % (
