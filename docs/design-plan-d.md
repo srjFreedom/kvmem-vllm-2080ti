@@ -3687,3 +3687,11 @@ restore_err n=49 CUDA error: device-side assert triggered
 - 因此下一步不是改 sync，而是：找到给 `st.row` 赋 1,715 项且含 4,263 这些超池值的那个构建点
   （候选：`_roll_window` 的提交/旋转路径，或 adoption 时从旧账本复制），并在那里就把行约束在
   `[0, num_blocks())` 内。
+
+## 831. Round 567：行确由 sync 写入（w=1,715 = ceil(54,880/32)），但值域 6..4,263 仍超池 2,842
+- `sync_row_from_engine` 的 `st.row = tuple(values)`（第 5296 行）就是唯一来源；w 来自当时 seq_lens 54,880；
+- 也就是说**引擎块表里这些条目本身就是 4,263 这种值**，而 FA 的 paged 张量只有 2,842 页；
+- 二者只能通过 fork 的 id→slot 间接映射（`compute_slot_mappings` 内核里 `block_sizes_tensor` /
+  `kernel_block_sizes` 参与），**不能把行值当页号**。
+**下一步（一次 console 打印即可定案）**：在 `compute_slot_mappings` 之后打印第一条 slot 值与
+`block_table[0][0..3]`，反推 `slot = f(block_id)` 的公式；拿到 f 之后，restore 目标 = f(row[slot])。
