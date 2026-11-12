@@ -817,6 +817,39 @@ class VllmSparseRuntime:
                              int(getattr(st, "tokens", 0) or 0))
         except Exception:
             pass
+        # design 716: REBAKE. The engine derives a key's position from its slot
+        # index, so a page moved from view index `src` to `i` must have its K
+        # rotated by (i - src) * page_tokens (proved necessary in §714).
+        _rebaked = 0
+        import os as _os716
+        if _os716.environ.get("KVMEM_D_REBAKE") == "1":
+            try:
+                from kvmem_sparse_rope import rotate_k_pages_fp8, rotary_inv_freq
+                paged = self.view.paged_kv()
+                cfg = self.view.runner.model_config.hf_config
+                hd = int(getattr(cfg, "head_dim", 0) or 0)
+                if hd <= 0:
+                    hd = int(cfg.hidden_size) // int(cfg.num_attention_heads)
+                rot = int(hd * float(getattr(cfg, "partial_rotary_factor", 1.0)))
+                base_theta = float(getattr(cfg, "rope_theta", 1e6))
+                theta = rotary_inv_freq(rot, base_theta, device=paged[0].device)
+                ksl = slice(0, hd)
+                for i, pg in enumerate(sel):
+                    src = pos_of.get(int(pg))
+                    if src is None or src == i or int(packed[i]) <= 0:
+                        continue
+                    slot = int(packed[i])
+                    for t in paged:
+                        rotate_k_pages_fp8(t, [(slot, slot + (i - src))],
+                                           int(pt), theta, rot, ksl)
+                    _rebaked += 1
+            except Exception as _e716:
+                try:
+                    with open("/tmp/kvmem_apply.jsonl", "a") as _af7:
+                        _af7.write("rebake_err %s" % str(_e716)[:140])
+                        _af7.write(chr(10))
+                except Exception:
+                    pass
         # design 704: write the packed row into the engine block table NOW. The
         # regular install path can skip the row (it is gated on the compaction
         # mode), leaving the kernel to read the OLD ring row while seq_len says
@@ -837,8 +870,8 @@ class VllmSparseRuntime:
                 pass
         try:
             open("/tmp/kvmem_apply.jsonl", "a").write(
-                "sel=%s missing=%s restored=%s row=%s seq_len=%s inst=%s\n" % (
-                    len(sel), len(missing), restored,
+                "sel=%s missing=%s restored=%s rebaked=%s row=%s seq_len=%s inst=%s\n" % (
+                    len(sel), len(missing), restored, _rebaked,
                     len(getattr(st, "row", ()) or ()),
                     int(getattr(st, "seq_len", 0) or 0), _inst))
         except Exception:
