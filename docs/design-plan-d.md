@@ -3481,3 +3481,15 @@ Core 收到后置 `kvmem_view_ready/view_tokens`，并把 `blocks` 记为该请�
 - 结果：89 s，仍 `duct…`。
 **当前状态**：seq_lens=45,472 ✅、positions 前沿=45,471 ✅、行/块/重旋已装 ✅，输出仍退化。
 **下一步**：需要一次带 `n=1` 解码步的取证（确认 785 的分支在解码步是否真的执行；`/tmp/kvmem_posshift.jsonl` 在 785 运行中为空），并检查 GDN 层在该步的 frontier。
+
+## 787. Round 543：证伪 —— `prepare_pos_seq_lens` 的 `positions` 不是模型位置张量
+读数（`/tmp/kvmem_prep2.jsonl`）：
+```
+npos=4096 offs=1 vlens=1 last=583576 / 604883
+```
+- `last` 高达 **58 万~60 万**，而序列只有 74,948 token ⇒ 这个 `positions` 不是模型用的位置
+  （很可能是 mrope 展平/其它派生缓冲），此前按它推导 offset 是**在错误的张量上做平移**。
+- 因此 784 得到的 `post_last=45,471` 只是把这个缓冲改成 45,471，并不等于模型位置被修正。
+**结论**：positions 的正确注入点在 **fork 的 `prepare_inputs` / `model_input.positions`**，不是这个 hook。
+**下一步**：在 fork 里加一个「视图模式位置偏移」：`model_input.positions -= (frontier - view_len)`，并且
+只对 attention 层生效的位置数组做（mrope 若为 3 段则同步 3 段）。
