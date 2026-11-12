@@ -3606,3 +3606,12 @@ gpu/block_table.py:166 gather_block_tables   ← Triton kernel，device-side ass
 - `restore` 侧已加边界过滤（`/tmp/kvmem_restore.jsonl: pairs=0 kept=0 npages=2842`）——它现在不崩，崩的是 gather。
 **下一步**：安装视图时同步 `num_blocks[row] = ceil(seq_len / block_tokens)`（或等价地
 `view.num_blocks.np[row] = …` 并 copy_to_gpu），让 gather 只拷我们拥有的区间。
+
+## 813-814. Round 556：assert 仍在 `gather_block_tables`；块数账的写入没被执行到
+- 813：在 `_install` 里把 `num_blocks[:, row] = len(row)` 并 copy_to_gpu。
+- 814：加见证 `/tmp/kvmem_nb.jsonl` —— **文件为空**，说明这段没跑到；
+  同时这一轮 `/tmp/kvmem_apply.jsonl` 也没有 `view_err` 记录 ⇒ apply 段本身没进入/更早失败。
+- eager 模式的 traceback 仍是 `prepare_attn → gather_block_tables`。
+**下一步（建议交互式调试）**：在 `_install` 的每个语句间打断点/打印，确认哪一步先抛；
+以及确认 `runner.input_batch.block_table` 在 apply 时刻是否可访问（这决定 813 能否生效）。
+4 分钟一次的黑盒重启循环在这里效率很低。
