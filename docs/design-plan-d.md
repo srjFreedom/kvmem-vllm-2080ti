@@ -2942,3 +2942,8 @@ skip=不重放只装视图 - 顺路）。
 
 **下一步（唯一动作）**
 把「消费 `adopt_knife_pending`」与「滚行」一起搬到 `before_step` 的**同一位置、紧跟触发器之后**（而不是 `_absorb_engine_row`），确保：触发 → 立刻 `_reselect_blockwise`（选块 + `restore_pages_batch` 恢复）→ 装行 → 继续 decode。
+
+## 682. Round 455 补充：刀的触发在 D 路径里根本没执行
+- 反证：把刀移到触发器内部直接调用后，`d_knife_now` 仍为 0，而 `/tmp/kvmem_force.jsonl` 的 1,156 条是**历史遗留**（本轮未清空）。
+- 即：`before_step` 中 `4101` 的触发块在当前 D 配置下**不执行**（大概率 `row_index is None` 或该方法在 D 路径未被调用）。
+- 下一步（唯一动作）：在 `before_step` 入口处加一条无条件见证（req、row_index、tokens、d_mode、view_installed），确认该方法在当前配置是否每步都被调用、`row_index` 是否为 None。这决定刀应该挂在哪。
