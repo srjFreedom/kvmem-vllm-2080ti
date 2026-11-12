@@ -3100,3 +3100,16 @@ rotate_k_pages_fp8(kv_tensor, page_map, page_tokens, inv_freq, rotary_dim, k_sli
 4. 回卷（A）：仍需 Core 把 `num_computed_tokens` 设成视图长度（见 §708；不能用 legacy compact）。
 **验收**：89K 池 + 92K 请求（先恢复"绿点"），再 140K → `ZX-4417-QJ7`。
 **风险**：17 层 × 605 页的 fp8 重旋是一次性开销（预估算术：`restore_pages_batch` 在同一量级 ~0.3s），可接受。
+
+## 716-723. Round 470-471：rebake 已实现；绿点依赖"纯环形（刀关）"
+**可复现的绿点（本轮实测）**
+- 配置：`GPU_UTIL=0.85`、`KVMEM_PLAN_D=1`、`INREQUEST_COMPACTION=0`、`KVMEM_D_NOBLADE=1`（刀关，纯环形）、resident 入口。
+- 读数：92K 请求 → **`The unique record KEY-MID has access code ZX-4417-QJ7.`**（103 s，usage 92,082）。
+- 结论：**环形窗口 + seq_len=窗口** 这条路径是可靠的；刀一旦真正改写视图（无论 MID 还是问题刀），92K 就会退化。
+
+**实验路径（默认关闭，保留待续）**
+- `KVMEM_D_APPLY=1` 开启：prefill 结束建视图（706）→ 零搬运打包（711）→ **rebake（716/717，原语 `rotate_k_pages_fp8`，元数据解析 hd=256/rot=64/base=1e6 成功）** → 装行带真实 slots（718）。
+- 当前结果：`rebaked=0`（选择排序后与环内位置一致）+ 仍退化 ⇒ 打包本身在该尺寸下不成立，需继续对齐「视图位置/长度」不变量（§714 结论）。
+- 728 之后所有相关代码都在 `KVMEM_D_APPLY` 门后，默认不进入生产路径。
+
+**回退记录（本轮）**：700（放开 no-shrink 门）、696（改问题刀）都在实测中破坏了绿点，已分别用 721/722 恢复原语义 —— 教训：**任何让刀真正改写视图的改动都必须以 92K 绿点为门禁先验**。
