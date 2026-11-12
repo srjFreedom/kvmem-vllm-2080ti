@@ -901,6 +901,16 @@ class VllmSparseRuntime:
                             pass
                         if 0 <= _dst823 < 1 << 20:
                             _pairs823.append((_src823, _dst823))
+                    # design 839: duplicate destination slots make index_copy_ assert on
+                    # the device, so keep one write per slot.
+                    _seen839 = set()
+                    _uniq839 = []
+                    for _pr in _pairs823:
+                        if _pr[1] in _seen839:
+                            continue
+                        _seen839.add(_pr[1])
+                        _uniq839.append(_pr)
+                    _pairs823 = _uniq839
                     if not _pairs823:
                         continue
                     try:
