@@ -3832,7 +3832,7 @@ class VllmSparseRuntime:
             _ox = self._orch.get(req)
             _nstore = 0
             try:
-                _nstore = len(_ox.store.pages()) if _ox is not None and hasattr(_ox.store, "pages") else -1
+                _nstore = len(_ox.store) if _ox is not None and hasattr(_ox.store, "__len__") else -1
             except Exception:
                 _nstore = -2
             open("/tmp/kvmem_storechk.jsonl", "a").write(
