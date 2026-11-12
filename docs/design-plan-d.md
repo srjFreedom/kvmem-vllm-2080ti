@@ -1,5 +1,28 @@
 # Plan D 交接索引（2026-11-12 收尾版）
 
+
+## 〇之二、完整版实施计划（按序，2026-11-12 Round 488 定稿）
+
+### 已钉死的基础事实（不要再猜）
+- 池 → 每用户份额 **B = budget_tokens + gen_reserve**（当前 28,672 + 16,384 = 45,056 token）；
+- 引擎行：**页粒度**（`page_tokens=32`），值 = **块 id**，`block_pages=49`（块 = 1,568 token）；
+- `len(row) == ceil(seq_len/32)`；引擎把**已退役页填占位块**（实测有 677 项连跑）；
+- `sync_row_from_engine` 的行宽必须由 `ceil(engine_seq_lens/32)` 推导（`num_blocks.np` 恒为 1）；
+- metadata builder 只认 `_seq_override`（视图路径写入），`attention_seq_lens` 用它替换 seq_lens。
+
+### 待开发（按序，可独立验收）
+| # | 工作项 | 关键文件/函数 | 验收 |
+|---|---|---|---|
+| 1 | **占位块恢复**：`count>48` 判占位；49 页逐页从 `orch.store` 恢复到目标块；缺页则跳过 | `_apply_selection_d` | 视图内不再出现空块；`row[p]` 无长连跑 |
+| 2 | **回卷 B**：Core 把 `num_computed_tokens` 设为视图长度（clamp 用视图 token 数） | `scheduler.py` clamp | metadata builder 与 positions 自洽（`pos < seq_len`）|
+| 3 | **rebake 帧校验**：δ 往返字节等价 → 逐层接入 | `kvmem_sparse_rope.rotate_k_pages_fp8` | 同页旋 +δ 再 −δ 字节一致；视图答案不退化 |
+| 4 | **四步联调**：选块→恢复→重旋→装行→decode 顺序与所有权 | `_apply_selection_d` + 706 触发点 | 89K 池 + 92K → 正确；140K → 正确 |
+| 5 | **250K 与离线四套** | 测试目录 | 全绿 |
+| 6 | **多用户份额**：每请求只允许在**本用户 B 内**取块；池按 `N×B` 预留 | Core 侧 allocator + 适配器份额表 | 两用户并发各跑 B 内长上下文，互不越界 |
+
+### 工作量（含验证）
+1–3 各 0.5–1 天；4 为 1–2 天（最不确定）；5 0.5 天；6 1 天 ⇒ **合计 4–6 个工作日**。
+
 ## 〇、本阶段最终定性（2026-11-12，Round 484）
 **Plan D 的"缩池服务长上下文"未完成，但已把失败收敛到一个结构性根因：**
 
