@@ -1306,6 +1306,29 @@ def _attach_sparse(runner, log_path):
                 # the view (measured: repeated-token degeneration regardless of the
                 # view content, including a head-view control with zero movement).
                 try:
+                    # design 780: shift whenever the registry has an offset. The
+                    # batch req-id list is not populated on this path (measured:
+                    # the hook runs with positions but `_reqs` empty), so the
+                    # single-request case shifts the whole tensor.
+                    try:
+                        from kvmem_sparse_runtime import VIEW_OFFSETS as _VO8
+                    except Exception:
+                        _VO8 = {}
+                    if _VO8 and positions is not None:
+                        if len(_VO8) == 1:
+                            _off8 = int(list(_VO8.values())[0] or 0)
+                            if _off8 > 0:
+                                positions -= _off8
+                                try:
+                                    with open("/tmp/kvmem_posshift.jsonl", "a") as _ps8:
+                                        _ps8.write("single off=%s n=%s" % (
+                                            _off8, int(len(positions))))
+                                        _ps8.write(chr(10))
+                                except Exception:
+                                    pass
+                except Exception:
+                    pass
+                try:
                     _rtv = state.get("sparse")
                     if _rtv is not None and _reqs and positions is not None:
                         _qsl = query_start_loc
