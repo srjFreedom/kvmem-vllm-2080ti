@@ -850,6 +850,24 @@ class VllmSparseRuntime:
                                 pairs.append((pg, _dst_slot))
                     if len(pairs) < q // 2:
                         continue
+                    # design 811: a slot outside the KV page range makes index_copy_
+                # assert on the device. Filter and report instead of crashing.
+                try:
+                    _np811 = int(paged[0].shape[0]) if paged else 0
+                except Exception:
+                    _np811 = 0
+                if _np811 > 0:
+                    _ok811 = [(pg, sl) for (pg, sl) in pairs if 0 <= sl < _np811]
+                    try:
+                        with open("/tmp/kvmem_restore.jsonl", "a") as _rf811:
+                            _rf811.write("pairs=%s kept=%s npages=%s maxslot=%s" % (
+                                len(pairs), len(_ok811), _np811,
+                                max([sl for _, sl in pairs], default=-1)))
+                            _rf811.write(chr(10))
+                    except Exception:
+                        pass
+                    pairs = _ok811
+                if pairs:
                     orch.restore_pages_batch(pairs)
                     restored += 1
                     keep.append(dst_b)
