@@ -825,6 +825,19 @@ class VllmSparseRuntime:
             paged = None
         restored = 0
         try:
+            try:
+                if __import__("os").environ.get("KVMEM_D_STORELOG") == "1" and orch is not None:
+                    _pgs = list(getattr(orch.store, "pages", []) or [])
+                    with open("/tmp/kvmem_store.jsonl", "a") as _sf:
+                        _sf.write("n=%s min=%s max=%s need0=%s rowat=%s nb=%s" % (
+                            len(_pgs), (min(_pgs) if _pgs else -1),
+                            (max(_pgs) if _pgs else -1),
+                            (need[0] if need else -1),
+                            (int(row[need[0] * q]) if need and need[0] * q < len(row) else -1),
+                            nb))
+                        _sf.write(chr(10))
+            except Exception:
+                pass
             if orch is not None:
                 for b in need:
                     if len(keep) >= want or not spare:
