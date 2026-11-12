@@ -4138,6 +4138,24 @@ class VllmSparseRuntime:
     def before_step(self, req, n_query_tokens=1, row_index=None, position_slots=None,
                     rows_only=False):
         try:
+            import os as _osp
+            if _osp.environ.get('KVMEM_D_POS') == '1':
+                _stp = self._state.get(req)
+                _psp = []
+                try:
+                    _psp = list(self.view.query_position_slots(req))
+                except Exception:
+                    _psp = []
+                with open('/tmp/kvmem_pos.jsonl', 'a') as _pf:
+                    _pf.write('seq=%s tok=%s q0=%s qn=%s' % (
+                        int(self.view.seq_lens()[int(row_index)]) if row_index is not None else -1,
+                        int(getattr(_stp, 'tokens', -1) or -1),
+                        int(_psp[0]) if _psp else -1,
+                        int(_psp[-1]) if _psp else -1))
+                    _pf.write(chr(10))
+        except Exception:
+            pass
+        try:
             import json as _j600  # design 604: direct file, self.log may be None
             _s6 = (self._state.get(req) if isinstance(getattr(self, "_state", None), dict) else None)
             with open("/tmp/kvmem_bs.jsonl", "a") as _f6:
