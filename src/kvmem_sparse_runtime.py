@@ -918,6 +918,13 @@ class VllmSparseRuntime:
             try:
                 _rn = self.view.runner
                 _ri791 = int(getattr(st, "row_index", -1) or -1)
+                if _ri791 < 0:
+                    try:
+                        _ri791 = int(self.view.row_index(req))
+                    except Exception:
+                        _ri791 = -1
+                if _ri791 < 0:
+                    raise ValueError("no row index")
                 _vl791 = getattr(_rn, "kvmem_view_lens", None)
                 if _vl791 is not None and _ri791 >= 0:
                     _vl791[_ri791] = int(st.seq_len)
