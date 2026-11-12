@@ -3367,3 +3367,16 @@ seq = int(self.view.seq_lens()[row])
 - 若 `pos[-1] ≈ seq`（≈45,472）⇒ 查询已在视图坐标，退化另有原因（rebake δ 的方向/单位）；
 - 若 `pos[-1] ≈ 74,9xx` ⇒ **回卷没生效**，必须让 Core 的 `positions` 与 `num_computed` 一起回卷（这就是工作项 B）。
 在拿到这三个值之前，不要动 rebake。
+
+## 756. Round 492：**查询坐标实测** `pos=[0..4095] tok=49152`（决定性）
+```
+VIEW keep=29 need=1 restored=0 rebaked=28 seq_len=45472 inst=1 ph=0 pos=[0..4095] tok=49152
+```
+两个结论：
+1. **查询位置是 0..4,095**（Core 的 clamp 把 `num_computed` 回卷后，新 token 的位置从 0 开始），而视图 `seq_len=45,472` ⇒ 查询在视图的**最开头**，只能看到前 4,096 个键 ⇒ 必然退化；
+2. **apply 在 prefill 中途就执行了**（`tok=49,152`，不是解码首步）⇒ 视图在 prefill 未完成时被设置，后续 chunk 继续写入就把它覆盖/错位。
+**结论（B 的真面目）**：回卷不是"回卷到视图长度"，而是 Core 的 clamp 回卷到 **0 附近**，与视图长度 45,472 完全不匹配。正确做法是二选一：
+- **(i) 回卷量为 0**：让 clamp 不回卷（D 模式关掉 clamp），由视图长度决定 metadata（视图已能自洽：键位置 0..45,472、查询紧随其后）；
+- **(ii) 回卷量 = 视图长度**：clamp 回卷到 `视图长度 - 本步 token 数`。
+并且 **apply 只能发生在解码首步**（prefill 结束），不能在途中。
+**下一步**：先在 D 模式关掉 clamp（选项 i，改动最小），并把 apply 严格限定在 `n_query_tokens==1` 且 prefill 完成的时刻，再复测。
