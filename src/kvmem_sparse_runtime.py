@@ -4857,6 +4857,15 @@ class VllmSparseRuntime:
                     _bt = None
                 _nb = getattr(_bt, "num_blocks", None) if _bt is not None else None
                 _np = getattr(_nb, "np", None) if _nb is not None else None
+                try:
+                    with open("/tmp/kvmem_nb.jsonl", "a") as _nbf:
+                        _nbf.write("bt=%s nb=%s np=%s before=%s want=%s" % (
+                            _bt is not None, _nb is not None, _np is not None,
+                            (int(_np[0, int(row_index)]) if _np is not None else -1),
+                            int(len(row))))
+                        _nbf.write(chr(10))
+                except Exception:
+                    pass
                 if _np is not None:
                     _np[:, int(row_index)] = int(len(row))
                     try:
