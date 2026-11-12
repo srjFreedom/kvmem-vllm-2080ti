@@ -4041,6 +4041,14 @@ class VllmSparseRuntime:
             st.adopt_knife_pending = False
             try:
                 self._reselect_blockwise(req, pressure=True)
+                # design 659: the adopt knife IS the D view install. Mark the
+                # request here (the proposal may be None, which is why 658's
+                # publish-point flag never fired and every consumer stayed dead).
+                try:
+                    if getattr(self, "d_mode", False) and getattr(st, "row", ()):
+                        st.view_installed = True
+                except Exception:
+                    pass
                 self.log({"kind": "d_adopt_knife", "req": str(req)[-6:],
                           "tokens": int(st.tokens)})
             except Exception as _e406:
