@@ -868,6 +868,14 @@ class VllmSparseRuntime:
                     if b not in keep:
                         keep.append(b)
             row_new = list(row)
+            # design 810: sync the mirror with the engine BEFORE building the view.
+            # Installing a 1,536-entry row truncated the engine's 4,310-page row and
+            # the next forward asserted on the device.
+            try:
+                self.sync_row_from_engine(req, 1, int(getattr(st, "tokens", 0) or 0))
+                row = list(getattr(st, "row", ()) or ())
+            except Exception:
+                pass
             rebaked = 0
             try:
                 from kvmem_sparse_rope import rotate_k_pages_fp8, rotary_inv_freq
