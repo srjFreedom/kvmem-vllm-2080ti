@@ -1668,7 +1668,8 @@ def _attach_sparse(runner, log_path):
                                             0, int(getattr(_st631, "seq_len", 0) or 0) - 1)
                                     _ro795 = getattr(_rn795, "kvmem_rope_offset", None)
                                     if _ro795 is not None:
-                                        _ro795.fill_(int(_tok631))
+                                        _ro795.fill_(0 if os.environ.get(
+                                            "KVMEM_D_ROPE0") == "1" else int(_tok631))
                                     _so795 = getattr(_rn795, "kvmem_slot_offset", None)
                                     if _so795 is not None:
                                         _so795.fill_(0)

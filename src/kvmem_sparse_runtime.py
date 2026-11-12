@@ -946,6 +946,11 @@ class VllmSparseRuntime:
                     import torch as _t791
                     _ro = _t.zeros((), dtype=_t791.int64, device="cuda")
                     _rn.kvmem_rope_offset = _ro
+                # design 799: KVMEM_D_ROPE0 keeps the RoPE offset at zero so the
+                # positions stay in the COMPACTED frame; that is only consistent when
+                # the keys are rebaked into the same frame (REBAKE=1).
+                if __import__("os").environ.get("KVMEM_D_ROPE0") == "1":
+                    _off791 = 0
                 _ro.fill_(_off791)
                 _rn.kvmem_rope_offset = _ro
                 # design 797: the slot offset must stay ZERO here. Positions are
