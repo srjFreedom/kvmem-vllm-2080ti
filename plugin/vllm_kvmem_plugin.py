@@ -1654,7 +1654,7 @@ def _attach_sparse(runner, log_path):
                         pass
                     if _dv is not None and _vl is not None:
                         import torch as _t631
-                        for _rq in live:
+                        for _i631, _rq in enumerate(live):
                             _row = view.row_index(_rq)
                             if _row is None:
                                 continue
@@ -1664,7 +1664,16 @@ def _attach_sparse(runner, log_path):
                             except Exception:
                                 _st631 = None
                             _has = bool(getattr(_st631, "view_installed", False))
-                            _tok631 = int(getattr(_st631, "tokens", 0) or 0)
+                            # design 803: `st.tokens` reads -1 on this path (measured:
+                            # /tmp/kvmem_hookin.jsonl "tok=-1"), which made every
+                            # over-window test false and left the ring/table branches
+                            # dead. The scheduler's num_computed_tokens is authoritative.
+                            try:
+                                _tok631 = int(num_computed_tokens[_i631])
+                            except Exception:
+                                _tok631 = 0
+                            if _tok631 < 0:
+                                _tok631 = int(getattr(_st631, "tokens", 0) or 0)
                             _win631 = int(getattr(runtime, "budget_tokens", 0) or 0) \
                                 + int(getattr(runtime, "gen_reserve", 0) or 0)
                             if not _has:
