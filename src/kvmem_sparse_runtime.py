@@ -4139,6 +4139,25 @@ class VllmSparseRuntime:
                     # pool could hold it whole - that is the point of KVMem.
                     and int(getattr(st, "tokens", 0))
                     > (int(self.budget_tokens) + int(self.gen_reserve))):
+                # design 681: fire the knife RIGHT HERE. The flag used to be set
+                # in before_step but consumed in _absorb_engine_row, which runs at
+                # a different point and never had the flag (measured: the trigger
+                # fired 1156 times while d_adopt_knife stayed 0).
+                _fire681 = True
+                try:
+                    st.adopt_knife_pending = False
+                    st.knife_frontier = int(getattr(st, "tokens", 0) or 0)
+                    self._reselect_blockwise(req, pressure=True)
+                    if getattr(st, "row", ()):
+                        st.view_installed = True
+                    if self.log is not None:
+                        self.log({"kind": "d_knife_now", "req": str(req)[-6:],
+                                  "tokens": int(getattr(st, "tokens", 0) or 0),
+                                  "row": len(getattr(st, "row", ()) or ())})
+                except Exception as _e681:
+                    if self.log is not None:
+                        self.log({"kind": "d_knife_now_err",
+                                  "err": str(_e681)[:120]})
                 setattr(st, "adopt_knife_pending", True)
                 try:
                     open("/tmp/kvmem_m3.jsonl","a").write("m3\n")
