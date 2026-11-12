@@ -1753,12 +1753,38 @@ def _attach_sparse(runner, log_path):
                                     _rn795 = getattr(view, "runner", None)
                                     _vl795 = getattr(_rn795, "kvmem_view_lens", None)
                                     if _vl795 is not None:
-                                        _vl795[int(_row)] = max(
-                                            0, int(getattr(_st631, "seq_len", 0) or 0) - 1)
+                                        # design 816: the table carries the WINDOW
+                                        # base. st.seq_len reads 0 on this path, so the
+                                        # old value kept the row stale and the engine
+                                        # fell back to the stock (true) causal length -
+                                        # measured: repetitive output with APPLY on.
+                                        _vl795[int(_row)] = max(0, _win631 - 1)
+                                    # and keep the row rolled to that window
+                                    try:
+                                        _pt816 = int(getattr(runtime, "page_tokens", 32) or 32)
+                                        _bt816 = _pt816 * 32
+                                        runtime.sync_row_from_engine(_rq, 1, _tok631)
+                                        _b816 = _tok631 - _win631
+                                        _old816 = int(getattr(_st631, "roll_base", 0) or 0)
+                                        if _old816 >= _b816 > 0:
+                                            _old816 = 0
+                                        _k816 = max(0, (_b816 - _old816) // max(1, _bt816))
+                                        _r816 = list(getattr(_st631, "row", ()) or ())
+                                        if _k816 > 0 and _r816 and _k816 < len(_r816):
+                                            _rot816 = _r816[_k816:] + _r816[:_k816]
+                                            _st631.row = tuple(_rot816)
+                                            _st631.roll_base = _b816
+                                            runtime._install(
+                                                int(_row), _rot816, _win631,
+                                                list(range(int(view.query_start_loc[0]),
+                                                           int(view.query_start_loc[1]))))
+                                    except Exception:
+                                        pass
                                     _ro795 = getattr(_rn795, "kvmem_rope_offset", None)
                                     if _ro795 is not None:
                                         _ro795.fill_(0 if os.environ.get(
-                                            "KVMEM_D_ROPE0") == "1" else int(_tok631))
+                                            "KVMEM_D_ROPE0") == "1"
+                                            else max(0, _tok631 - _win631))
                                     _so795 = getattr(_rn795, "kvmem_slot_offset", None)
                                     if _so795 is not None:
                                         _so795.fill_(0)
