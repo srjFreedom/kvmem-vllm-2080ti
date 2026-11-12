@@ -3440,3 +3440,15 @@ Core 收到后置 `kvmem_view_ready/view_tokens`，并把 `blocks` 记为该请�
   （`runner.input_batch.positions` 或 prepare 后的 positions 张量），与 `seq_len`/视图长度对齐后，
   再判断 rebake 的 δ 是否一致。
 - 这条更正避免了往错误方向（重写 Core 记账）走一大步。
+
+## 763. Round 497：完整版剩余工作量（按已验证事实重估）
+| # | 工作项 | 依赖/落点 | 估算 |
+|---|---|---|---|
+| 1 | **positions 取证 + rebake 校正**：直接读引擎 positions 张量，确认 δ 方向/单位 | `plugin` 步进钩子 | 0.5 天 |
+| 2 | **视图生效验证**（92K）：`VIEW ... inst=1` + 答案正确 | `_apply_selection_d` | 0.5 天 |
+| 3 | **140K 超池**：视图 + 落盘 + 选块在 89K 池上答对 | 同上 | 1 天 |
+| 4 | **250K** | 同上（CTX/位置表上限内）| 0.5 天 |
+| 5 | **多用户份额**：每请求只占本会话 29 块；池按 N×29 预留 | Core allocator + block channel | 1 天 |
+| 6 | 离线四套 + 文档 | — | 0.5 天 |
+**合计 4 个工作日**（A/A′ 已完成；B 可能比原估计小，因为 clamp 实际给到 40,960 而非 0）。
+**当前绿点**：`NOBLADE=1` 下 92K 正确（103–115 s）；实验路径 `KVMEM_D_APPLY/REBAKE` 默认关闭。
