@@ -3720,3 +3720,10 @@ groups=[3]  tables=[(1, 8232)]  shapes n=16 (2842,2,32,512) blocks=2842
   （很可能是 `id % per_rank_pages` 或 `id // tp`）。
 **下一步**：打印 `runner.parallel_config.tensor_parallel_size` 与 `cache_config.num_gpu_blocks`、
 以及 `kernel_block_size`，确定 per-rank 页数与全局 id 的换算，再据此修正 restore 目标。
+
+## 836. Round 571：引擎池 88,914 token（≈2,778 页）/ TP=2；块 id 可到 4,263（KVMEM_SKIP_KV_CHECK 允许池外 id）
+- 启动日志：`GPU KV cache size: 88,914 tokens`，`Worker_TP0/TP1` 两个 rank；
+- 836：in-place 的写目标改为 `id % num_blocks()`（处理池外 id），运行不再出现 restore_err，
+  但 `_pairs823` 仍全空（store.has 全 miss）⇒ 搬运依旧没发生。
+- 下一步：打印 need 的前几个块号与对应 src 页号，以及 `orch.store.has(src)` 结果，
+  确认 store 里到底有哪些页（可能只存了窗口内的页）。
