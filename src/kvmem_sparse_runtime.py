@@ -831,6 +831,14 @@ class VllmSparseRuntime:
         # to the slot's window phase. Nothing about the row, its length or its
         # block count changes.
         _inp823 = __import__("os").environ.get("KVMEM_D_INPLACE") == "1"
+        try:
+            with open("/tmp/kvmem_inplace.jsonl", "a") as _g824:
+                _g824.write("guard inp=%s orch=%s need=%s nb=%s q=%s" % (
+                    _inp823, orch is not None, (len(need) if need else -1),
+                    (nb if "nb" in dir() else -1), q))
+                _g824.write(chr(10))
+        except Exception:
+            pass
         if _inp823 and orch is not None and need:
             try:
                 _bt823 = int(self.page_tokens) * 32
