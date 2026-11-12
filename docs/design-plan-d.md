@@ -3509,3 +3509,21 @@ npos=4096 offs=1 vlens=1 last=583576 / 604883
 这正是装了视图就退化的原因。
 **下一步**：只保留 fork 内建路径（滚行 + `_dv` + `_vl` + `kvmem_view_active`），关掉适配器的 install/pack/rebake，
 然后验证 92K 是否回到绿、再试 140K。
+
+## 791-792. Round 546：引擎真实路径 = `engines/vllm`（PYTHONPATH），fork 内建视图机制已定位
+**两条硬事实**
+1. 引擎进程 `PYTHONPATH=/home/srj/src/kvmem-vllm-adapter/engines/vllm` ⇒ 生效的是 **`engines/vllm`**；
+   （我先前那次 `import vllm` 测试没带 PYTHONPATH，才指向另一副本。）
+2. 真实 runner = **V2 `vllm/v1/worker/gpu/model_runner.py`**，其 Plan D 机制：
+   - `positions` 是**压缩帧**（每步 0..chunk 相对）；
+   - `kvmem_rope_offset`（device 标量）在 RoPE 前 **加回真位置偏移**（`positions += ro`）；
+   - `kvmem_view_lens[row]` + `query_len` 覆盖 attention 长度，门控 `kvmem_view_active`；
+   - 行值为 0（stale）时保留 stock lens。
+**本轮读数**
+- 见证：`active=True vl=1 pos0=74971 posn=74971 nc0=74971 seq0=74972`
+  ⇒ 该步 positions 仍是**真帧**、attention 仍是 stock（视图表未被填）。
+- 我写表时 `st.row_index = -1`（`/tmp/kvmem_activate.jsonl: row=-1 view=45472 off=29476`）
+  ⇒ 视图表写入被跳过 ⇒ 视图未生效。
+**下一步（两小步）**
+①在 `_apply_selection_d` 里用 `self.view.row_index(req)` 取行号（不要依赖 `st.row_index`）；
+②同时把 `kvmem_rope_offset` 设为 `tokens - seq_len`，让 RoPE 用真位置、attention 用视图长度。
