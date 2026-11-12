@@ -2983,3 +2983,10 @@ skip=不重放只装视图 - 顺路）。
 没有变成 sink+中段+recent 的三段视图）。下一步唯一动作：
 让 `_reselect_blockwise` 的选择真正写回 row（`sel` 应 < row 且 row 应被替换成选中集合），
 并在写回后用 `restore_pages_batch` 从 store（已 100% 覆盖）恢复选中页的 KV。
+
+## 691-693. Round 460：刀被调用但 `_reselect_blockwise` 内部没被执行到
+- 691：加 `roll_frozen`——刀生效后停止滚行（否则每步滚行会覆盖选择）。
+- 140K 结果：仍退化；`knife681` 见证仍是 `row=1666 sel=1666`。
+- 诊断：`_reselect_blockwise` 内部见证文件（enter/no_row/no_logical）**一个都没写** ⇒ 该函数在到达这些语句之前就返回了（存在更前面的早退，非 no_row/no_logical），或调用的是另一个实例。
+- 下一步（唯一）：在 `_reselect_blockwise` 的**第一行**写见证（函数体最开头，任何 return 之前），确认是否进入；若不进入，则在 `before_step` 里打印被调用对象的 `id(self)` 与 `_state` 长度对比。
+**当前可用读数**：89K 池 + 92K 请求 → `ZX-4417` 正确（207s）；140K → 退化；执行通道与全量落主机均已成立。
