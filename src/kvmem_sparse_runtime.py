@@ -882,7 +882,11 @@ class VllmSparseRuntime:
                     _s823 = _slots823.pop(0)
                     _pairs823 = []
                     for _j823 in range(q):
-                        _src823 = _b823 * q + _j823
+                        # design 838: the store keys are (window base page + row index),
+                        # not the bare block*block_pages+j - measured: every lookup
+                        # missed while the pages were in fact stored.
+                        _src823 = (_base823 // max(1, int(self.page_tokens))) \
+                            + _b823 * q + _j823
                         if not orch.store.has(_src823):
                             continue
                         _dst823 = int(row[_s823 * q + _j823])
