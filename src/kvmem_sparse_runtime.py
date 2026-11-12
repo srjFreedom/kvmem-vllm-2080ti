@@ -4072,6 +4072,23 @@ class VllmSparseRuntime:
                                       bool(getattr(st, "view_installed", False))))
         except Exception:
             pass
+        # design 680: consume the knife flag HERE. The legacy consumer lives in
+        # a method that no longer runs for a plan-D request (measured: the trigger
+        # fired 1156 times while d_adopt_knife stayed at 0).
+        try:
+            if bool(getattr(st, "adopt_knife_pending", False)):
+                st.adopt_knife_pending = False
+                st.knife_frontier = int(getattr(st, "tokens", 0) or 0)
+                self._reselect_blockwise(req, pressure=True)
+                if getattr(st, "row", ()):
+                    st.view_installed = True
+                if self.log is not None:
+                    self.log({"kind": "d_adopt_now", "req": str(req)[-6:],
+                              "tokens": int(getattr(st, "tokens", 0) or 0),
+                              "row": len(getattr(st, "row", ()) or ())})
+        except Exception as _e680:
+            if self.log is not None:
+                self.log({"kind": "d_adopt_now_err", "err": str(_e680)[:120]})
         # design 675: commit the DENSE prefix before any roll makes the row
         # non-dense. `_sweep_missing_pages` refuses once tokens > seq_len, and it
         # was only called at the very end, so a 140K prompt left ~2600 pages
