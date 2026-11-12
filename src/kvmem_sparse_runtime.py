@@ -691,6 +691,30 @@ class VllmSparseRuntime:
         except Exception:
             pass
         if k > 0 and row and k < len(row):
+            # design 674: step 1 of the selective-restore pipeline - commit the
+            # blocks that this roll is about to recycle, BEFORE they are
+            # overwritten. Without it the host store only ever held ~71% of the
+            # request (measured: 1667 of 2342 pages for an 88K prompt) and no
+            # later "restore the selected blocks" step could work.
+            try:
+                orch = self._orch.get(req)
+                paged = self.view.paged_kv()
+                logical = list(getattr(st, "logical", ()) or ())
+                stashed = 0
+                for _i in range(min(k, len(row))):
+                    _slot = int(row[_i])
+                    _pg = int(logical[_i]) if _i < len(logical) else -1
+                    if _slot <= 0 or _pg < 0:
+                        continue
+                    if orch is not None and not orch.store.has(_pg):
+                        orch.store.put(_pg, [t[_slot].cpu().clone() for t in paged])
+                        stashed += 1
+                open("/tmp/kvmem_commit.jsonl", "a").write(
+                    "k=%s stashed=%s store=%s\n" % (
+                        k, stashed,
+                        len(orch.store) if orch is not None else -1))
+            except Exception:
+                pass
             st.row = tuple(row[k:] + row[:k])
             st.roll_base = base
             st.install_pending = True
