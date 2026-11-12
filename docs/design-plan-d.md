@@ -3737,3 +3737,10 @@ groups=[3]  tables=[(1, 8232)]  shapes n=16 (2842,2,32,512) blocks=2842
 2. 选择器给出的逻辑块即可直接 `store.get` 取回；
 3. 写回时再通过 `id = logical_map[logical]`（或就地另选一个空闲页）得到设备页。
 **同时**：已确认 `index_copy_` 只接受 < 页数（2,842）的槽，池外 id（4,263）必须经取模或映射（836）。
+
+## 838. Round 574：store 查询补上窗口基址后**能命中**，但 restore 仍 assert
+- 落盘键 = `basepg + 行索引`（`_pg = _basepg + _i`，`_basepg = old//32`），恢复查询必须做同样平移
+  ⇒ 838 给 `src` 加上 `_base823 // page_tokens`；本轮 `restore_err n=49` 说明**查到了页**（此前全 miss）；
+- 但 `index_copy_` 仍 assert ⇒ 剩余嫌疑：目标槽取模后**重复**、或源张量形状/store 层数与 `paged` 不匹配。
+**下一步**：打印 pairs 的前 5 项（src, dst）与 dst 去重后的数量、`store.get(src)` 的层数/形状，
+与 `paged[0]` 对齐后即可消除 assert。
