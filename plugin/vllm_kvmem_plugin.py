@@ -1660,6 +1660,36 @@ def _attach_sparse(runner, log_path):
                                     # holds 45,472 tokens of live blocks (measured:
                                     # fluent-looking but degenerate output).
                                     _base801 = _tok631 - _win631
+                                    # design 802: the ROTATION lives in the elif below,
+                                    # which is unreachable while view_installed is False,
+                                    # so rotate here as well - otherwise attention reads
+                                    # the oldest pages of the row.
+                                    try:
+                                        _pt802 = int(getattr(runtime, "page_tokens", 32) or 32)
+                                        _bt802 = _pt802 * 32
+                                        _old802 = int(getattr(_st631, "roll_base", 0) or 0)
+                                        _k802 = max(0, (_base801 - _old802) // max(1, _bt802))
+                                        _row802 = list(getattr(_st631, "row", ()) or ())
+                                        if _k802 > 0 and _row802 and _k802 < len(_row802):
+                                            _rot802 = _row802[_k802:] + _row802[:_k802]
+                                            _st631.row = tuple(_rot802)
+                                            _st631.roll_base = _base801
+                                            _qs802 = list(range(
+                                                int(view.query_start_loc[0]),
+                                                int(view.query_start_loc[1])))
+                                            runtime._install(int(_row), _rot802,
+                                                             _win631, _qs802)
+                                        with open("/tmp/kvmem_ring802.jsonl", "a") as _rr:
+                                            _rr.write("k=%s base=%s rowlen=%s" % (
+                                                _k802, _base801, len(_row802)))
+                                            _rr.write(chr(10))
+                                    except Exception as _e802:
+                                        try:
+                                            with open("/tmp/kvmem_ring802.jsonl", "a") as _rr2:
+                                                _rr2.write("err %s" % str(_e802)[:110])
+                                                _rr2.write(chr(10))
+                                        except Exception:
+                                            pass
                                     with _t631.no_grad():
                                         _dv[int(_row)] = _base801
                                         _vl[int(_row)] = _win631 - 1
