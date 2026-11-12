@@ -3464,3 +3464,10 @@ Core 收到后置 `kvmem_view_ready/view_tokens`，并把 `blocks` 记为该请�
 - 777：把既有 `_fix_book_for_view`（派生前重装 resident 计数）也纳入 D 视图模式 ⇒ 仍 `duct…`。
 - 已排除：内容/打包/重旋（头视图对照）、seq_lens 覆盖（=45,472）、applied 时机、clamp 回滚。
 - **剩余唯一怀疑点**：模型拿到的 `positions` 仍是真帧。`runner.input_batch` 无 positions 属性；positions 由 `prepare_pos_seq_lens` 生成后经 `model_input` 传入 ⇒ 必须在 `_fix_book_for_view` 之外**直接改 positions 张量**（在该 wrapper 返回前按 offset 平移）。
+
+## 778-782. Round 528-534：positions 已进视图帧，仍退化 ⇒ 怀疑 GDN frontier
+- 778/779：视图偏移改存**模块级** `VIEW_OFFSETS`（跨实例共享）。
+- 780：`prepare_pos_seq_lens` 里实测 `positions` 是 Tensor(n=4096)，单请求时整张量 `-= offset`，**已生效**（`/tmp/kvmem_posshift.jsonl: single off=29476 n=4096`）。
+- 781：同步平移 `mrope_positions*` 后仍退化。
+- 至此四件事同时成立仍 `duct…`：①`seq_lens=45,472` ②行/块/重旋已装 ③positions 已在视图帧 ④mrope 同步。
+- **剩下唯一怀疑**：Qwen3-Next 的 **GDN（线性注意力）每请求状态槽的 frontier** 仍按真长度推进，与 attention 的视图长度不一致。下一步在安装时把 GDN 读取的 num_computed/frontier 钉到视图长度（mamba 状态仍只一份、不搬），一次 88K 验证。
