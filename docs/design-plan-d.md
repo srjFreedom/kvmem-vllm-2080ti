@@ -3615,3 +3615,14 @@ gpu/block_table.py:166 gather_block_tables   ← Triton kernel，device-side ass
 **下一步（建议交互式调试）**：在 `_install` 的每个语句间打断点/打印，确认哪一步先抛；
 以及确认 `runner.input_batch.block_table` 在 apply 时刻是否可访问（这决定 813 能否生效）。
 4 分钟一次的黑盒重启循环在这里效率很低。
+
+## 816-817. Round 559：apply 路径带上窗口与滚行后仍 assert —— 决定改用「原地替换窗口块」方案
+- 816：APPLY 分支里把 `_vl` 设为 **窗口**（而不是 st.seq_len−1，实测为 0）、rope=窗口基址，并同步滚行。
+- 结果：140K 又回到 device assert（`view_err`）。原因仍是**修改了行长度**后 `gather_block_tables` 按真实块数拷贝。
+**结论（重要）**：只要"装行"改变行长度/块数账，就会撞 `gather_block_tables`。
+**新方案（下一段工作）——不碰行、不碰块数，只换内容**：
+1. ring 已经提供合法窗口：行长度、`num_blocks`、`view_lens`、`rope_offset` 都不动；
+2. 从 store 取中段高分的块，**写到窗口内某个低分块所对应的物理页**（`index < 2,842` 保证不越界）；
+3. 用 `rotate_k_pages_fp8` 把这批页的相位从"原位置"旋到"目标槽位"（δ =（目标−源）× 块 token）；
+4. 完全不需要 `_install`、不需要改 `num_blocks`、不需要 restore 到大页号 ⇒ 不触发 assert。
+这是与引擎账本**零冲突**的路径，也是本会话所有证据指向的方向。
