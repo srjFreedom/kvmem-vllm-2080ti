@@ -1829,6 +1829,14 @@ def _attach_sparse(runner, log_path):
                                     _blk655 = _pt655 * 32
                                     _old655 = int(getattr(_st631, "roll_base", 0) or 0)
                                     _k655 = max(0, (_base652 - _old655) // max(1, _blk655))
+                                    # design 805: refresh the mirror row from the
+                                    # engine before rotating. The mirror was 128 pages
+                                    # while the engine row holds 2,343 at 140K, so the
+                                    # rotation moved a row nobody reads.
+                                    try:
+                                        runtime.sync_row_from_engine(_rq, 1, _tok631)
+                                    except Exception:
+                                        pass
                                     _rowv655 = list(getattr(_st631, "row", ()) or ())
                                     try:
                                         open("/tmp/kvmem_ring.jsonl", "a").write(
