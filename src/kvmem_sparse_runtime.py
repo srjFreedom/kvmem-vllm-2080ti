@@ -5898,10 +5898,16 @@ class VllmSparseRuntime:
         finally:
             self._in_quiescent = False
         try:
-            if (getattr(self, "d_mode", False)
-                    and bool(getattr(st, "view_installed", False))
-                    and int(getattr(st, "tokens", 0) or 0) > int(self.budget_tokens) + int(self.gen_reserve)):
-                self._roll_window(req, st, row_index)
+            if getattr(self, "d_mode", False):
+                # design 665: a non-empty row IS the view in plan D (the knife
+                # writes it). Marking the request here makes the roll independent
+                # of the legacy install sites, which never run in D.
+                if getattr(st, "row", ()):
+                    st.view_installed = True
+                if (bool(getattr(st, "view_installed", False))
+                        and int(getattr(st, "tokens", 0) or 0)
+                        > int(self.budget_tokens) + int(self.gen_reserve)):
+                    self._roll_window(req, st, row_index)
         except Exception:
             pass
         proposal = getattr(self, "_last_proposal", None)
