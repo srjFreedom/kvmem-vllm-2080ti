@@ -765,10 +765,28 @@ class VllmSparseRuntime:
         sel = [int(p) for p in (prop.get("selected_pages") or ())]
         if not sel:
             return
-        # design 713: probe - keep the same SET but in position order. The ring
-        # (identity order) answered correctly while every permuted packing
-        # degenerated, which points at an order-sensitive mask in the engine.
+        # design 713: keep the same SET but in position order.
         sel = sorted(sel)
+        # design 726: FILL the view to the working-set window. Core rewinds
+        # num_computed to that window, so the view length must match it or the
+        # query index eclipses the view and every key is masked. Missing slots are
+        # filled with the most recent pages (they are the ones a truncated window
+        # would keep anyway).
+        try:
+            _winp = int(self.budget_tokens + self.gen_reserve) // max(1, int(self.page_tokens))
+            if _winp > 0 and len(sel) < _winp:
+                _have = set(sel)
+                _cand = sorted((int(p) for p in (getattr(st, "logical", ()) or ())
+                                if p is not None and int(p) >= 0), reverse=True)
+                for _p in _cand:
+                    if len(sel) >= _winp:
+                        break
+                    if _p not in _have:
+                        sel.append(_p)
+                        _have.add(_p)
+                sel = sorted(sel)
+        except Exception:
+            pass
         pt = max(1, int(self.page_tokens))
         cur = list(getattr(st, "logical", ()) or ())
         pos_of = {}
@@ -850,7 +868,8 @@ class VllmSparseRuntime:
             # pages are physically moved and rebaked to view positions - reading
             # past it would mix in stale ring pages whose phases no longer match
             # their slots.
-            st.seq_len = len(sel) * int(pt)
+            st.seq_len = min(int(self.budget_tokens) + int(self.gen_reserve),
+                             len(sel) * int(pt))
         except Exception:
             pass
         # design 716: REBAKE. The engine derives a key's position from its slot
