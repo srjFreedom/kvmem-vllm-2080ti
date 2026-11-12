@@ -805,6 +805,12 @@ class VllmSparseRuntime:
         try:
             st.row = tuple(packed + spare)
             st.logical = tuple(sel + [-1] * len(spare))
+            # design 712: the view length must be the WINDOW the Core clamp
+            # assumes, otherwise the query index (window) exceeds it and every
+            # key is masked out. The knife's own apply sets it to the selection
+            # size (measured: 19360 while the clamp used 45056).
+            st.seq_len = min(int(self.budget_tokens) + int(self.gen_reserve),
+                             int(getattr(st, "tokens", 0) or 0))
         except Exception:
             pass
         # design 704: write the packed row into the engine block table NOW. The
