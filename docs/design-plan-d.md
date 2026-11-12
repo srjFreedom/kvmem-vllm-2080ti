@@ -2909,3 +2909,13 @@ skip=不重放只装视图 - 顺路）。
   ③ decode 前用 query 打分（mean-K 已有 `statistics` 通道）选 sink+recent+top-k；
   ④ 只把这些块 `restore_pages_batch` 回窗口行，并按行内顺序重排（环语义）；
   ⑤ 生成写 R；超 R 再追加/再选。
+
+## 672. Round 450：store 覆盖取证未成功，但已可定论
+- `/tmp/kvmem_storechk.jsonl` 只有 warmup（`p_0_ row=1 store=-2`），真实请求的 release 未走该路径；`store.pages()` 在该对象上抛异常（-2）。
+- 结合前文（140K 滚行后 needle 被滚出、答案退化），剩余工作明确为**"选块恢复"流水线**，而不是继续调参：
+  1) prefill 期间逐块 stash 到 HostPageStore（现在只在特定 sweep 路径发生）；
+  2) prefill 结束时清空 GPU 行；
+  3) 用 query（mean-K statistics）选 sink+recent+top-k；
+  4) `restore_pages_batch` 只恢复选中块并按行序重排；
+  5) decode；超 R 再追加/再选。
+- 这五步对应你定义的 KVMem 流程 2–4；当前我们只做到了"执行通道"和"整行环滚"，缺 1/3/4 的联动。
