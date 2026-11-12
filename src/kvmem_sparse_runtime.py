@@ -716,10 +716,14 @@ class VllmSparseRuntime:
                 # while the request needed 4300).
                 _ptp = max(1, int(pt))
                 _basepg = max(0, int(old) // _ptp)
+                _q746 = max(1, int(getattr(self, "block_pages", 0) or 1))
                 for _i in range(len(row)):
                     if stashed >= 256:
                         break
-                    _slot = int(row[_i])
+                    # design 750: the KV tensors are PAGE indexed while the row
+                    # holds BLOCK ids, so a page's physical slot is
+                    # block_id * block_pages + (page_index % block_pages).
+                    _slot = int(row[_i]) * _q746 + (_i % _q746)
                     _pg = _basepg + _i
                     if _slot <= 0:
                         continue
