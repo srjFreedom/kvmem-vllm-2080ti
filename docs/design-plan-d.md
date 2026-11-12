@@ -3549,3 +3549,11 @@ npos=4096 offs=1 vlens=1 last=583576 / 604883
 **下一步（下一段工作从这开始）**：不要再用 `_apply_selection_d` 这套手写安装。
 改用 fork 已有的 `advance`/`_dv`/`_vl` 增量通道（design 45），即"滚行 + 视图表推进"，
 完全不碰 row 安装、store 恢复和 rebake；先让 140K 跑通（答案可错），再谈选中的内容。
+
+## 800. Round 551：ring 路径跑通 140K（无 assert）但输出退化
+- `NOBLADE` 去掉（走 fork 自己的 ring + 视图表通道），140K：
+  `RING140 215s ok=False 'duct…' usage=137873` —— **不再崩**，prefill 完整，但答案是退化文本。
+- `/tmp/kvmem_ring.jsonl` 为空 ⇒ 655 的「滚行 + 写 _dv/_vl」分支**一次都没执行**（design 660 的注释已怀疑
+  `dv/vl` 为 None 会静默跳过）。
+- 因此下一步不是改公式，而是：在该分支入口打印 `_dv/_vl` 是否为 None（`KVMEM_D_META=1` 下
+  `/tmp/kvmem_meta.jsonl` 已有部分字段），把"为什么没进这个分支"钉死。
