@@ -1334,8 +1334,15 @@ def _attach_sparse(runner, log_path):
                             # frontier runs ahead of the token book (measured 95,420
                             # vs 74,948), so the stored offset left the query at 65,944
                             # while the view is 45,472 - every key masked.
-                            if _vl8 > 0 and len(positions):
+                            # design 785: only the DECODE steps need the view frame. A
+                            # prefill chunk shifted into the view writes its tokens at
+                            # view-derived slot positions while the row is still being
+                            # filled with true positions (measured: shifting a 4,096-token
+                            # chunk degenerated the run).
+                            if _vl8 > 0 and len(positions) == 1:
                                 _off8 = max(0, _last8 - (_vl8 - 1))
+                            elif _vl8 > 0 and len(positions) > 1:
+                                _off8 = 0
                             if _off8 > 0 and (_vl8 <= 0 or _last8 > _vl8):
                                 positions -= _off8
                                 # design 781: the hybrid model also derives mrope
