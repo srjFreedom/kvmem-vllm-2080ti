@@ -1270,6 +1270,20 @@ def _attach_sparse(runner, log_path):
         def prepare_pos_seq_lens(idx_mapping, query_start_loc, num_computed_tokens,
                                  positions, seq_lens):
             try:
+                if _env_flag("KVMEM_D_POS"):
+                    try:
+                        from kvmem_sparse_runtime import VIEW_OFFSETS as _VO0
+                    except Exception:
+                        _VO0 = {}
+                    with open("/tmp/kvmem_prep.jsonl", "a") as _pp:
+                        _pp.write("pos_t=%s none=%s n=%s offs=%s" % (
+                            type(positions).__name__, positions is None,
+                            (-1 if positions is None else int(len(positions))),
+                            dict(list(_VO0.items())[:2])))
+                        _pp.write(chr(10))
+            except Exception:
+                pass
+            try:
                 if not _wrap529["done"] and _wrap529["tries"] < 64:
                     _wrap_attn_builders()
                     if _wrap529["done"]:
