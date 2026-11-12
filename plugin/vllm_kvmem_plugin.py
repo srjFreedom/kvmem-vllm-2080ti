@@ -1429,9 +1429,23 @@ def _attach_sparse(runner, log_path):
                             if _r9 is None:
                                 continue
                             _row9 = int(_r9)
-                            _ent = {"rt_id": id(runtime),
+                            _ent = {}
+                            try:
+                                _stx = runtime._state.get(_rq9)
+                                _ent["st_row"] = [int(x) for x in
+                                                  list(getattr(_stx, "row", ()) or ())[:8]]
+                                _ent["st_view"] = bool(getattr(_stx, "view_installed", False))
+                            except Exception:
+                                pass
+                            try:
+                                _tbx = runner.block_tables.block_tables[0]
+                                _ent["tbl"] = [int(x) for x in
+                                               _tbx[_row9, :8].tolist()]
+                            except Exception as _ex:
+                                _ent["tbl_err"] = str(_ex)[:40]
+                            _ent.update({"rt_id": id(runtime),
                                     "state_n": len(getattr(runtime, "_state", {}) or {}),
-                                    "view_id": id(view)}
+                                    "view_id": id(view)})
                             try:
                                 _ent["seq_lens"] = int(view.seq_lens()[_row9])
                             except Exception:
