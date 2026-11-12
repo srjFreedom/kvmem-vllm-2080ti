@@ -8984,10 +8984,12 @@ class VllmSparseRuntime:
                     pass
                 return st
         elif visible <= 0 or (visible >= resident_before
-                              and not getattr(self, "d_mode", False)):
-            # design 700: plan D always needs the selection (the ring keeps the
-            # resident length equal to the view, so the legacy "no shrink" bail
-            # fired on every request and the proposal was never built).
+                              and __import__("os").environ.get("KVMEM_D_APPLY") != "1"):
+            # design 721: the "no shrink" bail is what keeps the RING path correct.
+            # Letting plan D through it (design 700) made the knife's own apply run
+            # and rewrite row/seq_len mid-prefill, which broke the ring answer
+            # (measured: a request that answered ZX-4417 degenerated). The
+            # experimental packing path is gated behind KVMEM_D_APPLY.
             self._last_proposal = None
             if self.log is not None:
                 self.log({"kind": "blockwise_no_shrink", "req": req, "visible": int(visible),
