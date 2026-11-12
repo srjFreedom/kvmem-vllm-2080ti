@@ -805,6 +805,12 @@ class VllmSparseRuntime:
             else:
                 packed.append(None)
                 missing.append(pg)
+        # design 733: never let the packed row repeat a physical slot. A repeated
+        # slot means the mapping collapsed (measured: the table came out as
+        # [6,6,6,...] and the kernel read one page for the whole view).
+        if len(set(packed)) != len([v for v in packed if v is not None]):
+            packed = [int(row[i]) for i in range(min(len(sel), len(row)))]
+            used = set(packed)
         spare = [int(s) for s in row if int(s) not in used]
         restored = 0
         orch = self._orch.get(req)
@@ -938,6 +944,12 @@ class VllmSparseRuntime:
         _inst = -1
         try:
             _ri = int(getattr(st, "row_index", -1))
+            # design 734: the builder substitutes seq_lens from _seq_override; if
+            # the regular install took the non-view branch this stays unset and
+            # the kernel attends the TRUE length over the packed row (measured:
+            # ovr=-1 while seq_lens was the view length).
+            if _ri >= 0:
+                self._seq_override[int(_ri)] = int(st.seq_len)
             if _ri >= 0:
                 # design 718: pass the REAL position slots. An empty list left the
                 # positions/slots install at zero for this step (measured: the
