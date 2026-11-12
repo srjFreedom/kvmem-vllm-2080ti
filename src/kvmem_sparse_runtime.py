@@ -7874,6 +7874,12 @@ class VllmSparseRuntime:
                 pass
             if self.log is not None:
                 self.log({"kind": "blockwise_no_row", "req": req})
+            try:
+                with open("/tmp/kvmem_ret.jsonl", "a") as _rf:
+                    _rf.write("RET 7877")
+                    _rf.write(chr(10))
+            except Exception:
+                pass
             return st
         if len(old_logical) != len(old_row):
             if bool(getattr(st, "applied_view_coord", False)) or int(getattr(st, "off_pages", 0)):
@@ -7886,6 +7892,12 @@ class VllmSparseRuntime:
                 if self.log is not None:
                     self.log({"kind": "blockwise_no_logical", "req": req,
                               "row": len(old_row), "logical": len(old_logical)})
+                try:
+                    with open("/tmp/kvmem_ret.jsonl", "a") as _rf:
+                        _rf.write("RET 7889")
+                        _rf.write(chr(10))
+                except Exception:
+                    pass
                 return st
             # DENSE frame: the engine wrote at true positions, so row position IS the logical
             # page (the page ids themselves are physical and irrelevant here).
@@ -8731,6 +8743,12 @@ class VllmSparseRuntime:
                           "kept": kept[:6], "kept_n": len(kept),
                           "n_pages": n_pages, "n_blocks": n_blocks, "q": q,
                           "row": len(old_row), "logical": len(old_logical)})
+            try:
+                with open("/tmp/kvmem_ret.jsonl", "a") as _rf:
+                    _rf.write("RET 8734")
+                    _rf.write(chr(10))
+            except Exception:
+                pass
             return st
         visible = sum(min(pt, max(0, tokens - p * pt)) for p in logical_pages)
         # Plan D: the no-shrink guard is a rewind-world rule (there the resident
@@ -8792,12 +8810,24 @@ class VllmSparseRuntime:
                               "pages": len(logical_pages), "row": len(old_row),
                               "visible": int(visible),
                               "resident_before": int(resident_before)})
+                try:
+                    with open("/tmp/kvmem_ret.jsonl", "a") as _rf:
+                        _rf.write("RET 8795")
+                        _rf.write(chr(10))
+                except Exception:
+                    pass
                 return st
         elif visible <= 0 or visible >= resident_before:
             self._last_proposal = None
             if self.log is not None:
                 self.log({"kind": "blockwise_no_shrink", "req": req, "visible": int(visible),
                           "resident": int(resident_before), "pages": len(logical_pages)})
+            try:
+                with open("/tmp/kvmem_ret.jsonl", "a") as _rf:
+                    _rf.write("RET 8801")
+                    _rf.write(chr(10))
+            except Exception:
+                pass
             return st
         moved = failed = 0
         try:
