@@ -3535,3 +3535,17 @@ npos=4096 offs=1 vlens=1 last=583576 / 604883
 - 已排除：store restore（NORESTORE=1 仍崩）、行安装（NOINSTALL=1 仍崩）。
 - 已定位一个真错：把 `kvmem_slot_offset` 也设成真前沿 ⇒ slot 映射变负数（797 已改为恒 0），但 assert 仍在。
 - 剩余怀疑：`kvmem_view_lens`（attention 长度 45,472）与 **GDN/mamba 的 seq_len 账**不一致（该 override 只应作用于 FullAttention），或 indptr 与 block table 的页数不匹配。
+
+## 798-799. Round 550-551：140K 的三次消融，assert 仍未消除（已缩小范围）
+| 变体 | 结果 |
+|---|---|
+| `NOOVERRIDE=1`（关因果覆盖）| 217 s，仍 assert |
+| `ROPE0=1 + REBAKE=1`（位置/键都在压缩帧，自洽）| 217 s，仍 assert |
+| `NOACT=1 + NORESTORE + NOINSTALL`（完全不写视图表/不恢复/不装行）| **125 s 就失败**（更早，非 view_err）|
+结论：
+- assert 不是因果覆盖、不是 rope 偏移方向、也不是 rebake；
+- 只要 140K 走到「视图/选择」这条路径就崩；
+- 完全不激活视图时它更早失败 ⇒ 说明上半程（prefill 后段的压缩触发）本身也不干净。
+**下一步（下一段工作从这开始）**：不要再用 `_apply_selection_d` 这套手写安装。
+改用 fork 已有的 `advance`/`_dv`/`_vl` 增量通道（design 45），即"滚行 + 视图表推进"，
+完全不碰 row 安装、store 恢复和 rebake；先让 140K 跑通（答案可错），再谈选中的内容。
