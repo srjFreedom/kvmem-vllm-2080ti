@@ -2969,3 +2969,17 @@ skip=不重放只装视图 - 顺路）。
 
 **下一步（唯一）**
 把刀的选择结果真正装进视图：sink 段 + 中段 top-k（用 `statistics` 的 mean-K 打分，已存在）+ recent 段，三段合并成一行并恢复其 KV（`restore_pages_batch`，store 已 100% 覆盖），然后 decode。
+
+## 688-690. Round 458-459：`knife_frontier` 缺槽位是刀从不执行的真正原因；修复后刀首次真正运行
+**根因（与 624 同类）**：`knife_frontier` 未加入 `__slots__` ⇒ `st.knife_frontier = ...` 每步抛
+`AttributeError`，被 `except` 静默吞掉（before_step 里 `self.log is None`，连日志都没有）。异常落盘
+（`/tmp/kvmem_knife681_err.jsonl`）直接给出该行号。
+**修复后读数**
+| 请求 | 刀执行 | 结果 |
+|---|---|---|
+| 92,082 token（89K 池） | 24 次，无异常 | ✅ `The unique record KEY-MID has access code ZX-4417-…`（207s）|
+| 137,873 token（89K 池） | 22 次，无异常 | ❌ 退化 `'The archive is a a a a…'`；`row=1666 sel=1666` 不变 |
+**结论**：刀已能端到端执行（这是首次），但它的**选择结果没有改变视图**（row 长度恒定 1666 ⇒ 仍是环形窗口，
+没有变成 sink+中段+recent 的三段视图）。下一步唯一动作：
+让 `_reselect_blockwise` 的选择真正写回 row（`sel` 应 < row 且 row 应被替换成选中集合），
+并在写回后用 `restore_pages_batch` 从 store（已 100% 覆盖）恢复选中页的 KV。
