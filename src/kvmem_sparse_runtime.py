@@ -5907,6 +5907,14 @@ class VllmSparseRuntime:
                 if (bool(getattr(st, "view_installed", False))
                         and int(getattr(st, "tokens", 0) or 0)
                         > int(self.budget_tokens) + int(self.gen_reserve)):
+                    try:
+                        open("/tmp/kvmem_rollcall.jsonl", "a").write(
+                            "rt=%s st=%s row=%s tok=%s view=%s\n" % (
+                                id(self), id(st), len(getattr(st, "row", ()) or ()),
+                                int(getattr(st, "tokens", 0) or 0),
+                                bool(getattr(st, "view_installed", False))))
+                    except Exception:
+                        pass
                     self._roll_window(req, st, row_index)
         except Exception:
             pass
