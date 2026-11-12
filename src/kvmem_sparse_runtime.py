@@ -795,11 +795,16 @@ class VllmSparseRuntime:
             restored = -1
         if any(v is None for v in packed):
             return
-        tail = spare[:128]                      # room for the decode writes
+        # design 711: keep the ROW LENGTH and the view length unchanged, and put
+        # the selection at the FRONT. The engine's working-set clamp fixes the
+        # query index at the window, so a view shorter than the window masks every
+        # key out (measured: repeated-token degeneration right after a packed
+        # apply). The slots behind the selection stay as they are - they hold
+        # recent pages, which the selection already covers, so they only add
+        # redundancy the model can ignore.
         try:
-            st.row = tuple(packed + tail)
-            st.logical = tuple(sel + [-1] * len(tail))
-            st.seq_len = len(sel) * pt
+            st.row = tuple(packed + spare)
+            st.logical = tuple(sel + [-1] * len(spare))
         except Exception:
             pass
         # design 704: write the packed row into the engine block table NOW. The
