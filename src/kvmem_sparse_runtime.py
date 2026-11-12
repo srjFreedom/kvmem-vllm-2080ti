@@ -3827,6 +3827,21 @@ class VllmSparseRuntime:
                                       {}) or {})})
         except Exception:
             pass
+        try:
+            _stx = self._state.get(req)
+            _ox = self._orch.get(req)
+            _nstore = 0
+            try:
+                _nstore = len(_ox.store.pages()) if _ox is not None and hasattr(_ox.store, "pages") else -1
+            except Exception:
+                _nstore = -2
+            open("/tmp/kvmem_storechk.jsonl", "a").write(
+                "req=%s row=%s logical=%s store=%s tok=%s\n" % (
+                    str(req)[-4:], len(getattr(_stx, "row", ()) or ()),
+                    len(getattr(_stx, "logical", ()) or ()), _nstore,
+                    int(getattr(_stx, "tokens", 0) or 0)))
+        except Exception:
+            pass
         orch = self._orch.pop(req, None)
         self._retrieval.pop(req, None)
         self._state.pop(req, None)
