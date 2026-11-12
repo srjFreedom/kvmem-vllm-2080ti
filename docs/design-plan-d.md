@@ -3271,3 +3271,12 @@ len=1536  top=[(19,32),(20,32),(21,32)]  first=[6,6,6,6,6,6,6,6]  last=[1724..17
 - 因此打包必须以 **块（1,024 token）为单位**：选择块集合 → 按目标块槽重排 → rebake 的 δ = (i − b) × block_tokens；
 - 这也解释了为什么"按页重排 + 按页重旋"全部退化：单位错了 32 倍。
 **下一步（唯一）**：把选择/打包/重旋全部改成**块粒度**（`q = block_pages = 32`），并用 `row[pos//32]` 的语义校验。
+
+## 746-747. Round 486：块粒度打包已实现；单位仍需一次定点核实
+- 实现 design 746：按块（`q = block_pages`）组装视图——选块 → 写目标块槽 → rebake δ=(i−b)×block_tokens → 设 seq_len=窗口 → 装行。
+- 读数：`BLOCKPACK blocks=28 rebaked=27 rowlen=1536 seq_len=43904 inst=1 ovr=43904`，输出仍 `duct…`。
+- **待核实（下一轮第一件事）**：`block_pages` 在本配置下是多少？
+  - 插件 `runtime.block_pages = max(_bpk)`，而本配置 `blocks_per_kv_block` 实测为 1 ⇒ `block_pages=1`；
+  - 但行取证显示**每个块 id 连续重复 32 次** ⇒ 块=32 页=1,024 token。
+  两者矛盾，必须先打印 `block_pages / page_tokens / row len / row 中连续相同值的最长长度`，确定真正的块-页关系，再定 `q`、`block_tokens` 与 rebake 的 δ 单位。
+- 在此之前不再改打包逻辑（单位错一次会浪费整轮）。
