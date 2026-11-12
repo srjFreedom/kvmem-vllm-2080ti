@@ -3197,3 +3197,15 @@ rotate_k_pages_fp8(kv_tensor, page_map, page_tokens, inv_freq, rotary_dim, k_sli
 - 在经典分支（`_seq_override[row] = step_end`）加的行头见证**没有写文件** ⇒ 该分支在此配置下也不执行（`before_step` 走了视图分支或提前返回）。
 - 因此"6 是否正常"仍未取证；这是本轮唯一未完成的观测，下一次应从 `before_step` **入口**处无条件打印 `st.row[:8]`/`table[:8]`，而不是在安装分支里。
 **阶段结论**：Plan D 的"缩池服务长上下文"仍差**打包视图生效**这一步；其余（执行通道、全量落主机、刀链路、seq 覆盖、rebake 原语）均已就位并有读数。
+
+## 739. Round 481：最终定位 —— 适配器的 `st.row` 根本没有镜像引擎行
+**读数（88K，绿配置，`KVMEM_D_META=1`）**
+```
+{'st_row': [196], 'st_view': True, 'st_rowlen': 1,
+ 'seq_lens': 74955, 'st_seq': -1, 'st_tok': -1}
+```
+- 适配器的行账只有 **1 个条目**（`[196]`），而引擎的 `seq_lens` 是 74,955；
+- 此前所有"行打包"实验都是在这个**1 条目的行**上操作 ⇒ 得到 `[6,6,6,…]` 这类退化结果完全可解释。
+**根因位置**：`sync_row_from_engine` 只在 `blocks_per_kv_block[group] > 1`（即一个引擎块跨多个页）时才被调用（插件里 `_sync_iter` 的过滤），本配置 bpk=1 ⇒ **行从不镜像**。
+**下一步（唯一，且很小）**：让 `sync_row_from_engine` 对每个 live 请求每步无条件执行（或至少 bpk==1 时也执行），断言 `len(st.row) == ceil(seq_lens / block)`；此后打包视图才可能在正确的行上进行。
+**这是本阶段最有价值的收尾发现**：它同时解释了「为什么环滚看起来无害」「为什么打包总是退化」「为什么 seq 覆盖修好后仍退化」。
