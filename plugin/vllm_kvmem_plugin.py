@@ -1329,6 +1329,13 @@ def _attach_sparse(runner, log_path):
                             # degeneration we have been chasing.
                             _vl8 = int(list(_VL8.values())[0] or 0) if _VL8 else 0
                             _last8 = int(positions[-1]) if len(positions) else 0
+                            # design 784: the offset must come from THIS step's position
+                            # frontier, not from the stored (tokens - seq_len). The
+                            # frontier runs ahead of the token book (measured 95,420
+                            # vs 74,948), so the stored offset left the query at 65,944
+                            # while the view is 45,472 - every key masked.
+                            if _vl8 > 0 and len(positions):
+                                _off8 = max(0, _last8 - (_vl8 - 1))
                             if _off8 > 0 and (_vl8 <= 0 or _last8 > _vl8):
                                 positions -= _off8
                                 # design 781: the hybrid model also derives mrope
