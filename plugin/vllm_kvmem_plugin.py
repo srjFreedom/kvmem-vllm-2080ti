@@ -1479,7 +1479,14 @@ def _attach_sparse(runner, log_path):
                                 # window is all that is needed for every new token
                                 # to land in the right ring slot.
                                 _sl631 = int(getattr(_st631, "seq_len", 0) or 0)
-                                _base652 = _tok631 - (_sl631 if _sl631 > 0 else _win631)
+                                # design 709: the view-length delta is a PLAN D
+                                # rule. Applying it in the classic path changed the
+                                # legacy write addresses (measured: the baseline
+                                # answer picked up a degenerate prefix).
+                                if getattr(runtime, "d_mode", False) and _sl631 > 0:
+                                    _base652 = _tok631 - _sl631
+                                else:
+                                    _base652 = _tok631 - _win631
                                 # design 655: ROTATE the ring. The row is a ring of
                                 # physical slots; when the window slides by k blocks
                                 # the mapping row[i] -> logical block (base+i) must be
