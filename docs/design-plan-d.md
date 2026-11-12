@@ -2858,3 +2858,12 @@ skip=不重放只装视图 - 顺路）。
 - 664/665：把滚行改为每 chunk 执行（`_roll_window`），并以"row 非空即视为视图"作为标记。
 - 读数：`/tmp/kvmem_roll.jsonl` 仍为空 ⇒ 在发布方法里 `st.row` 为空（刀写行用的是另一个状态对象/方法）。答案仍退化。
 - 下一步（精确）：在 `_roll_window` 调用点直写 `id(st)`、`len(st.row)`、`st.tokens`、`st.view_installed`，并与 adopt-knife 处（4071 行所在方法）打印的 `id(st)` 对比——两个方法若拿到不同 state 对象，就是本 bug 的根源（此前插件侧也出现过同样现象：`has=False tok=-1`）。
+
+## 668-670. Round 447：滚行+钳制在 92K 正确、140K 仍错 —— 并由此得到**架构级再认识**
+- 读数：92K 提示 + clamp + 每步滚行 → **正确**（"The access code for KEY-MID is **ZX-4417…"，102s，roll 74 次）；140K → 退化。
+- 原因（由用户定义的 KVMem 流程反推）：**纯环形窗口会丢掉中段的 needle**。140K 提示的 needle 在 ~68K，滚到末尾时窗口（45K）只覆盖 92K–137K，needle 被滚出 ⇒ 必然答错。92K 之所以对，是 needle 恰在边界附近被读到。
+- 由此得到**重要的验收口径修正**：用户定义的流程是"prefill 分 chunk 完成 → ALL KV 落主机 → decode 前按 query 检索选块 → 生成写 R → 超 R 再追加/再检索"。也就是说：
+  1. **单次 prefill 必须放得进池**（否则无论如何都要丢块）；
+  2. "超池"指的是**对话历史总量**超出池，而不是单条 prefill 超池（turn 2 只需 prefill 增量，历史在主机）。
+- 因此：用"89K 池 + 单条 140K 提示"当验收床与产品语义不符；正确的超池验收是**多轮对话**：总历史 > 池，每轮 prefill 增量 < 池，decode 前从主机恢复按 query 选中的块。
+- 下一步：把测试改成多轮（turn1 建历史 → turn2 提问 needle），在 89K 池上验证 resume/选块路径能否答对。
