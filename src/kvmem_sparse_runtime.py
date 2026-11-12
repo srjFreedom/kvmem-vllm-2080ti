@@ -763,6 +763,15 @@ class VllmSparseRuntime:
         if _os753.environ.get("KVMEM_D_APPLY") != "1":
             return
         prop = getattr(self, "_last_proposal", None)
+        try:
+            with open("/tmp/kvmem_apply_in.jsonl", "a") as _ai:
+                _ai.write("prop=%s sel=%s row=%s" % (
+                    "None" if prop is None else len(prop.get("selected_pages") or ()),
+                    len(getattr(st, "logical", ()) or ()),
+                    len(getattr(st, "row", ()) or ())))
+                _ai.write(chr(10))
+        except Exception:
+            pass
         row = list(getattr(st, "row", ()) or ())
         if not prop or not row:
             return
