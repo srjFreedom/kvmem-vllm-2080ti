@@ -1635,6 +1635,23 @@ def _attach_sparse(runner, log_path):
                     # (measured: alternating correct/duct with identical witnesses).
                     _dv = getattr(runner, "kvmem_slot_deltas", None)
                     _vl = getattr(runner, "kvmem_view_lens", None)
+                    try:
+                        with open("/tmp/kvmem_hookin.jsonl", "a") as _hi:
+                            _st0 = None
+                            try:
+                                _st0 = runtime._state.get(live[0]) if live else None
+                            except Exception:
+                                _st0 = None
+                            _hi.write("dv=%s vl=%s live=%s d=%s rv=%s tok=%s w=%s has=%s" % (
+                                _dv is not None, _vl is not None, len(live),
+                                bool(getattr(runtime, "d_mode", False)),
+                                os.environ.get("KVMEM_RING_VIEW", "-"),
+                                int(getattr(_st0, "tokens", -1) or -1),
+                                int(getattr(runtime, "budget_tokens", 0) or 0),
+                                bool(getattr(_st0, "view_installed", False))))
+                            _hi.write(chr(10))
+                    except Exception:
+                        pass
                     if _dv is not None and _vl is not None:
                         import torch as _t631
                         for _rq in live:
