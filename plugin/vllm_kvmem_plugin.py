@@ -1409,6 +1409,29 @@ def _attach_sparse(runner, log_path):
                 except Exception:
                     pass
                 try:
+                    # design 660: standalone ring diagnostic - independent of the
+                    # delta tables, so we can see whether the roll branch is even
+                    # reachable (dv/vl may be None, which silently skipped 631/652).
+                    _dvx = getattr(runner, "kvmem_slot_deltas", None)
+                    _vlx = getattr(runner, "kvmem_view_lens", None)
+                    _lines = []
+                    for _rq2 in live:
+                        _st2x = None
+                        try:
+                            _st2x = runtime._state.get(_rq2)
+                        except Exception:
+                            _st2x = None
+                        _lines.append("%s has=%s tok=%s rowlen=%s dv=%s" % (
+                            str(_rq2)[-4:],
+                            bool(getattr(_st2x, "view_installed", False)),
+                            int(getattr(_st2x, "tokens", -1) or -1),
+                            len(getattr(_st2x, "row", ()) or ()),
+                            _dvx is not None))
+                    open("/tmp/kvmem_ring2.jsonl", "a").write(
+                        "live=%d %s\n" % (len(live), " | ".join(_lines)))
+                except Exception:
+                    pass
+                try:
                     # design 631: the delta tables are indexed by BATCH ROW and were
                     # only cleared on error. A request that never installed a view
                     # must not inherit the previous request's translation on that row
