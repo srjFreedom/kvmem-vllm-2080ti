@@ -8291,6 +8291,12 @@ class VllmSparseRuntime:
                         if i < len(c):
                             out.append(c[i])
                         i += 1
+                    try:
+                        with open("/tmp/kvmem_ret2.jsonl", "a") as _rf2:
+                            _rf2.write("RETX 8294 return out")
+                            _rf2.write(chr(10))
+                    except Exception:
+                        pass
                     return out
                 # (the mid vars are bound UNCONDITIONALLY right after
                 # the pre-merge pin below - `x is None` on a never-bound
