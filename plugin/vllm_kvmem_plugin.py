@@ -1286,6 +1286,40 @@ def _attach_sparse(runner, log_path):
                 _reqs = list(getattr(_b, "req_ids", None) or [])
                 if rs is not None and _reqs:
                     _fix_book_for_view(rs, _b, _reqs)
+                # design 778: shift the POSITIONS into the view frame. The keys were
+                # rebaked to view positions 0..view_len, so the query must be there
+                # too; leaving it at the true index made every query sit far outside
+                # the view (measured: repeated-token degeneration regardless of the
+                # view content, including a head-view control with zero movement).
+                try:
+                    _rtv = state.get("sparse")
+                    if _rtv is not None and _reqs and positions is not None:
+                        _qsl = query_start_loc
+                        _ap = getattr(_rtv, "_applied_set", set())
+                        if _ap:
+                            for _i9, _rq9 in enumerate(_reqs):
+                                if str(_rq9) not in _ap:
+                                    continue
+                                _st9 = _rtv._state.get(_rq9)
+                                if _st9 is None:
+                                    continue
+                                _sl9 = int(getattr(_st9, "seq_len", 0) or 0)
+                                _tk9 = int(getattr(_st9, "tokens", 0) or 0)
+                                if _sl9 <= 0 or _tk9 <= _sl9:
+                                    continue
+                                _off9 = _tk9 - _sl9
+                                _a9 = int(_qsl[_i9])
+                                _b9 = int(_qsl[_i9 + 1])
+                                positions[_a9:_b9] = positions[_a9:_b9] - _off9
+                                try:
+                                    with open("/tmp/kvmem_posshift.jsonl", "a") as _ps:
+                                        _ps.write("req=%s off=%s slice=[%s,%s]" % (
+                                            str(_rq9)[-4:], _off9, _a9, _b9))
+                                        _ps.write(chr(10))
+                                except Exception:
+                                    pass
+                except Exception:
+                    pass
                 _rt0 = state.get("sparse")
                 if (_rt0 is not None and bool(getattr(_rt0, "sched_compact", False))
                         and rs is not None and _reqs):
