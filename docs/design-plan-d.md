@@ -1,3 +1,35 @@
+# Plan D 交接索引（2026-11-12 最终版）
+
+## 一、已验证可用（有读数）
+| 目的 | 配置 | 读数 |
+|---|---|---|
+| 完整提示 + 正确（不压缩） | `GPU_UTIL=0.972` `KVMEM_PLAN_D=1` `KVMEM_D_KNIFE=1` `KVMEM_ENTRY_RESIDENT_PREFILL=1` `INREQUEST_COMPACTION=0` | 140K → `ZX-4417-QJ7`（180s，usage 137,873）|
+| 基线（v0.5.0 语义） | `KVMEM_PLAN_D=0` `INREQUEST_COMPACTION=1` + resident 入口 | 88K → `ZX-4417-QJ7`（124s，usage 74,948）|
+| D + 工作集分配 + 每步滚行 | 上述 + Core 无条件按窗口分配（引擎 668） | 92K → 正确（102s）；140K → 退化 |
+
+## 二、已确认并修复的根因（全部有证据）
+1. `_ReqState.__slots__` 缺字段 → 刀相关写入被 `except: pass` 吞掉（`0d782e9`）；
+2. `st.view_installed` 从未置位 → clamp/行安装/滚行全死（657/658，正确落点是 `before_step` 主干 667）；
+3. 入口裁剪制造假绿（142K→36K），已用 resident 入口 + worker 解耦（634）修好（usage=137,873）；
+4. legacy 压缩的 rewind 与 D 账本冲突 → D 模式必须 `INREQUEST_COMPACTION=0`；
+5. 插件侧与 runtime 侧看到的 runtime 实例不同（`has=False tok=-1` 40 步）→ 滚行必须写在 `before_step` 内（667）；
+6. 滚行代码原先只在 adopt 分支执行一次 → 改为每步（664/667，roll 74 次/请求）。
+
+## 三、架构级结论（决定后续方向）
+- **纯环形窗口无法满足 KVMem 语义**：140K 提示的 needle 在 ~68K，滚动窗口（45K）会把它滚出 ⇒ 必错。92K 之所以对，是 needle 恰在边界被读到。
+- 按用户定义的流程，**单次 prefill 必须放得进池**；"超池"指**对话历史总量**超池，靠"历史落主机 + decode 前按 query 选块"来服务。
+- 因此正确的实现不是"缩小池跑单条超池提示"，而是：
+  ① prefill 完把 **全部 KV 搬到主机**并释放 GPU；
+  ② decode 前用 query 打分选块（sink+recent+top-k），把选中块**从主机恢复**到窗口；
+  ③ 生成写 R，超 R 再追加/再选（用户流程第 4 步）；
+  ④ 这套能且只能在"每轮 prefill 适配池"的前提下工作。
+- 这条路径依赖的正是被我们关闭的 **resume/host-store** 机制——需要把它与 D 的"真位置 + 压缩地址"重新对齐，而不是当作废弃功能。
+
+## 四、下一步建议
+1. 立项：**"单轮 prefill 适配池 + 历史在主机 + decode 前选块"**（即用户流程 2–4 步）作为唯一验收形态；
+2. 复用 `HostPageStore` + `restore_pages_batch`（纯拷贝、已验证），把 resume 从"hash 链采用"改为"按 query 选块恢复"；
+3. 验收：多轮对话总历史 > 池，每轮增量 < 池，needle 正确。
+
 # Plan D 交接索引（2026-11-12）
 
 **可用且已验证的配置**
