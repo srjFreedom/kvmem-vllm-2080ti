@@ -744,6 +744,46 @@ class VllmSparseRuntime:
             except Exception:
                 pass
 
+    def _apply_selection_d(self, req, st):
+        """design 699: step 3 of the selective-restore pipeline.
+
+        Pack the knife's selection into the row (sink + middle + recent in one
+        physical set), restore those pages' KV from the host store, and set the
+        view length so the delta mapping (pos - (frontier - seq_len)) puts new
+        decode tokens right after the packed view.
+        """
+        prop = getattr(self, "_last_proposal", None)
+        if not prop:
+            return
+        sel = [int(p) for p in (prop.get("selected_pages") or ())]
+        row = list(getattr(st, "row", ()) or ())
+        if not sel or not row:
+            return
+        pt = max(1, int(self.page_tokens))
+        room = max(1, len(row) - 128)          # keep slots for decode
+        sel = sel[:room]
+        orch = self._orch.get(req)
+        restored = 0
+        try:
+            items = [(pg, int(row[i])) for i, pg in enumerate(sel)
+                     if orch is not None and orch.store.has(pg)]
+            if items:
+                restored = int(orch.restore_pages_batch(items))
+        except Exception:
+            restored = -1
+        try:
+            st.logical = tuple(sel + list(getattr(st, "logical", ())[len(sel):]))
+            st.seq_len = len(sel) * pt
+        except Exception:
+            pass
+        try:
+            open("/tmp/kvmem_apply.jsonl", "a").write(
+                "sel=%s seq_len=%s restored=%s frozen=%s\n" % (
+                    len(sel), int(getattr(st, "seq_len", 0) or 0), restored,
+                    bool(getattr(st, "roll_frozen", False))))
+        except Exception:
+            pass
+
     def _dump_side(self, tag, req, st=None):
         """design 629: dump the DEVICE-side state the kernel actually sees."""
         rec = {"tag": tag, "req": str(req)[-6:]}
@@ -4174,6 +4214,7 @@ class VllmSparseRuntime:
                     # ring roll must stop or it overwrites the selection (measured:
                     # row stayed 1666 and sel stayed 1666 on every step).
                     st.roll_frozen = True
+                    self._apply_selection_d(req, st)
                     try:
                         open("/tmp/kvmem_knife681.jsonl", "a").write(
                             "tok=%s row=%s sel=%s log=%s\n" % (

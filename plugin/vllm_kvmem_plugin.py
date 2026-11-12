@@ -1463,7 +1463,8 @@ def _attach_sparse(runner, log_path):
                                 # of physical slots, so publishing base = frontier -
                                 # window is all that is needed for every new token
                                 # to land in the right ring slot.
-                                _base652 = _tok631 - _win631
+                                _sl631 = int(getattr(_st631, "seq_len", 0) or 0)
+                                _base652 = _tok631 - (_sl631 if _sl631 > 0 else _win631)
                                 # design 655: ROTATE the ring. The row is a ring of
                                 # physical slots; when the window slides by k blocks
                                 # the mapping row[i] -> logical block (base+i) must be
