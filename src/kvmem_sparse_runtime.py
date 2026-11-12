@@ -7748,6 +7748,16 @@ class VllmSparseRuntime:
         # "final never ran" were indistinguishable - the observation hole
         # that invalidated one root-cause round). Throttled once per
         # (kind, 16K-token bucket).
+        try:
+            _stE = self._state.get(req)
+            open("/tmp/kvmem_bail.jsonl","a").write(
+                "enter tok=%s seq=%s row=%s log=%s\n" % (
+                    int(getattr(_stE,"tokens",-1) or -1),
+                    int(getattr(_stE,"seq_len",-1) or -1),
+                    len(getattr(_stE,"row",()) or ()),
+                    len(getattr(_stE,"logical",()) or ())))
+        except Exception:
+            pass
         _kmark = (req, bool(pressure), int(getattr(self._state.get(req, None), "tokens", 0) or 0) // 16384) if self._state.get(req) is not None else None
         # UNBOUNDED call evidence (design 46, the probe that lies last):
         # fires on EVERY knife entry regardless of throttle state - the
@@ -7790,12 +7800,21 @@ class VllmSparseRuntime:
             old_logical = old_logical + [None] * (len(old_row) - len(old_logical))
         if not old_row:
             self._last_proposal = None
+            try:
+                open("/tmp/kvmem_bail.jsonl","a").write("no_row\n")
+            except Exception:
+                pass
             if self.log is not None:
                 self.log({"kind": "blockwise_no_row", "req": req})
             return st
         if len(old_logical) != len(old_row):
             if bool(getattr(st, "applied_view_coord", False)) or int(getattr(st, "off_pages", 0)):
                 self._last_proposal = None
+                try:
+                    open("/tmp/kvmem_bail.jsonl","a").write(
+                        "no_logical row=%d logical=%d\n" % (len(old_row), len(old_logical)))
+                except Exception:
+                    pass
                 if self.log is not None:
                     self.log({"kind": "blockwise_no_logical", "req": req,
                               "row": len(old_row), "logical": len(old_logical)})
