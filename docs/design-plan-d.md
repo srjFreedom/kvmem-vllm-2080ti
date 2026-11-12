@@ -3178,3 +3178,10 @@ rotate_k_pages_fp8(kv_tensor, page_map, page_tokens, inv_freq, rotary_dim, k_sli
 - 读数（88K，`NOBLADE=1`）：builder 看到 `base=new=74,955`（override=真长度）⇒ 环形路径**不做压缩**，是原生全量注意力，所以"绿"；
 - 打包路径下 override 会变成视图长度，但**行安装**受 `install_row` 多重条件约束（`not sched_compact`、`st.row`、视图标记），实测退化说明"seq 覆盖生效而行未按视图重排"仍可能发生。
 **下一步（唯一）**：在打包路径下同时断言两件事——`_seq_override[row] == len(row)*page` 且 `block_table.row[:len(row)] == st.row`；两者必须同时成立，否则内核会读到"短行 + 长序列"的组合。
+
+## 733-736. Round 478：seq 覆盖修好（ovr=视图长度）；行仍是占位块 [6,6,6,…]
+- 734 修复后：`ovr=42,336 = seq_lens` ⇒ **builder 现在确实按视图长度建 metadata**（此前是 -1，覆盖没设）。
+- 但 `tbl=strow=[6,6,6,6,6,6]`：引擎的 block-table 行**前几个条目就是重复的 6**（该 fork 的 null/占位块或共享前缀块），我们的打包只是把这些占位块搬到前面 ⇒ 内核读到同一页 ⇒ `duct`。
+- 735 的"重复>32 次即视为占位"判据没命中（`missing=0`）⇒ 占位块的出现次数在这一行里不足 32，需要按 **引擎的 null_block id** 精确识别（fork 里 `null_block` 常量可直接读：`runner.block_tables.null_block` 或 `kv_cache_config`）。
+- **结论**：打包链路只剩这一步——用引擎自己的 null_block id 判定"该页无字节 → 必须从 store 恢复"，而不是按计数启发式。
+**当前状态**：`KVMEM_D_APPLY=0`（默认），绿点配置已恢复（`NOBLADE=1`）；全部实验代码在门后。
