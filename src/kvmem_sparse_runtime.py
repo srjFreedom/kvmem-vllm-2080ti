@@ -706,12 +706,17 @@ class VllmSparseRuntime:
                 # never committed anywhere (measured: store stuck at 1536 while
                 # the prompt needed 2342). Bounded per step so the copy cost
                 # stays off the critical path.
-                for _i in range(len(row)):
-                    if stashed >= 16:
-                        break
+                # design 677: key the commit by the TRUE position a slot holds,
+                # not by its row index. In a ring the row index is constant, so
+                # the old key made every page look already-stored and the pages
+                # recycled by the roll were lost (measured: store stuck at 1665
+                # while the request needed 4300).
+                _ptp = max(1, int(pt))
+                _basepg = max(0, int(old) // _ptp)
+                for _i in range(min(k, len(row))):
                     _slot = int(row[_i])
-                    _pg = int(logical[_i]) if _i < len(logical) else _i
-                    if _slot <= 0 or _pg < 0:
+                    _pg = _basepg + _i
+                    if _slot <= 0:
                         continue
                     if orch is not None and not orch.store.has(_pg):
                         orch.store.put(_pg, [t[_slot].cpu().clone() for t in paged])
