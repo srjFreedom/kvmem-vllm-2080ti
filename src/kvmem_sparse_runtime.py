@@ -774,10 +774,34 @@ class VllmSparseRuntime:
         orch = self._orch.get(req)
         restored = 0
         try:
+            # design 701: pack from LIVE slots when the page is still in the ring.
+            # The host store holds canonical (un-rotated) bytes, so restoring it
+            # without the rebake gives the kernel keys whose RoPE phase no longer
+            # matches its positions (measured: the packed view degenerated to a
+            # single repeated token on a request that the ring answered correctly).
+            paged = self.view.paged_kv()
+            cur = list(getattr(st, "logical", ()) or ())
+            pos_of = {}
+            for i, lp in enumerate(cur):
+                pos_of.setdefault(int(lp), i)
+            live = 0
+            for i, pg in enumerate(sel):
+                src = pos_of.get(int(pg))
+                dst = int(row[i])
+                if src is None or src == i or src >= len(row):
+                    continue
+                try:
+                    with torch.no_grad():
+                        for t in paged:
+                            t[dst].copy_(t[int(row[src])])
+                    live += 1
+                except Exception:
+                    pass
             items = [(pg, int(row[i])) for i, pg in enumerate(sel)
-                     if orch is not None and orch.store.has(pg)]
+                     if i >= live and orch is not None and orch.store.has(pg)]
             if items:
                 restored = int(orch.restore_pages_batch(items))
+            restored = max(restored, live)
         except Exception:
             restored = -1
         try:
