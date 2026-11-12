@@ -4291,6 +4291,7 @@ class VllmSparseRuntime:
         # while the knife itself ran 22 times).
         try:
             if (getattr(self, "d_mode", False)
+                    and __import__("os").environ.get("KVMEM_D_APPLY") == "1"
                     and int(n_query_tokens or 0) == 1
                     and not bool(getattr(st, "roll_frozen", False))
                     and int(getattr(st, "tokens", 0) or 0)
