@@ -789,6 +789,20 @@ class VllmSparseRuntime:
                 blocks.append(b)
                 seen.add(b)
             n = min(len(blocks), nb)
+        try:
+            _pv9 = self.view.paged_kv()
+            with open("/tmp/kvmem_kvshape.jsonl", "a") as _kf:
+                _kf.write("layers=%s shape=%s dtype=%s page_tokens=%s bp=%s" % (
+                    len(_pv9), tuple(_pv9[0].shape), str(_pv9[0].dtype),
+                    int(pt), int(q)))
+                _kf.write(chr(10))
+        except Exception as _ek:
+            try:
+                with open("/tmp/kvmem_kvshape.jsonl", "a") as _kf2:
+                    _kf2.write("err %s" % str(_ek)[:100])
+                    _kf2.write(chr(10))
+            except Exception:
+                pass
         row_new = list(row)
         rebaked = 0
         try:
