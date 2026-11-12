@@ -3636,3 +3636,12 @@ gpu/block_table.py:166 gather_block_tables   ← Triton kernel，device-side ass
   - 请求最终仍 500（217 s）。
 **下一步**：先让 `need → pairs` 的配对在 INPLACE 下成立（打印 need 的块号与 `spare` 的槽位），
 再确认 `rotate_k_pages_fp8` 的入参（层张量切片、inv_freq、δ 单位）。
+
+## 820-821. Round 561：`restored=0` 的根因 —— store 键空间与查询不一致
+- `pairs=0` 出自这段：`pg = b*q + j`（**逻辑块号×49+页内**），再 `if orch.store.has(pg)`；
+  但落盘（design 750）用的键是**物理页号**（行里的值，≤2,842），而 `b*q+j` 在 140K 可到 4,310。
+- 于是所有查询都 miss ⇒ `len(pairs) < q//2` ⇒ `continue` ⇒ `restored=0`、内容一步没搬。
+- 另外 `rebaked=-1`：重旋循环抛异常（日志里没记录文本；下一轮把 `_rb_err` 打出来）。
+**下一步（两处小修，都在 `_apply_selection_d` 内）**：
+1. 统一键空间：查询用 `int(row[b*q+j])`（物理页），与落盘一致；或给 store 建"逻辑页→物理页"索引；
+2. 重旋的异常文本要打印出来，再修 `rotate_k_pages_fp8` 的入参。
