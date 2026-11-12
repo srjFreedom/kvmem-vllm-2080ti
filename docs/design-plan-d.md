@@ -2928,3 +2928,17 @@ skip=不重放只装视图 - 顺路）。
   ① 在 prefill 写满一个块后立即 `store.put(page, ...)`（异步/批量），而不是等 sweep；
   ② 滚行淘汰某块前，确认它已在 store（否则先存再丢）；
   ③ 度量：`d_final_sweep.pages == ceil(prompt_tokens/32)` 才算覆盖完整（88K → 2342）。
+
+## 676-681. Round 453-455：host store 覆盖已打满；刀/恢复仍未进入 D 路径
+**已达成（有读数）**
+- 环形提交按**真位置**落盘（677/678）：140K 请求的 host store 达到 **4,482 页 ≥ 4,300 页**（100%+），滚行 434 次、提交 184 批、每批 128 页。
+  ⇒ **“prefill → 全部 KV 落主机”这一步完成**（此前只有 1,665 页 ≈ 71%）。
+- 触发确实在跑（`/tmp/kvmem_force.jsonl` 1,156 条，最新 tokens=137,879）。
+
+**未达成**
+- 刀（adopt）与恢复仍未在 D 路径执行：`d_adopt_knife` / `d_adopt_now` / `d_rmb_restore` 全为 0，尽管触发设置了 `adopt_knife_pending`。
+- 结构原因：`667/675/680`（滚行、稠密提交、消费刀标记）落在 `_absorb_engine_row` 内，而触发器在 `before_step`；两者顺序与调用条件不同，标记在被消费前就被覆盖/丢失。
+- 答案仍错（`"This is a repetitive, se"` / `"The ferryman keeps a led"`）。
+
+**下一步（唯一动作）**
+把「消费 `adopt_knife_pending`」与「滚行」一起搬到 `before_step` 的**同一位置、紧跟触发器之后**（而不是 `_absorb_engine_row`），确保：触发 → 立刻 `_reselect_blockwise`（选块 + `restore_pages_batch` 恢复）→ 装行 → 继续 decode。
