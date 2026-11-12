@@ -745,75 +745,69 @@ class VllmSparseRuntime:
                 pass
 
     def _apply_selection_d(self, req, st):
-        try:
-            _pr = getattr(self, "_last_proposal", None)
-            open("/tmp/kvmem_apply.jsonl", "a").write(
-                "enter prop=%s sel=%s row=%s\n" % (
-                    "None" if _pr is None else len(_pr.get("selected_pages") or ()),
-                    len(getattr(st, "logical", ()) or ()),
-                    len(getattr(st, "row", ()) or ())))
-        except Exception:
-            pass
-        """design 699: step 3 of the selective-restore pipeline.
+        """design 702: pack the knife's selection by REORDERING the row pointers.
 
-        Pack the knife's selection into the row (sink + middle + recent in one
-        physical set), restore those pages' KV from the host store, and set the
-        view length so the delta mapping (pos - (frontier - seq_len)) puts new
-        decode tokens right after the packed view.
+        No byte movement for pages that are still resident: copying them would
+        overlap source and destination slots and corrupt both (measured: the
+        packed view degenerated to one repeated token). Only pages that left the
+        ring are restored from the host store into spare slots.
         """
         prop = getattr(self, "_last_proposal", None)
-        if not prop:
+        row = list(getattr(st, "row", ()) or ())
+        if not prop or not row:
             return
         sel = [int(p) for p in (prop.get("selected_pages") or ())]
-        row = list(getattr(st, "row", ()) or ())
-        if not sel or not row:
+        if not sel:
             return
         pt = max(1, int(self.page_tokens))
-        room = max(1, len(row) - 128)          # keep slots for decode
-        sel = sel[:room]
-        orch = self._orch.get(req)
-        restored = 0
-        try:
-            # design 701: pack from LIVE slots when the page is still in the ring.
-            # The host store holds canonical (un-rotated) bytes, so restoring it
-            # without the rebake gives the kernel keys whose RoPE phase no longer
-            # matches its positions (measured: the packed view degenerated to a
-            # single repeated token on a request that the ring answered correctly).
-            paged = self.view.paged_kv()
-            cur = list(getattr(st, "logical", ()) or ())
-            pos_of = {}
-            for i, lp in enumerate(cur):
+        cur = list(getattr(st, "logical", ()) or ())
+        pos_of = {}
+        for i, lp in enumerate(cur):
+            if lp is not None:
                 pos_of.setdefault(int(lp), i)
-            live = 0
-            for i, pg in enumerate(sel):
-                src = pos_of.get(int(pg))
-                dst = int(row[i])
-                if src is None or src == i or src >= len(row):
+        used = set()
+        packed = []
+        missing = []
+        for idx, pg in enumerate(sel):
+            src = pos_of.get(pg)
+            if src is not None and src < len(row):
+                slot = int(row[src])
+                packed.append(slot)
+                used.add(slot)
+            else:
+                packed.append(None)
+                missing.append(pg)
+        spare = [int(s) for s in row if int(s) not in used]
+        restored = 0
+        orch = self._orch.get(req)
+        try:
+            for i, pg in enumerate(list(packed)):
+                if packed[i] is not None:
                     continue
-                try:
-                    with torch.no_grad():
-                        for t in paged:
-                            t[dst].copy_(t[int(row[src])])
-                    live += 1
-                except Exception:
-                    pass
-            items = [(pg, int(row[i])) for i, pg in enumerate(sel)
-                     if i >= live and orch is not None and orch.store.has(pg)]
-            if items:
-                restored = int(orch.restore_pages_batch(items))
-            restored = max(restored, live)
+                if not spare:
+                    break
+                slot = spare.pop(0)
+                if orch is not None and orch.store.has(int(pg)):
+                    if orch.restore_pages_batch([(int(pg), int(slot))]):
+                        restored += 1
+                packed[i] = slot
         except Exception:
             restored = -1
+        if any(v is None for v in packed):
+            return
+        tail = spare[:128]                      # room for the decode writes
         try:
-            st.logical = tuple(sel + list(getattr(st, "logical", ())[len(sel):]))
+            st.row = tuple(packed + tail)
+            st.logical = tuple(sel + [-1] * len(tail))
             st.seq_len = len(sel) * pt
         except Exception:
             pass
         try:
             open("/tmp/kvmem_apply.jsonl", "a").write(
-                "sel=%s seq_len=%s restored=%s frozen=%s\n" % (
-                    len(sel), int(getattr(st, "seq_len", 0) or 0), restored,
-                    bool(getattr(st, "roll_frozen", False))))
+                "sel=%s missing=%s restored=%s row=%s seq_len=%s\n" % (
+                    len(sel), len(missing), restored,
+                    len(getattr(st, "row", ()) or ()),
+                    int(getattr(st, "seq_len", 0) or 0)))
         except Exception:
             pass
 
