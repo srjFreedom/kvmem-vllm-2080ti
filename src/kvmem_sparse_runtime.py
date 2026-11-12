@@ -868,8 +868,14 @@ class VllmSparseRuntime:
                         orch.restore_pages_batch(_pairs823)
                         _moved823 += 1
                         _rb823.append((_s823, _b823))
-                    except Exception:
-                        pass
+                    except Exception as _e826:
+                        try:
+                            with open("/tmp/kvmem_inplace.jsonl", "a") as _f826:
+                                _f826.write("restore_err n=%s %s" % (
+                                    len(_pairs823), str(_e826)[:130]))
+                                _f826.write(chr(10))
+                        except Exception:
+                            pass
                 if _rb823:
                     try:
                         from kvmem_sparse_rope import rotate_k_pages_fp8, rotary_inv_freq
