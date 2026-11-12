@@ -3344,3 +3344,14 @@ bp=49 pt=32 rowlen=2343 longest_run=677 seq_lens=74948   （88K 请求，绿跑 
   - 其余历史块归还 Core/落盘，池就天然按 `N×B` 分给 N 个用户。
 **这也解释了 `blocks=28`**：选择器本来就选出了恰好一个份额（28 块 = 45,056 token），说明选择逻辑正确，缺的是**这些块的物理归属**。
 **下一步**：在 Core 侧增加"视图块"分配（每请求 B 对应的块数，来自该用户份额），经既有 block channel 交给 worker；worker 把 restore 目标指向这些块。
+
+## 753-754. Round 490：视图改由"自有块"搭建，并把 B 对齐到整块
+- design 753：视图只从本请求自有块里取（占位块不碰），缺的块从自有空闲块 + store 恢复；`ph=0` 说明本请求无占位块。
+- 配 `BUDGET=37280` ⇒ 有效 B = 29,088 + 16,384 = **45,472 = 29 × 1,568**（整块对齐）。
+- 读数：`VIEW keep=29 need=1 restored=0 rebaked=28 seq_len=45472 inst=1 ph=0`，输出仍 `duct…`。
+**结论**：视图长度与窗口现已完全一致（29 块），重旋也做了（28 个块），仍退化 ⇒ 剩下的是
+**查询侧的坐标**：`positions`/`num_computed` 仍是真位置（≈74,9xx），而键已重旋到视图位置（0..45,472）
+⇒ 相对相位差约 29,500 token ⇒ 输出退化。**这就是 B（回卷）必须落地的地方**：Core 需要把
+`num_computed_tokens`/`positions` 回卷到视图长度，且 rebake 与回卷量必须严格一致。
+**下一步**：在 Core 侧实现 B 回卷（clamp 已回卷 `num_computed`，但 `positions` 由 engine 的
+book 生成，需要让 builder/positions 一并按视图长度生成），然后复测。
