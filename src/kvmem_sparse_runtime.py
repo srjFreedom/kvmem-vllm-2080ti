@@ -812,6 +812,33 @@ class VllmSparseRuntime:
         # apply). The slots behind the selection stay as they are - they hold
         # recent pages, which the selection already covers, so they only add
         # redundancy the model can ignore.
+        # design 724: PHYSICALLY move the selected pages into the first slots.
+        # A pointer reorder is not enough: the kernel reads slots 0..seq_len-1 by
+        # index, so leaving the pages spread over the ring made it read the
+        # PREFIX instead of the selection (measured: sel spans 0..1535 but the
+        # view read 0..604). Copies go through a host-side staging list so the
+        # overlapping source/target ranges cannot corrupt each other.
+        try:
+            paged = self.view.paged_kv()
+            srcs = []
+            for pg in sel:
+                src = pos_of.get(int(pg))
+                srcs.append(int(row[src]) if src is not None and src < len(row) else 0)
+            staged = [[t[s].clone() for t in paged] for s in srcs]
+            for i, blk in enumerate(staged):
+                if int(row[i]) <= 0:
+                    continue
+                for li, t in enumerate(paged):
+                    t[int(row[i])].copy_(blk[li])
+            moved = len(staged)
+        except Exception as _e724:
+            moved = -1
+            try:
+                with open("/tmp/kvmem_apply.jsonl", "a") as _afm:
+                    _afm.write("move_err %s" % str(_e724)[:140])
+                    _afm.write(chr(10))
+            except Exception:
+                pass
         try:
             st.row = tuple(packed + spare)
             st.logical = tuple(sel + [-1] * len(spare))
@@ -863,12 +890,16 @@ class VllmSparseRuntime:
                 theta = rotary_inv_freq(rot, base_theta, device=paged[0].device)
                 ksl = slice(0, hd)
                 for i, pg in enumerate(sel):
-                    src = pos_of.get(int(pg))
-                    if src is None or src == i or int(packed[i]) <= 0:
-                        continue
                     slot = int(packed[i])
+                    if slot <= 0:
+                        continue
+                    # the page now sits at view index i, so its K phase must move
+                    # from its true page p to i
+                    shift = i - int(pg)
+                    if shift == 0:
+                        continue
                     for t in paged:
-                        rotate_k_pages_fp8(t, [(slot, slot + (i - src))],
+                        rotate_k_pages_fp8(t, [(slot, slot + shift)],
                                            int(pt), theta, rot, ksl)
                     _rebaked += 1
             except Exception as _e716:
