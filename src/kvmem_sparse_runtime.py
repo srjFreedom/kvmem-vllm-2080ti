@@ -846,8 +846,11 @@ class VllmSparseRuntime:
             # assumes, otherwise the query index (window) exceeds it and every
             # key is masked out. The knife's own apply sets it to the selection
             # size (measured: 19360 while the clamp used 45056).
-            st.seq_len = min(int(self.budget_tokens) + int(self.gen_reserve),
-                             int(getattr(st, "tokens", 0) or 0))
+            # design 725: the view length is the SELECTION length now that the
+            # pages are physically moved and rebaked to view positions - reading
+            # past it would mix in stale ring pages whose phases no longer match
+            # their slots.
+            st.seq_len = len(sel) * int(pt)
         except Exception:
             pass
         # design 716: REBAKE. The engine derives a key's position from its slot
