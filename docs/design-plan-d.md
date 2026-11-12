@@ -3216,3 +3216,13 @@ rotate_k_pages_fp8(kv_tensor, page_map, page_tokens, inv_freq, rotary_dim, k_sli
 - 判读：**钩子读到的 state 是空壳**（tokens=0），说明钩子里的 `runtime._state[_rq]` 与真正推进的 state 不是同一个键/实例（TP2 两个 worker 之一未跟踪）。
 - 因此"行是否镜像"仍无法从钩子侧取证；下一步应直接在 `sync_row_from_engine` 内部打印实际的 `written` 与 `len(st.row)`（不再经钩子），并核对 req 键。
 **备注**：本轮请求仍 82s 答对，绿点未受影响。
+
+## 742. Round 483：最终定量结论 —— `written` 恒为 1，行镜像因此只得到 2 条
+```
+req=266817 written=1 rowlen=0 tok=0   ntreq=1
+req=266817 written=1 rowlen=2 tok=74954 ntreq=1   ← prefill 全量后
+```
+- `sync_row_from_engine` **确实每步被调用**（54 次），req 键一致，`tokens=74,954`（已到全量）；
+- 但传入的 `written`（引擎 `num_blocks.np[group,row]`）**恒为 1** ⇒ 行只镜像到 1~2 条。
+**结论**：`num_blocks.np[...]` 在本 fork 里不是"该请求已写块数"（而是本步新增/或另一单位）。因此 D 的行账**结构性地**拿不到完整行 —— 这解释了本阶段所有打包/滚行实验为什么都作用在空行上。
+**下一步（唯一）**：改用**权威来源**建行：Core 的 `request.block_ids`（经既有 block channel/提案回传），或按 `num_computed_tokens // block` 自行构造与引擎一致的槽序列（并用 `block_table_rows()[0]` 的一次性快照校验）。
