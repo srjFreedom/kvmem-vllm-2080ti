@@ -745,6 +745,15 @@ class VllmSparseRuntime:
                 pass
 
     def _apply_selection_d(self, req, st):
+        try:
+            _pr = getattr(self, "_last_proposal", None)
+            open("/tmp/kvmem_apply.jsonl", "a").write(
+                "enter prop=%s sel=%s row=%s\n" % (
+                    "None" if _pr is None else len(_pr.get("selected_pages") or ()),
+                    len(getattr(st, "logical", ()) or ()),
+                    len(getattr(st, "row", ()) or ())))
+        except Exception:
+            pass
         """design 699: step 3 of the selective-restore pipeline.
 
         Pack the knife's selection into the row (sink + middle + recent in one
