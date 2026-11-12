@@ -880,7 +880,15 @@ class VllmSparseRuntime:
         try:
             _ri = int(getattr(st, "row_index", -1))
             if _ri >= 0:
-                self._install(_ri, list(st.row), int(st.seq_len), [])
+                # design 718: pass the REAL position slots. An empty list left the
+                # positions/slots install at zero for this step (measured: the
+                # packed view degenerated even when the row was unchanged).
+                _ps718 = []
+                try:
+                    _ps718 = list(self.view.query_position_slots(req))
+                except Exception:
+                    _ps718 = []
+                self._install(_ri, list(st.row), int(st.seq_len), _ps718)
                 _inst = 1
         except Exception as _e704:
             _inst = -2
