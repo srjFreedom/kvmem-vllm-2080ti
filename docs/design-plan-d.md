@@ -3026,3 +3026,9 @@ skip=不重放只装视图 - 顺路）。
 3. 中途打包破坏后续 chunk 写入 → 改为**只在 prefill 结束应用一次**（703），140K 该分支未触发。
 **结论**：刀的“选择 + 装行 + 设 seq_len”链路已通；退化来自“打包后的行顺序/seq_len 与引擎写流不一致”。
 下一步：在 prefill 结束的那一步打印 `st.row/seq_len/delta/engine_seq_lens` 四元组，确认 install 写入的 seq_lens 与 row 长度、delta 三者自洽（这次必须有这组数）。
+
+## 705. Round 465：装行直接调用仍未触发（703 门控）
+- 本轮给 `_apply_selection_d` 加了「直接 `_install` 写行」（704，修复“内核仍读旧环形行”的假设），
+- 但 92K 运行里 `_apply_selection_d` **根本没被调用**（`/tmp/kvmem_apply.jsonl` 为空）：
+  703 的门控要求 `tokens >= prompt_len`，而触发器只在 `tokens > window` 的中间步执行，prefill 末尾那一步不在触发路径里。
+- 下一步（明确）：把「prefill 结束那一步」单独识别出来（`prompt_done` 事件或 `n_query_tokens==1 且 prefill 完成`），在该步强制调用刀+打包，而不是依赖窗口触发。
