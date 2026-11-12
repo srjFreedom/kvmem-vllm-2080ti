@@ -917,9 +917,10 @@ class VllmSparseRuntime:
             # with kvmem_view_lens[row] + query_len when kvmem_view_active.
             try:
                 _rn = self.view.runner
+                _ri791 = int(getattr(st, "row_index", -1) or -1)
                 _vl791 = getattr(_rn, "kvmem_view_lens", None)
-                if _vl791 is not None and row_index is not None:
-                    _vl791[int(row_index)] = int(st.seq_len)
+                if _vl791 is not None and _ri791 >= 0:
+                    _vl791[_ri791] = int(st.seq_len)
                 _off791 = max(0, int(getattr(st, "tokens", 0) or 0) - int(st.seq_len))
                 _ro = getattr(_rn, "kvmem_rope_offset", None)
                 if _ro is None:
@@ -932,7 +933,7 @@ class VllmSparseRuntime:
                 _rn.kvmem_view_active = True
                 with open("/tmp/kvmem_activate.jsonl", "a") as _ac:
                     _ac.write("row=%s view=%s off=%s" % (
-                        int(row_index), int(st.seq_len), _off791))
+                        _ri791, int(st.seq_len), _off791))
                     _ac.write(chr(10))
             except Exception as _e791:
                 try:
