@@ -796,6 +796,13 @@ class VllmSparseRuntime:
         sel_blocks = sorted({p // q for p in sel})
         keep = [b for b in sel_blocks if b in owned][:want]
         need = [b for b in sel_blocks if b not in owned]
+        import os as _oshv
+        if _oshv.environ.get("KVMEM_D_HEADVIEW") == "1":
+            # control: keep the FIRST `want` blocks at their own slots (b == i,
+            # nothing moves, nothing is rebaked). Coherent prose here means the
+            # install path and geometry are right and only the selection is off.
+            keep = list(range(min(want, nb)))
+            want = len(keep)
         if _identity:
             # control: view = the LAST `want` owned blocks at their own slots and
             # with no rebake. If this answers correctly the install path is fine
