@@ -867,7 +867,9 @@ class VllmSparseRuntime:
                         continue
                     row_new[i * q:(i + 1) * q] = [bid] * q
                     if do_rb and b != i and paged:
-                        shift = (i - b) * q
+                        import os as _osr
+                        shift = ((b - i) if _osr.environ.get("KVMEM_D_REBAKE_INV") == "1"
+                                 else (i - b)) * q
                         pmap = [(pp, pp + shift) for pp in range(i * q, (i + 1) * q)]
                         for t in paged:
                             rotate_k_pages_fp8(t, pmap, int(pt), theta, rot, ksl)
