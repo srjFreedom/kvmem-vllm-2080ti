@@ -910,6 +910,37 @@ class VllmSparseRuntime:
             st.logical = tuple([-1] * len(row_new))
             st.seq_len = min(int(self.budget_tokens) + int(self.gen_reserve),
                              len(keep) * block_tokens)
+            # design 791: drive the FORK's own view machinery instead of the
+            # adapter's install path. The V2 runner computes positions in the
+            # compacted frame already; it then adds kvmem_rope_offset for RoPE
+            # (so keys keep their true phase) and replaces the attention length
+            # with kvmem_view_lens[row] + query_len when kvmem_view_active.
+            try:
+                _rn = self.view.runner
+                _vl791 = getattr(_rn, "kvmem_view_lens", None)
+                if _vl791 is not None and row_index is not None:
+                    _vl791[int(row_index)] = int(st.seq_len)
+                _off791 = max(0, int(getattr(st, "tokens", 0) or 0) - int(st.seq_len))
+                _ro = getattr(_rn, "kvmem_rope_offset", None)
+                if _ro is None:
+                    import torch as _t791
+                    _ro = _t.zeros((), dtype=_t791.int64, device="cuda")
+                    _rn.kvmem_rope_offset = _ro
+                _ro.fill_(_off791)
+                _rn.kvmem_rope_offset = _ro
+                _rn.kvmem_slot_offset = _ro
+                _rn.kvmem_view_active = True
+                with open("/tmp/kvmem_activate.jsonl", "a") as _ac:
+                    _ac.write("row=%s view=%s off=%s" % (
+                        int(row_index), int(st.seq_len), _off791))
+                    _ac.write(chr(10))
+            except Exception as _e791:
+                try:
+                    with open("/tmp/kvmem_activate.jsonl", "a") as _ac2:
+                        _ac2.write("err %s" % str(_e791)[:120])
+                        _ac2.write(chr(10))
+                except Exception:
+                    pass
             try:
                 VIEW_OFFSETS[str(req)] = max(0, int(getattr(st, "tokens", 0) or 0)
                                              - int(st.seq_len))
