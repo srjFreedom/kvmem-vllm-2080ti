@@ -3245,3 +3245,16 @@ req=266817 written=1 rowlen=2 tok=74954 ntreq=1   ← prefill 全量后
 - 但传入的 `written`（引擎 `num_blocks.np[group,row]`）**恒为 1** ⇒ 行只镜像到 1~2 条。
 **结论**：`num_blocks.np[...]` 在本 fork 里不是"该请求已写块数"（而是本步新增/或另一单位）。因此 D 的行账**结构性地**拿不到完整行 —— 这解释了本阶段所有打包/滚行实验为什么都作用在空行上。
 **下一步（唯一）**：改用**权威来源**建行：Core 的 `request.block_ids`（经既有 block channel/提案回传），或按 `num_computed_tokens // block` 自行构造与引擎一致的槽序列（并用 `block_table_rows()[0]` 的一次性快照校验）。
+
+## 743-744. Round 485：**A 打通**（行权威来源）；真行上打包仍退化，但读数变了
+**A 的修复**：`sync_row_from_engine` 不再依赖 `written`（该 fork 恒为 1），改由
+`w = ceil(engine_seq_lens[row] / block)` 决定镜像宽度（design 743）。
+- 读数：`written=1 rowlen=2343 tok=74954`（= ⌈74,954/32⌉）✅ 行**首次真实镜像**；请求仍 82 s 答对（绿点未破）。
+
+**真行上的打包测试**（`APPLY=1 + REBAKE=1`）
+```
+sel=1193 missing=0 restored=0 rebaked=1144 row=1536 seq_len=38176 inst=1
+VERIFY ovr=38176 seq_lens=38176 tbl=[6,6,6,6,6,6] strow=[6,6,6,6,6,6]
+```
+- 行宽已是 1,536（真行），但**行首 6 个条目都是同一个块 id 6** ⇒ 该 fork 的引擎行在"已退役位置"填的是占位块（很可能是 null_block），我们按选择重排后这些占位块被搬到前面。
+- 下一步（唯一）：在 apply 处统计 `st.row` 的**值分布**（`6` 出现次数、末尾是否为递增真实块），据此区分"占位块"与"真实块"，并只打包真实块、其余从 store 恢复。
