@@ -761,7 +761,7 @@ class VllmSparseRuntime:
         """
         import os as _os753
         if _os753.environ.get("KVMEM_D_APPLY") != "1":
-            return
+            return False
         prop = getattr(self, "_last_proposal", None)
         try:
             with open("/tmp/kvmem_apply_in.jsonl", "a") as _ai:
@@ -774,16 +774,16 @@ class VllmSparseRuntime:
             pass
         row = list(getattr(st, "row", ()) or ())
         if not prop or not row:
-            return
+            return False
         sel = [int(p) for p in (prop.get("selected_pages") or ())]
         if not sel:
-            return
+            return False
         pt = max(1, int(self.page_tokens))
         q = max(1, int(getattr(self, "block_pages", 0) or 1))
         block_tokens = q * pt
         nb = len(row) // q
         if nb <= 0:
-            return
+            return False
         from collections import Counter as _C753
         cnt = _C753(int(v) for v in row)
         owned = [b for b in range(nb) if cnt[int(row[b * q])] <= q * 2]
@@ -920,6 +920,7 @@ class VllmSparseRuntime:
                     _af2.write(chr(10))
             except Exception:
                 pass
+        return True
 
     def _dump_side(self, tag, req, st=None):
         """design 629: dump the DEVICE-side state the kernel actually sees."""
@@ -4345,8 +4346,11 @@ class VllmSparseRuntime:
                 st.roll_frozen = True
                 if getattr(self, "_applied_set", None) is None:
                     self._applied_set = set()
-                self._applied_set.add(str(req))
-                self._apply_selection_d(req, st)
+                # design 765: mark only when the view was really installed.
+                # Marking on entry made one early call (tok=8192, proposal None)
+                # consume the single attempt.
+                if self._apply_selection_d(req, st):
+                    self._applied_set.add(str(req))
                 if self.log is not None:
                     self.log({"kind": "d_view_at_prefill_end",
                               "req": str(req)[-6:],
