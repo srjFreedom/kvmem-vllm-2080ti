@@ -3658,3 +3658,16 @@ n=4309 min=0 max=4308 need0=35 rowat=-1 nb=35
 **结论**：缺的是「逻辑块 ↔ 环槽」的持续记账（`st.logical`，现在全是 -1）。
 **下一步（下段工作的第一件事）**：在 `_roll_window`/滚行时维护 `st.logical[slot] = 逻辑块号`，
 有了它就能把"选中的中段逻辑块"映射到"要牺牲的环槽"，再做原地替换 + 重旋。
+
+## 824-828. Round 563-564：**行里的值是"虚拟块号"（可达 4,263），而 KV 张量只有 2,842 页**
+`/tmp/kvmem_inplace.jsonl`：
+```
+guard inp=True orch=True need=9 nb=35 q=49 rowlen=1715 rowmin=6 rowmax=4263 npages=2842
+shapes n=16 (2842, 2, 32, 512) blocks=2842
+restore_err n=49 CUDA error: device-side assert triggered
+```
+- 行长度 1,715（=35×49）但**值域到 4,263 > 池 2,842 页** ⇒ `index_copy_` 越界 assert；
+- 这与 store 键域 0..4,308 一致 ⇒ **store 的键就是这些虚拟块号**（落盘时用同一个值，所以那次能成功）；
+- 因此"恢复/重旋"必须经过**引擎自己的 虚拟块号 → 物理页** 映射，不能直接用行值当设备索引。
+**下一步（下段工作第一件事）**：找到 fork 里 block_table 的 id→slot 映射（`block_pool` / `slot_mapping` 的同一套），
+把 restore 目标改成映射后的物理页；或直接在映射后的空间里做搬运。
