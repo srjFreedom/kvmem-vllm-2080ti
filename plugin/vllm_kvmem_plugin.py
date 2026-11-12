@@ -1531,6 +1531,18 @@ def _attach_sparse(runner, log_path):
                                     _vl[int(_row)] = 0
                             elif _win631 > 0 and _tok631 > _win631:
                                 try:
+                                    if _env_flag("KVMEM_D_POS"):
+                                        _ps9 = _st631 and list(
+                                            view.query_position_slots(_rq))
+                                        with open("/tmp/kvmem_pos.jsonl", "a") as _pf:
+                                            _pf.write("seq=%s tok=%s qpos0=%s qposn=%s" % (
+                                                int(view.seq_lens()[int(_row)]),
+                                                _tok631, int(_ps9[0]),
+                                                int(_ps9[-1])))
+                                            _pf.write(chr(10))
+                                except Exception:
+                                    pass
+                                try:
                                     _sq = int(runtime.state(_rq).seq_len) if hasattr(runtime, "state") else -1
                                 except Exception:
                                     _sq = -2
