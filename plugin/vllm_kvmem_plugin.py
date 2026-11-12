@@ -1179,8 +1179,19 @@ def _attach_sparse(runner, log_path):
                                       _o=_orig, **kwargs):
                             if common_attn_metadata is not None:
                                 _saved = common_attn_metadata.seq_lens
-                                common_attn_metadata.seq_lens = (
-                                    runtime.attention_seq_lens(_saved))
+                                _new = runtime.attention_seq_lens(_saved)
+                                try:
+                                    if _env_flag("KVMEM_D_META"):
+                                        with open("/tmp/kvmem_build.jsonl", "a") as _bf:
+                                            _bf.write("base=%s new=%s ovr=%s" % (
+                                                [int(x) for x in _saved[:4].tolist()],
+                                                [int(x) for x in _new[:4].tolist()],
+                                                dict(list(getattr(runtime,
+                                                                  "_seq_override", {}).items())[:3])))
+                                            _bf.write(chr(10))
+                                except Exception:
+                                    pass
+                                common_attn_metadata.seq_lens = _new
                                 try:
                                     return _o(
                                         common_prefix_len=common_prefix_len,
