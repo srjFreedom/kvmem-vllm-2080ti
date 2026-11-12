@@ -86,7 +86,7 @@ class _ReqState:
                  "rebuild_armed",
                  "resume_needs_retrieval",
                  "row_head",
-                 "view_installed", "knife_frontier",)
+                 "view_installed", "knife_frontier", "roll_frozen",)
 
     def __init__(self):
         self.row = ()
@@ -108,6 +108,7 @@ class _ReqState:
         self.kvmem_view_installed = False
         self.roll_base = 0
         self.install_pending = False
+        self.roll_frozen = False
         # logical page = row position + off_pages (set by the last APPLIED boundary compaction).
         self.off_pages = 0
         self.window_src = {}
@@ -676,6 +677,8 @@ class VllmSparseRuntime:
         book and letting the normal install path write the table is enough - a
         direct `_install` here with an empty slot list stalled the engine.
         """
+        if bool(getattr(st, "roll_frozen", False)):
+            return
         pt = int(self.page_tokens)
         blk = pt * 32
         win = int(self.budget_tokens) + int(self.gen_reserve)
@@ -4158,6 +4161,10 @@ class VllmSparseRuntime:
                     self._reselect_blockwise(req, pressure=True)
                     if getattr(st, "row", ()):
                         st.view_installed = True
+                    # design 691: once the knife has chosen a view, the per-step
+                    # ring roll must stop or it overwrites the selection (measured:
+                    # row stayed 1666 and sel stayed 1666 on every step).
+                    st.roll_frozen = True
                     try:
                         open("/tmp/kvmem_knife681.jsonl", "a").write(
                             "tok=%s row=%s sel=%s log=%s\n" % (
