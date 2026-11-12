@@ -4058,6 +4058,22 @@ class VllmSparseRuntime:
                                       bool(getattr(st, "view_installed", False))))
         except Exception:
             pass
+        # design 675: commit the DENSE prefix before any roll makes the row
+        # non-dense. `_sweep_missing_pages` refuses once tokens > seq_len, and it
+        # was only called at the very end, so a 140K prompt left ~2600 pages
+        # unstored (measured store=1665 of 4300).
+        try:
+            if (int(getattr(st, "tokens", 0)) == int(getattr(st, "seq_len", 0))
+                    and int(getattr(st, "tokens", 0)) > 0
+                    and int(getattr(st, "tokens", 0)) % 8192 < 4096):
+                _o675 = self._orch.get(req)
+                if _o675 is not None:
+                    self._sweep_missing_pages(req, _o675, st)
+                    open("/tmp/kvmem_dense_commit.jsonl", "a").write(
+                        "tok=%s store=%s\n" % (
+                            int(getattr(st, "tokens", 0)), len(_o675.store)))
+        except Exception:
+            pass
         # design 667: the roll must run EVERY step and must live in before_step -
         # the publish method that carried it never runs for a D request (measured:
         # adopt logged row=1666 while publish logged nothing).
