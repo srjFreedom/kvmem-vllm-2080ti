@@ -839,7 +839,13 @@ class VllmSparseRuntime:
                         if b < len(st.logical) and st.logical[b] is not None:
                             pg = int(st.logical[b]) * q + j
                         if orch.store.has(pg):
-                            pairs.append((pg, dst_bid * q + j))
+                            # design 796: the row holds PHYSICAL PAGE ids, so the
+                            # destination slot is that page - not block_id*block_pages
+                            # (that arithmetic ran past the 2,842-page pool and the
+                            # copy asserted on the device).
+                            _dst_slot = int(row[dst_b * q + j])
+                            if 0 <= _dst_slot < 1 << 20:
+                                pairs.append((pg, _dst_slot))
                     if len(pairs) < q // 2:
                         continue
                     orch.restore_pages_batch(pairs)
