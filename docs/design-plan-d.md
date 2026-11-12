@@ -3626,3 +3626,13 @@ gpu/block_table.py:166 gather_block_tables   ← Triton kernel，device-side ass
 3. 用 `rotate_k_pages_fp8` 把这批页的相位从"原位置"旋到"目标槽位"（δ =（目标−源）× 块 token）；
 4. 完全不需要 `_install`、不需要改 `num_blocks`、不需要 restore 到大页号 ⇒ 不触发 assert。
 这是与引擎账本**零冲突**的路径，也是本会话所有证据指向的方向。
+
+## 818-819. Round 560：原地替换模式已就位，但搬运为空 + 仍有后续错误
+- 818：`KVMEM_D_INPLACE=1` —— 不写行、不写 seq_len、不 `_install`，只把内容写进 `row[i*q+j]` 指向的物理页并重旋。
+- 读数：`VIEW keep=29 need=9 restored=0 rebaked=-1 seq_len=45472 inst=1 tok=137873`
+  - `need=9`（9 个块不在 GPU 上）但 `restored=0`、`/tmp/kvmem_restore.jsonl: pairs=0`
+    ⇒ 恢复循环一个 pair 都没构造出来（`spare`/`need` 的配对在 INPLACE 分支下没走通）；
+  - `rebaked=-1` ⇒ 重旋循环抛异常（被吞掉）；
+  - 请求最终仍 500（217 s）。
+**下一步**：先让 `need → pairs` 的配对在 INPLACE 下成立（打印 need 的块号与 `spare` 的槽位），
+再确认 `rotate_k_pages_fp8` 的入参（层张量切片、inv_freq、δ 单位）。
