@@ -4104,7 +4104,13 @@ class VllmSparseRuntime:
         # working-set path stayed dormant.
         try:
             if (row_index is not None
-                    and not bool(getattr(st, "view_installed", False))
+                    # design 679: re-arm on every chunk instead of once. The old
+                    # `not view_installed` latch meant the knife fired exactly once
+                    # and the question-stage selection (the one that must rebuild
+                    # the row from the host store) never ran.
+                    and (not bool(getattr(st, "view_installed", False))
+                         or int(getattr(st, "tokens", 0))
+                         >= int(getattr(st, "knife_frontier", 0) or 0) + 8192)
                     # design 635: fire EARLY. Waiting for tokens to exceed the
                     # whole pool is too late - by then the scheduler has already
                     # filled it and the request is parked (no more steps run, so
