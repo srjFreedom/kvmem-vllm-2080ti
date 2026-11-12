@@ -713,7 +713,9 @@ class VllmSparseRuntime:
                 # while the request needed 4300).
                 _ptp = max(1, int(pt))
                 _basepg = max(0, int(old) // _ptp)
-                for _i in range(min(k, len(row))):
+                for _i in range(len(row)):
+                    if stashed >= 256:
+                        break
                     _slot = int(row[_i])
                     _pg = _basepg + _i
                     if _slot <= 0:
