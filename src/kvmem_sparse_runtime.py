@@ -4310,7 +4310,7 @@ class VllmSparseRuntime:
             if (getattr(self, "d_mode", False)
                     and __import__("os").environ.get("KVMEM_D_APPLY") == "1"
                     and int(n_query_tokens or 0) == 1
-                    and not bool(getattr(st, "roll_frozen", False))
+                    and str(req) not in getattr(self, "_applied_set", set())
                     and max(int(getattr(st, "tokens", 0) or 0),
                             int(self._prompt_len.get(req, 0) or 0))
                     > int(self.budget_tokens) + int(self.gen_reserve)):
@@ -4321,6 +4321,9 @@ class VllmSparseRuntime:
                 if getattr(st, "row", ()):
                     st.view_installed = True
                 st.roll_frozen = True
+                if getattr(self, "_applied_set", None) is None:
+                    self._applied_set = set()
+                self._applied_set.add(str(req))
                 self._apply_selection_d(req, st)
                 if self.log is not None:
                     self.log({"kind": "d_view_at_prefill_end",
