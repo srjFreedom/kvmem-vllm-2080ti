@@ -4307,6 +4307,19 @@ class VllmSparseRuntime:
         # the final step (measured: the apply witness stayed empty on a 92K run
         # while the knife itself ran 22 times).
         try:
+            if __import__("os").environ.get("KVMEM_D_APPLY") == "1":
+                with open("/tmp/kvmem_gate.jsonl", "a") as _gf:
+                    _gf.write("nq=%s d=%s applied=%s prompt=%s tok=%s row=%s" % (
+                        int(n_query_tokens or 0),
+                        bool(getattr(self, "d_mode", False)),
+                        str(req) in getattr(self, "_applied_set", set()),
+                        int(self._prompt_len.get(req, 0) or 0),
+                        int(getattr(st, "tokens", 0) or 0),
+                        len(getattr(st, "row", ()) or ())))
+                    _gf.write(chr(10))
+        except Exception:
+            pass
+        try:
             if (getattr(self, "d_mode", False)
                     and __import__("os").environ.get("KVMEM_D_APPLY") == "1"
                     and int(n_query_tokens or 0) == 1
