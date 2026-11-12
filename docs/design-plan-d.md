@@ -3671,3 +3671,12 @@ restore_err n=49 CUDA error: device-side assert triggered
 - 因此"恢复/重旋"必须经过**引擎自己的 虚拟块号 → 物理页** 映射，不能直接用行值当设备索引。
 **下一步（下段工作第一件事）**：找到 fork 里 block_table 的 id→slot 映射（`block_pool` / `slot_mapping` 的同一套），
 把 restore 目标改成映射后的物理页；或直接在映射后的空间里做搬运。
+
+## 829. Round 565：镜像行 4,309 项、值域到 4,263；但 `paged_kv()` 视图只有 2,842 页
+- `sync_row_from_engine` 宽度 `w = ceil(seq_lens / block_size)` = 4,309，取自
+  `block_table_rows()[0][row_index][:w]` ⇒ 行值 0..4,263；
+- 而 `paged_kv()` = 16 张 `(2842, 2, 32, 512)` ⇒ **适配器看到的页数比引擎块的 id 空间小**；
+- 结论：`block_size` 与 `paged` 的页概念不一致（引擎 block id 空间 4,264 vs 适配器视图 2,842），
+  所以"行值直接当设备页号"必然越界。
+**下一步**：打印引擎真实 `kv_cache_config.num_blocks` 与 `runner.block_tables.block_size`，
+和 `paged_kv()[0].shape[0]` 对齐；三者一致后再做搬运/重旋，否则先把 id 映射到物理页。
