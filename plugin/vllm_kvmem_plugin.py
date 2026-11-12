@@ -4706,6 +4706,24 @@ def _install(cls, module_name, probe, smoke, state):
                                 rt.before_step(req, row_index=row,
                                                position_slots=rt.view.query_position_slots(req))
                                 try:
+                                    if _env_flag("KVMEM_D_POS"):
+                                        _ib9 = getattr(runner, "input_batch", None)
+                                        _names = []
+                                        for _n9 in ("positions", "position_ids", "pos_ids"):
+                                            _v9 = getattr(_ib9, _n9, None) if _ib9 is not None else None
+                                            if _v9 is not None:
+                                                try:
+                                                    _names.append("%s=[%s..%s]" % (
+                                                        _n9, int(_v9[0]), int(_v9[-1])))
+                                                except Exception:
+                                                    pass
+                                        if _names:
+                                            with open("/tmp/kvmem_meta_pos.jsonl", "a") as _mp:
+                                                _mp.write(" ".join(_names))
+                                                _mp.write(chr(10))
+                                except Exception:
+                                    pass
+                                try:
                                     if _env_flag("KVMEM_D_META"):
                                         with open("/tmp/kvmem_seqcheck.jsonl", "a") as _sf0:
                                             _sf0.write("INSTALL rank=%s rt=%s row=%s ovr=%s" % (
