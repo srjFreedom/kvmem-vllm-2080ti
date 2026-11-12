@@ -1295,19 +1295,15 @@ def _attach_sparse(runner, log_path):
                     _rtv = state.get("sparse")
                     if _rtv is not None and _reqs and positions is not None:
                         _qsl = query_start_loc
-                        _ap = getattr(_rtv, "_applied_set", set())
-                        if _ap:
+                        try:
+                            from kvmem_sparse_runtime import VIEW_OFFSETS as _VO9
+                        except Exception:
+                            _VO9 = {}
+                        if _VO9:
                             for _i9, _rq9 in enumerate(_reqs):
-                                if str(_rq9) not in _ap:
+                                _off9 = int(_VO9.get(str(_rq9), 0) or 0)
+                                if _off9 <= 0:
                                     continue
-                                _st9 = _rtv._state.get(_rq9)
-                                if _st9 is None:
-                                    continue
-                                _sl9 = int(getattr(_st9, "seq_len", 0) or 0)
-                                _tk9 = int(getattr(_st9, "tokens", 0) or 0)
-                                if _sl9 <= 0 or _tk9 <= _sl9:
-                                    continue
-                                _off9 = _tk9 - _sl9
                                 _a9 = int(_qsl[_i9])
                                 _b9 = int(_qsl[_i9 + 1])
                                 positions[_a9:_b9] = positions[_a9:_b9] - _off9

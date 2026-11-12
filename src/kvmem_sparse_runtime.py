@@ -65,6 +65,12 @@ class _SkipSeqFromRow(Exception):
     """Internal: this experiment is switched off."""
 
 
+# design 779: process-global view offsets. The step hook and the prepare hook can
+# sit on different runtime instances (TP workers), so the offset must not travel
+# through instance state.
+VIEW_OFFSETS = {}
+
+
 class SparseViewCapacityError(RuntimeError):
     """The compacted block-table row cannot address the scheduled attention tokens."""
 
@@ -903,6 +909,11 @@ class VllmSparseRuntime:
             st.logical = tuple([-1] * len(row_new))
             st.seq_len = min(int(self.budget_tokens) + int(self.gen_reserve),
                              len(keep) * block_tokens)
+            try:
+                VIEW_OFFSETS[str(req)] = max(0, int(getattr(st, "tokens", 0) or 0)
+                                             - int(st.seq_len))
+            except Exception:
+                pass
             _ri = int(getattr(st, "row_index", -1))
             _inst = -1
             if _ri >= 0:
