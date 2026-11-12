@@ -1349,8 +1349,9 @@ def _attach_sparse(runner, log_path):
                                     pass
                                 try:
                                     with open("/tmp/kvmem_posshift.jsonl", "a") as _ps8:
-                                        _ps8.write("single off=%s n=%s" % (
-                                            _off8, int(len(positions))))
+                                        _ps8.write("off=%s n=%s pre_last=%s post_last=%s viewlen=%s" % (
+                                            _off8, int(len(positions)), _last8,
+                                            int(positions[-1]), _vl8))
                                         _ps8.write(chr(10))
                                 except Exception:
                                     pass
