@@ -833,9 +833,12 @@ class VllmSparseRuntime:
         _inp823 = __import__("os").environ.get("KVMEM_D_INPLACE") == "1"
         try:
             with open("/tmp/kvmem_inplace.jsonl", "a") as _g824:
-                _g824.write("guard inp=%s orch=%s need=%s nb=%s q=%s" % (
+                _rv = [int(x) for x in (row or ())]
+                _g824.write("guard inp=%s orch=%s need=%s nb=%s q=%s rowlen=%s rowmin=%s rowmax=%s npages=%s" % (
                     _inp823, orch is not None, (len(need) if need else -1),
-                    (nb if "nb" in dir() else -1), q))
+                    (nb if "nb" in dir() else -1), q, len(_rv),
+                    (min(_rv) if _rv else -1), (max(_rv) if _rv else -1),
+                    (int(paged[0].shape[0]) if paged else -1)))
                 _g824.write(chr(10))
         except Exception:
             pass
