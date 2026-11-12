@@ -4073,8 +4073,14 @@ class VllmSparseRuntime:
                 # request here (the proposal may be None, which is why 658's
                 # publish-point flag never fired and every consumer stayed dead).
                 try:
+                    open("/tmp/kvmem_ids.jsonl", "a").write(
+                        "adopt   rt=%s st=%s row=%s tok=%s\n" % (
+                            id(self), id(st), len(getattr(st, "row", ()) or ()),
+                            int(getattr(st, "tokens", 0) or 0)))
+                except Exception:
+                    pass
+                try:
                     if getattr(self, "d_mode", False) and getattr(st, "row", ()):
-                        st.view_installed = True
                         st.view_installed = True
                 except Exception:
                     pass
@@ -5897,6 +5903,13 @@ class VllmSparseRuntime:
                                       "ok": bool(_ok), "detail": str(_det)[:160]})
         finally:
             self._in_quiescent = False
+        try:
+            open("/tmp/kvmem_ids.jsonl", "a").write(
+                "publish rt=%s st=%s row=%s tok=%s\n" % (
+                    id(self), id(st), len(getattr(st, "row", ()) or ()),
+                    int(getattr(st, "tokens", 0) or 0)))
+        except Exception:
+            pass
         try:
             if getattr(self, "d_mode", False):
                 # design 665: a non-empty row IS the view in plan D (the knife
