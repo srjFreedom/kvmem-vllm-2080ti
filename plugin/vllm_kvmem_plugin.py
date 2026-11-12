@@ -1424,6 +1424,16 @@ def _attach_sparse(runner, log_path):
                     pass
                 try:
                     if _env_flag("KVMEM_D_META"):
+                        try:
+                            _ib = getattr(runner, "input_batch", None)
+                            _pos = getattr(_ib, "positions", None) if _ib is not None else None
+                            if _pos is not None and len(_pos):
+                                with open("/tmp/kvmem_pos.jsonl", "a") as _pf:
+                                    _pf.write("positions first=%s last=%s n=%s" % (
+                                        int(_pos[0]), int(_pos[-1]), int(len(_pos))))
+                                    _pf.write(chr(10))
+                        except Exception:
+                            pass
                         for _rq9 in live:
                             _r9 = view.row_index(_rq9)
                             if _r9 is None:
