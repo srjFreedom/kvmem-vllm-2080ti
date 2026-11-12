@@ -4360,11 +4360,10 @@ class VllmSparseRuntime:
                 try:
                     st.adopt_knife_pending = False
                     st.knife_frontier = int(getattr(st, "tokens", 0) or 0)
-                    # design 696: run the QUESTION lane, not MID. After the first
-                    # question knife the terminal lock makes every MID call return
-                    # immediately (measured: 'question_lock' bail, row never
-                    # reshaped), so pressure=True could never install a view.
-                    self._reselect_blockwise(req, pressure=False)
+                    # design 722: back to the MID lane. The question lane applies
+                    # its own view inside the knife (row/seq_len rewrite) and that
+                    # broke the ring answer that MID's immediate bail preserved.
+                    self._reselect_blockwise(req, pressure=True)
                     if getattr(st, "row", ()):
                         st.view_installed = True
                     # design 691: once the knife has chosen a view, the per-step
