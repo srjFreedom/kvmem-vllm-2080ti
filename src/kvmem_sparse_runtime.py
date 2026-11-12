@@ -802,12 +802,30 @@ class VllmSparseRuntime:
             st.seq_len = len(sel) * pt
         except Exception:
             pass
+        # design 704: write the packed row into the engine block table NOW. The
+        # regular install path can skip the row (it is gated on the compaction
+        # mode), leaving the kernel to read the OLD ring row while seq_len says
+        # the packed length - which is exactly the repeated-token degeneration.
+        _inst = -1
+        try:
+            _ri = int(getattr(st, "row_index", -1))
+            if _ri >= 0:
+                self._install(_ri, list(st.row), int(st.seq_len), [])
+                _inst = 1
+        except Exception as _e704:
+            _inst = -2
+            try:
+                with open("/tmp/kvmem_apply.jsonl", "a") as _af:
+                    _af.write("install_err %s" % str(_e704)[:120])
+                    _af.write(chr(10))
+            except Exception:
+                pass
         try:
             open("/tmp/kvmem_apply.jsonl", "a").write(
-                "sel=%s missing=%s restored=%s row=%s seq_len=%s\n" % (
+                "sel=%s missing=%s restored=%s row=%s seq_len=%s inst=%s\n" % (
                     len(sel), len(missing), restored,
                     len(getattr(st, "row", ()) or ()),
-                    int(getattr(st, "seq_len", 0) or 0)))
+                    int(getattr(st, "seq_len", 0) or 0), _inst))
         except Exception:
             pass
 
