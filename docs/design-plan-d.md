@@ -3527,3 +3527,11 @@ npos=4096 offs=1 vlens=1 last=583576 / 604883
 **下一步（两小步）**
 ①在 `_apply_selection_d` 里用 `self.view.row_index(req)` 取行号（不要依赖 `st.row_index`）；
 ②同时把 `kvmem_rope_offset` 设为 `tokens - seq_len`，让 RoPE 用真位置、attention 用视图长度。
+
+## 796-797. Round 548-549：140K 进入真实压缩路径；assert 定位到 slot offset
+- 目标函数修正：**88K 在 89K 池无需压缩**（行装得下 2,343 页），之前盯 88K 视图是错的；真正验收是 140K。
+- 140K + `KVMEM_D_APPLY=1`：apply 能跑完（`VIEW keep=29 need=9 restored=0 seq_len=45472 inst=1 tok=137873`），
+  随后 **Triton device-side assert** 在 `execute_model` 内（引擎死亡）。
+- 已排除：store restore（NORESTORE=1 仍崩）、行安装（NOINSTALL=1 仍崩）。
+- 已定位一个真错：把 `kvmem_slot_offset` 也设成真前沿 ⇒ slot 映射变负数（797 已改为恒 0），但 assert 仍在。
+- 剩余怀疑：`kvmem_view_lens`（attention 长度 45,472）与 **GDN/mamba 的 seq_len 账**不一致（该 override 只应作用于 FullAttention），或 indptr 与 block table 的页数不匹配。
