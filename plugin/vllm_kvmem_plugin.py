@@ -1828,6 +1828,14 @@ def _attach_sparse(runner, log_path):
                                     _pt655 = int(getattr(runtime, "page_tokens", 32) or 32)
                                     _blk655 = _pt655 * 32
                                     _old655 = int(getattr(_st631, "roll_base", 0) or 0)
+                                    # design 806: `roll_base` gets initialised to the
+                                    # current base by the sync, so the first real roll
+                                    # was always k=0 and the engine kept reading the
+                                    # OLDEST pages (measured: answer quoted the opening
+                                    # of the document instead of the needle).
+                                    if (os.environ.get("KVMEM_RING_VIEW") == "1"
+                                            and _old655 >= _base652 > 0):
+                                        _old655 = 0
                                     _k655 = max(0, (_base652 - _old655) // max(1, _blk655))
                                     # design 805: refresh the mirror row from the
                                     # engine before rotating. The mirror was 128 pages
