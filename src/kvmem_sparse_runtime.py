@@ -889,6 +889,15 @@ class VllmSparseRuntime:
                     _p2 = int(_ps9[-1])
             except Exception:
                 pass
+            try:
+                _sq9 = int(self.view.seq_lens()[int(_ri)])
+                _qs9 = list(self.view.query_position_slots(req)) or [-1]
+                with open("/tmp/kvmem_after.jsonl", "a") as _aq:
+                    _aq.write("after_install seq_lens=%s st_seq=%s q0=%s qn=%s" % (
+                        _sq9, int(st.seq_len), int(_qs9[0]), int(_qs9[-1])))
+                    _aq.write(chr(10))
+            except Exception:
+                pass
             with open("/tmp/kvmem_apply.jsonl", "a") as _af:
                 _af.write("VIEW keep=%s need=%s restored=%s rebaked=%s seq_len=%s inst=%s ph=%s pos=[%s..%s] tok=%s" % (
                     len(keep), len(need), restored, rebaked, int(st.seq_len), _inst,
