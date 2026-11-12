@@ -3581,3 +3581,14 @@ live 是否空、是否 d_mode），一次 140K 即可定位是哪一层把这�
   - `sl=0` ⇒ `st.seq_len` 未被维护（attention 长度已由 fork 表承载，暂不影响）。
 **下一步**：先把行镜像同步成引擎的真实行（`sync_row_from_engine`，宽度 = ceil(seq_lens/block)），
 再滚行；然后看答案是否正确。
+
+## 804-810. Round 554：ring 路径**端到端成立**；选择(apply)路径仍 assert 在 restore
+- 804：把「读调度器前沿」用 `KVMEM_RING_VIEW` 门控，经典路径不变 ⇒ 88K 绿点恢复（`ZX-4417-QJ7`）。
+- 805：滚行前先 `sync_row_from_engine` ⇒ 镜像行变成 **4,310 页**（引擎真实行）。
+- 806/807：滚行读数 `k=0 base=92,423 rawold=92,401` ⇒ **滚行其实是对的**（只差 21 token < 1 块），
+  行已按块粒度对齐；`_dv` 负责块内偏移。
+- 因此 140K 在 ring 视图下输出**连贯英文**（`Based settles where flow slows; farmers built levees…`），
+  但中段 needle 在窗口之外 ⇒ 答案错——**这正是必须靠选择器**的地方，符合预期。
+- 810：apply 前先 sync（避免用 1,536 行截断 4,310 行的表）；仍然 **restore/install 处 device-side assert**。
+**结论**：ring 通道已是可用的"载体"；缺的是"把中段块塞进窗口"的搬运（restore + install）在 140K 下不安全。
+下一步应在此处用**断点/console**逐个文件核查 restore 的目标页号与 store 张量形状（4 分钟一次的黑盒循环效率太低）。
