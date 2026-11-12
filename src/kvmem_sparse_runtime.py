@@ -4150,6 +4150,15 @@ class VllmSparseRuntime:
                     self._reselect_blockwise(req, pressure=True)
                     if getattr(st, "row", ()):
                         st.view_installed = True
+                    try:
+                        open("/tmp/kvmem_knife681.jsonl", "a").write(
+                            "tok=%s row=%s sel=%s log=%s\n" % (
+                                int(getattr(st, "tokens", 0) or 0),
+                                len(getattr(st, "row", ()) or ()),
+                                len(getattr(st, "logical", ()) or ()),
+                                self.log is not None))
+                    except Exception:
+                        pass
                     if self.log is not None:
                         self.log({"kind": "d_knife_now", "req": str(req)[-6:],
                                   "tokens": int(getattr(st, "tokens", 0) or 0),
