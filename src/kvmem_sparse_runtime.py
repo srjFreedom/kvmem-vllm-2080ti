@@ -4884,6 +4884,31 @@ class VllmSparseRuntime:
                 grown = list(st.row) + values[len(st.row):w]
                 values = [int(p) for p in grown]
             st.row = tuple(values)
+            try:
+                import os as _os748
+                _k748 = (str(req), len(values))
+                _seen748 = getattr(self, "_unit_seen", None)
+                if _seen748 is None:
+                    _seen748 = self._unit_seen = set()
+                if (_os748.environ.get("KVMEM_D_META") == "1"
+                        and _k748 not in _seen748 and len(values) > 64):
+                    _seen748.add(_k748)
+                    _run = 1
+                    _best = 1
+                    for _j748 in range(1, len(values)):
+                        if int(values[_j748]) == int(values[_j748 - 1]):
+                            _run += 1
+                            _best = max(_best, _run)
+                        else:
+                            _run = 1
+                    with open("/tmp/kvmem_unit.jsonl", "a") as _uf:
+                        _uf.write("bp=%s pt=%s rowlen=%s longest_run=%s seq_lens=%s" % (
+                            int(getattr(self, "block_pages", 0) or 0),
+                            int(self.page_tokens), len(values), _best,
+                            int(self.view.seq_lens()[int(st.row_index)])))
+                        _uf.write(chr(10))
+            except Exception:
+                pass
             if bool(getattr(self, "sched_compact", False)):
                 # Mirror `logical` alongside the row in boundary mode: entries past the old
                 # length are the request's APPENDED pages, whose logical page is the row
