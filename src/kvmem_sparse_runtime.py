@@ -924,6 +924,8 @@ class VllmSparseRuntime:
             # (so keys keep their true phase) and replaces the attention length
             # with kvmem_view_lens[row] + query_len when kvmem_view_active.
             try:
+                if __import__("os").environ.get("KVMEM_D_NOACT") == "1":
+                    raise ValueError("activation off")
                 _rn = self.view.runner
                 _ri791 = int(getattr(st, "row_index", -1) or -1)
                 if _ri791 < 0:

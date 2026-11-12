@@ -1655,6 +1655,7 @@ def _attach_sparse(runner, log_path):
                                     _dv[int(_row)] = 0
                                     _vl[int(_row)] = 0
                             elif (os.environ.get("KVMEM_D_APPLY") == "1"
+                                  and os.environ.get("KVMEM_D_NOACT") != "1"
                                   and bool(getattr(_st631, "view_installed", False))):
                                 # design 795: ADVANCE the fork's view tables every step.
                                 # The table carries the view base (length before this
