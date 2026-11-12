@@ -4172,6 +4172,12 @@ class VllmSparseRuntime:
                                   "tokens": int(getattr(st, "tokens", 0) or 0),
                                   "row": len(getattr(st, "row", ()) or ())})
                 except Exception as _e681:
+                    import traceback as _tb681
+                    try:
+                        open("/tmp/kvmem_knife681_err.jsonl", "a").write(
+                            "%s\n" % _tb681.format_exc()[-1200:])
+                    except Exception:
+                        pass
                     if self.log is not None:
                         self.log({"kind": "d_knife_now_err",
                                   "err": str(_e681)[:120]})
