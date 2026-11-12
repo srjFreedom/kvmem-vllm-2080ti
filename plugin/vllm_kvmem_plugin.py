@@ -1327,6 +1327,16 @@ def _attach_sparse(runner, log_path):
                             # frame; shifting again made the query land at
                             # 45,471-29,476 = 15,995 (measured), which is the
                             # degeneration we have been chasing.
+                            try:
+                                with open("/tmp/kvmem_prep2.jsonl", "a") as _p2:
+                                    _p2.write("npos=%s offs=%s vlens=%s last=%s" % (
+                                        int(len(positions)) if positions is not None else -1,
+                                        len(_VO8), len(_VL8),
+                                        int(positions[-1]) if positions is not None
+                                        and len(positions) else -1))
+                                    _p2.write(chr(10))
+                            except Exception:
+                                pass
                             _vl8 = int(list(_VL8.values())[0] or 0) if _VL8 else 0
                             _last8 = int(positions[-1]) if len(positions) else 0
                             # design 784: the offset must come from THIS step's position
