@@ -1654,6 +1654,25 @@ def _attach_sparse(runner, log_path):
                                 with _t631.no_grad():
                                     _dv[int(_row)] = 0
                                     _vl[int(_row)] = 0
+                            elif (os.environ.get("KVMEM_D_APPLY") == "1"
+                                  and bool(getattr(_st631, "view_installed", False))):
+                                # design 795: ADVANCE the fork's view tables every step.
+                                # The table carries the view base (length before this
+                                # step's write) and the rope offset carries the true
+                                # frontier, so both must move with the step.
+                                try:
+                                    _rn795 = getattr(view, "runner", None)
+                                    _vl795 = getattr(_rn795, "kvmem_view_lens", None)
+                                    if _vl795 is not None:
+                                        _vl795[int(_row)] = max(
+                                            0, int(getattr(_st631, "seq_len", 0) or 0) - 1)
+                                    _ro795 = getattr(_rn795, "kvmem_rope_offset", None)
+                                    if _ro795 is not None:
+                                        _ro795.fill_(int(_tok631))
+                                    if _rn795 is not None:
+                                        _rn795.kvmem_view_active = True
+                                except Exception:
+                                    pass
                             elif (_win631 > 0 and _tok631 > _win631
                                   and _env_flag("KVMEM_D_APPLY") != True
                                   and os.environ.get("KVMEM_D_APPLY") != "1"):
