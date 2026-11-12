@@ -1458,6 +1458,21 @@ def _attach_sparse(runner, log_path):
                                     _dv[int(_row)] = 0
                                     _vl[int(_row)] = 0
                             elif _win631 > 0 and _tok631 > _win631:
+                                try:
+                                    _sq = int(runtime.state(_rq).seq_len) if hasattr(runtime, "state") else -1
+                                except Exception:
+                                    _sq = -2
+                                try:
+                                    _esl = int(view.seq_lens()[int(_row)])
+                                except Exception:
+                                    _esl = -3
+                                try:
+                                    with open("/tmp/kvmem_four.jsonl", "a") as _f4:
+                                        _f4.write("tok=%d seq=%s eng=%s win=%d" % (
+                                            _tok631, _sq, _esl, _win631))
+                                        _f4.write(chr(10))
+                                except Exception:
+                                    pass
                                 # design 652: the ROLL. The window slides with the
                                 # frontier; the row array itself is a circular ring
                                 # of physical slots, so publishing base = frontier -
