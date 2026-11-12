@@ -843,6 +843,8 @@ class VllmSparseRuntime:
                             # destination slot is that page - not block_id*block_pages
                             # (that arithmetic ran past the 2,842-page pool and the
                             # copy asserted on the device).
+                            if __import__("os").environ.get("KVMEM_D_NORESTORE") == "1":
+                                break
                             _dst_slot = int(row[dst_b * q + j])
                             if 0 <= _dst_slot < 1 << 20:
                                 pairs.append((pg, _dst_slot))
