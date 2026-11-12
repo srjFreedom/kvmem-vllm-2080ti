@@ -4201,6 +4201,33 @@ class VllmSparseRuntime:
                             int(getattr(st, "tokens", 0)), len(_o675.store)))
         except Exception:
             pass
+        # design 706: the view is built at the PREFILL-END step, explicitly.
+        # The window trigger only runs mid-prefill, so the apply gate never saw
+        # the final step (measured: the apply witness stayed empty on a 92K run
+        # while the knife itself ran 22 times).
+        try:
+            if (getattr(self, "d_mode", False)
+                    and int(n_query_tokens or 0) == 1
+                    and not bool(getattr(st, "roll_frozen", False))
+                    and int(getattr(st, "tokens", 0) or 0)
+                    > int(self.budget_tokens) + int(self.gen_reserve)):
+                self._reselect_blockwise(req, pressure=False)
+                if getattr(st, "row", ()):
+                    st.view_installed = True
+                st.roll_frozen = True
+                self._apply_selection_d(req, st)
+                if self.log is not None:
+                    self.log({"kind": "d_view_at_prefill_end",
+                              "req": str(req)[-6:],
+                              "tokens": int(getattr(st, "tokens", 0) or 0),
+                              "row": len(getattr(st, "row", ()) or ())})
+        except Exception as _e706:
+            try:
+                with open("/tmp/kvmem_apply.jsonl", "a") as _af706:
+                    _af706.write("prefill_end_err %s" % str(_e706)[:120])
+                    _af706.write(chr(10))
+            except Exception:
+                pass
         # design 667: the roll must run EVERY step and must live in before_step -
         # the publish method that carried it never runs for a D request (measured:
         # adopt logged row=1666 while publish logged nothing).
