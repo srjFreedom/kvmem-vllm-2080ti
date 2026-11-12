@@ -701,9 +701,16 @@ class VllmSparseRuntime:
                 paged = self.view.paged_kv()
                 logical = list(getattr(st, "logical", ()) or ())
                 stashed = 0
-                for _i in range(min(k, len(row))):
+                # Walk the WHOLE row, not just the k rotated slots: the pages
+                # written between the last dense sweep and the first roll were
+                # never committed anywhere (measured: store stuck at 1536 while
+                # the prompt needed 2342). Bounded per step so the copy cost
+                # stays off the critical path.
+                for _i in range(len(row)):
+                    if stashed >= 16:
+                        break
                     _slot = int(row[_i])
-                    _pg = int(logical[_i]) if _i < len(logical) else -1
+                    _pg = int(logical[_i]) if _i < len(logical) else _i
                     if _slot <= 0 or _pg < 0:
                         continue
                     if orch is not None and not orch.store.has(_pg):
