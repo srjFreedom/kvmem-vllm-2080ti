@@ -1236,11 +1236,16 @@ def _attach_sparse(runner, log_path):
             """
             try:
                 rt = state.get("sparse")
-                if rt is None or not bool(getattr(rt, "sched_compact", False)):
+                _applied9 = getattr(rt, "_applied_set", set()) if rt is not None else set()
+                if rt is None or not (bool(getattr(rt, "sched_compact", False))
+                                      or _applied9):
                     return
                 for req in reqs:
                     st = rt._state.get(req) if hasattr(rt, "_state") else None
-                    if st is None or not bool(getattr(st, "applied_view_coord", False)):
+                    if st is None:
+                        continue
+                    if not (bool(getattr(st, "applied_view_coord", False))
+                            or str(req) in _applied9):
                         continue
                     # a request that was REBUILT (stage-2) runs in true coordinates again -
                     # accept_reconstruction cleared the resident books; the view is the dense
