@@ -880,10 +880,20 @@ class VllmSparseRuntime:
                     _ps = []
                 self._install(int(_ri), list(st.row), int(st.seq_len), _ps)
                 _inst = 1
+            _p1 = -1
+            _p2 = -1
+            try:
+                _ps9 = list(self.view.query_position_slots(req))
+                if _ps9:
+                    _p1 = int(_ps9[0])
+                    _p2 = int(_ps9[-1])
+            except Exception:
+                pass
             with open("/tmp/kvmem_apply.jsonl", "a") as _af:
-                _af.write("VIEW keep=%s need=%s restored=%s rebaked=%s seq_len=%s inst=%s ph=%s" % (
+                _af.write("VIEW keep=%s need=%s restored=%s rebaked=%s seq_len=%s inst=%s ph=%s pos=[%s..%s] tok=%s" % (
                     len(keep), len(need), restored, rebaked, int(st.seq_len), _inst,
-                    len(placeholders)))
+                    len(placeholders), _p1, _p2,
+                    int(getattr(st, "tokens", 0) or 0)))
                 _af.write(chr(10))
         except Exception as _e753c:
             try:
