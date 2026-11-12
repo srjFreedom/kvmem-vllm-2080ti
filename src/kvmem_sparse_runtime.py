@@ -798,6 +798,16 @@ class VllmSparseRuntime:
         # such a slot has no bytes, so it must be restored from the store instead
         # of copied (measured: the packed row came out as [6,6,6,...] and the
         # kernel read one null page for the whole view).
+        try:
+            from collections import Counter as _C9
+            _cnt9 = _C9(int(v) for v in row)
+            with open("/tmp/kvmem_rowdist.jsonl", "a") as _rd:
+                _rd.write("len=%s top=%s first=%s last=%s" % (
+                    len(row), _cnt9.most_common(3),
+                    [int(v) for v in row[:8]], [int(v) for v in row[-8:]]))
+                _rd.write(chr(10))
+        except Exception:
+            pass
         from collections import Counter as _C735
         _cnt = _C735(int(v) for v in row)
         _null = {v for v, c in _cnt.items() if c > 32}
