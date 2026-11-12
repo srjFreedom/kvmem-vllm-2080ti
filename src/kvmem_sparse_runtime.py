@@ -4988,6 +4988,19 @@ class VllmSparseRuntime:
             pass
         st = self._state.get(req)
         w = int(written or 0)
+        # design 743: `num_blocks.np[...]` is NOT the request's written-block count in
+        # this fork (it stays 1 while the request is at 74,954 tokens). The engine's
+        # own seq_lens is the authoritative length, so derive the row width from it.
+        try:
+            if st is not None and getattr(st, "row_index", None) is not None:
+                _sl = int(self.view.seq_lens()[int(st.row_index)])
+                _bt = self.view.runner.block_tables
+                _blk = int(getattr(_bt, "block_size", 0) or 0) or int(self.page_tokens)
+                _w2 = -(-max(0, _sl) // max(1, _blk))
+                if _w2 > w:
+                    w = _w2
+        except Exception:
+            pass
         if st is None or w <= 0:
             return 0
         try:
