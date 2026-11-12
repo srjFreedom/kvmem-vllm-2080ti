@@ -940,10 +940,20 @@ class VllmSparseRuntime:
                         rebaked += 1
             except Exception as _e753b:
                 rebaked = -1
-            st.row = tuple(row_new)
-            st.logical = tuple([-1] * len(row_new))
-            st.seq_len = min(int(self.budget_tokens) + int(self.gen_reserve),
-                             len(keep) * block_tokens)
+            # design 818: IN-PLACE mode moves CONTENT into the pages the ring
+            # already points at, so the row, its length and its block count stay
+            # exactly as the engine booked them (that bookkeeping is what kept
+            # tripping gather_block_tables).
+            _inplace818 = __import__("os").environ.get("KVMEM_D_INPLACE") == "1"
+            if not _inplace818:
+                st.row = tuple(row_new)
+                st.logical = tuple([-1] * len(row_new))
+                st.seq_len = min(int(self.budget_tokens) + int(self.gen_reserve),
+                                 len(keep) * block_tokens)
+            else:
+                st.seq_len = min(int(self.budget_tokens) + int(self.gen_reserve),
+                                 len(keep) * block_tokens)
+                st.view_installed = True
             # design 791: drive the FORK's own view machinery instead of the
             # adapter's install path. The V2 runner computes positions in the
             # compacted frame already; it then adds kvmem_rope_offset for RoPE
@@ -1019,7 +1029,8 @@ class VllmSparseRuntime:
                     _ps = list(self.view.query_position_slots(req))
                 except Exception:
                     _ps = []
-                if __import__("os").environ.get("KVMEM_D_NOINSTALL") != "1":
+                if (__import__("os").environ.get("KVMEM_D_NOINSTALL") != "1"
+                        and not _inplace818):
                     self._install(int(_ri), list(st.row), int(st.seq_len), _ps)
                 _inst = 1
             _p1 = -1
