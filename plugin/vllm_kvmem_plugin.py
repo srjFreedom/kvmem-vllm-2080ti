@@ -1415,7 +1415,9 @@ def _attach_sparse(runner, log_path):
                             if _r9 is None:
                                 continue
                             _row9 = int(_r9)
-                            _ent = {}
+                            _ent = {"rt_id": id(runtime),
+                                    "state_n": len(getattr(runtime, "_state", {}) or {}),
+                                    "view_id": id(view)}
                             try:
                                 _ent["seq_lens"] = int(view.seq_lens()[_row9])
                             except Exception:
