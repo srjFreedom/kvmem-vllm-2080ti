@@ -879,7 +879,11 @@ class VllmSparseRuntime:
                         import os as _osr
                         shift = ((b - i) if _osr.environ.get("KVMEM_D_REBAKE_INV") == "1"
                                  else (i - b)) * q
-                        pmap = [(pp, pp + shift) for pp in range(i * q, (i + 1) * q)]
+                        # design 771: rotate the BLOCK's PHYSICAL pages
+                        # (block_id*block_pages + inner), not the row page indices.
+                        _src_bid = int(row[b * q])
+                        pmap = [(_src_bid * q + j, _src_bid * q + j + shift)
+                                for j in range(q)]
                         for t in paged:
                             rotate_k_pages_fp8(t, pmap, int(pt), theta, rot, ksl)
                         rebaked += 1
