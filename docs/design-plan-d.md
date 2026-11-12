@@ -3458,3 +3458,9 @@ Core 收到后置 `kvmem_view_ready/view_tokens`，并把 `blocks` 记为该请�
 - 之前一次 `ok=False` 是 **max_tokens=8 截断**所致（答案前 8 token 未含代号），不是回归。
 - `input_batch.positions` 取证未取到（该属性在此路径不可用）；positions 取证改用 `view.query_position_slots` + clamp 值交叉验证。
 - 环境：`GPU_UTIL=0.85`、`PLAN_D=1`、`NOBLADE=1`、`BUDGET=37280`；`KVMEM_D_META` 已移除；引擎 healthy。
+
+## 774-777. Round 527-529：视图能装、seq_lens 能改，但输出仍退化 —— 剩 positions 帧
+- 774：`allocate_slots` 之后 restore `num_computed` 是真 bug，视图模式下已保持回卷。
+- 777：把既有 `_fix_book_for_view`（派生前重装 resident 计数）也纳入 D 视图模式 ⇒ 仍 `duct…`。
+- 已排除：内容/打包/重旋（头视图对照）、seq_lens 覆盖（=45,472）、applied 时机、clamp 回滚。
+- **剩余唯一怀疑点**：模型拿到的 `positions` 仍是真帧。`runner.input_batch` 无 positions 属性；positions 由 `prepare_pos_seq_lens` 生成后经 `model_input` 传入 ⇒ 必须在 `_fix_book_for_view` 之外**直接改 positions 张量**（在该 wrapper 返回前按 offset 平移）。
