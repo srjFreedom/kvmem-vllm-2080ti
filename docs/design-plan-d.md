@@ -3557,3 +3557,13 @@ npos=4096 offs=1 vlens=1 last=583576 / 604883
   `dv/vl` 为 None 会静默跳过）。
 - 因此下一步不是改公式，而是：在该分支入口打印 `_dv/_vl` 是否为 None（`KVMEM_D_META=1` 下
   `/tmp/kvmem_meta.jsonl` 已有部分字段），把"为什么没进这个分支"钉死。
+
+## 801-802. Round 552：ring 视图表/滚行分支**根本没执行**（三个见证文件都为空）
+- 结构问题：钩子里是 `if not _has: 清零  elif APPLY: 795  elif win>0 and tok>win: 滚行(655)`。
+  由于 `view_installed` 为 False（ring 路径不装视图），**永远走第一个分支**，滚行分支不可达。
+- 我把滚行 + 写表搬进第一分支（801/802，`KVMEM_RING_VIEW=1`），但
+  `/tmp/kvmem_ring802.jsonl`、`/tmp/kvmem_ringin.jsonl`、`/tmp/kvmem_ring.jsonl` **全为空**
+  ⇒ 连第一分支所在的整段都没进（外层还有门槛）。
+- 140K 在 ring 路径下稳定可跑（usage 137,873、215 s、不崩），答案退化。
+**下一步（必须先取证，不要再改公式）**：在该钩子段**入口**写一行无条件见证（记录 `_dv/_vl` 是否 None、
+live 是否空、是否 d_mode），一次 140K 即可定位是哪一层把这段挡住；然后再接滚行。
