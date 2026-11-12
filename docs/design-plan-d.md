@@ -3680,3 +3680,10 @@ restore_err n=49 CUDA error: device-side assert triggered
   所以"行值直接当设备页号"必然越界。
 **下一步**：打印引擎真实 `kv_cache_config.num_blocks` 与 `runner.block_tables.block_size`，
 和 `paged_kv()[0].shape[0]` 对齐；三者一致后再做搬运/重旋，否则先把 id 映射到物理页。
+
+## 830-831. Round 566：clamp 到池大小没有改变镜像行 ⇒ 它不是在 sync 里建的
+- 加了 `w = min(w, view.num_blocks())`（design 830），但读数完全不变：
+  `rowlen=1715 rowmin=6 rowmax=4263 npages=2842` ⇒ **st.row 是别处构建的**（不是本次 sync 写入）。
+- 因此下一步不是改 sync，而是：找到给 `st.row` 赋 1,715 项且含 4,263 这些超池值的那个构建点
+  （候选：`_roll_window` 的提交/旋转路径，或 adoption 时从旧账本复制），并在那里就把行约束在
+  `[0, num_blocks())` 内。
