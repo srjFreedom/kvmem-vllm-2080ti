@@ -3005,3 +3005,8 @@ skip=不重放只装视图 - 顺路）。
   ① 用选择结果重建 `st.row`（长度 = sink+middle+recent 的块数）；
   ② `restore_pages_batch` 从 store 恢复这些页（store 已 100% 覆盖：4,482 页）；
   ③ `seq_len = 选中 token 数`，`delta = frontier − seq_len`。
+
+## 698. Round 463：回归确认（当前 HEAD 的绿点仍在）
+- 92,082 token / 89K 池 / D 臂（工作集分配 + 每步环滚 + 问题刀）：✅ `The access code for KEY-MID is **ZX-4417-QJ**.`（103 s，usage 92,082）。
+- 这说明：环滚 + `seq_len=窗口` + 问题刀改为 `pressure=False` 之后，**没有回归**；绿点可复现。
+- 140K 仍退化（缺"选择写回 row + 恢复"三步）。
