@@ -3209,3 +3209,10 @@ rotate_k_pages_fp8(kv_tensor, page_map, page_tokens, inv_freq, rotary_dim, k_sli
 **根因位置**：`sync_row_from_engine` 只在 `blocks_per_kv_block[group] > 1`（即一个引擎块跨多个页）时才被调用（插件里 `_sync_iter` 的过滤），本配置 bpk=1 ⇒ **行从不镜像**。
 **下一步（唯一，且很小）**：让 `sync_row_from_engine` 对每个 live 请求每步无条件执行（或至少 bpk==1 时也执行），断言 `len(st.row) == ceil(seq_lens / block)`；此后打包视图才可能在正确的行上进行。
 **这是本阶段最有价值的收尾发现**：它同时解释了「为什么环滚看起来无害」「为什么打包总是退化」「为什么 seq 覆盖修好后仍退化」。
+
+## 740-741. Round 482：行同步已改为每步无条件；但钩子看到的 state 是"空壳"
+- 740：`_sync_iter` 去掉 `ppb > 1` 过滤 ⇒ 每步对每个 live 请求执行 `sync_row_from_engine`。
+- 读数（88K，绿）：请求 82s 答对；但钩子里仍见 `st_row=[196]`、`st_rowlen=1`、`st_tok=-1`（`tokens=0` 被 `or -1` 显示成 -1）。
+- 判读：**钩子读到的 state 是空壳**（tokens=0），说明钩子里的 `runtime._state[_rq]` 与真正推进的 state 不是同一个键/实例（TP2 两个 worker 之一未跟踪）。
+- 因此"行是否镜像"仍无法从钩子侧取证；下一步应直接在 `sync_row_from_engine` 内部打印实际的 `written` 与 `len(st.row)`（不再经钩子），并核对 req 键。
+**备注**：本轮请求仍 82s 答对，绿点未受影响。
