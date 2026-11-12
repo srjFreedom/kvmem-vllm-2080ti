@@ -2919,3 +2919,12 @@ skip=不重放只装视图 - 顺路）。
   4) `restore_pages_batch` 只恢复选中块并按行序重排；
   5) decode；超 R 再追加/再选。
 - 这五步对应你定义的 KVMem 流程 2–4；当前我们只做到了"执行通道"和"整行环滚"，缺 1/3/4 的联动。
+
+## 673. Round 451：pipeline 第 1 步的实测缺口（可量化）
+- 取证：`d_final_sweep`（88K 请求，D 臂，80s 正确）→ `pages=1667, swept=2`；而该请求应有 `74948/32 = 2342` 页。
+- 解读：**host store 只覆盖 ~71%（1667/2342）**，而且 final sweep 本身只补了 2 页；其余是别的路径陆续存进去的。`d_sweep_spared` 266 次说明多数页被"跳过"。
+- 因此"选块恢复"的**前置条件也不成立**：要按 query 恢复任意块，必须**先把每一页都 stash 到 host**。
+- 修复点（明确）：
+  ① 在 prefill 写满一个块后立即 `store.put(page, ...)`（异步/批量），而不是等 sweep；
+  ② 滚行淘汰某块前，确认它已在 store（否则先存再丢）；
+  ③ 度量：`d_final_sweep.pages == ceil(prompt_tokens/32)` 才算覆盖完整（88K → 2342）。
