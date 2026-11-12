@@ -3452,3 +3452,9 @@ Core 收到后置 `kvmem_view_ready/view_tokens`，并把 `blocks` 记为该请�
 | 6 | 离线四套 + 文档 | — | 0.5 天 |
 **合计 4 个工作日**（A/A′ 已完成；B 可能比原估计小，因为 clamp 实际给到 40,960 而非 0）。
 **当前绿点**：`NOBLADE=1` 下 92K 正确（103–115 s）；实验路径 `KVMEM_D_APPLY/REBAKE` 默认关闭。
+
+## 764. Round 499：收尾核对（无回归）
+- `needle_88k`（max_tokens=16，24 小时后复测）：**`ZX-4417-QJ7`，82 s** ✅
+- 之前一次 `ok=False` 是 **max_tokens=8 截断**所致（答案前 8 token 未含代号），不是回归。
+- `input_batch.positions` 取证未取到（该属性在此路径不可用）；positions 取证改用 `view.query_position_slots` + clamp 值交叉验证。
+- 环境：`GPU_UTIL=0.85`、`PLAN_D=1`、`NOBLADE=1`、`BUDGET=37280`；`KVMEM_D_META` 已移除；引擎 healthy。
