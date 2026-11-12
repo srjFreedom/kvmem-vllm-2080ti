@@ -4241,7 +4241,13 @@ class VllmSparseRuntime:
                     # ring roll must stop or it overwrites the selection (measured:
                     # row stayed 1666 and sel stayed 1666 on every step).
                     st.roll_frozen = True
-                    self._apply_selection_d(req, st)
+                    # design 703: apply ONCE, at the end of prefill. Packing the
+                    # row mid-prefill made every later chunk write past the packed
+                    # tail (measured: the packed view degenerated immediately).
+                    _plen703 = int(self._prompt_len.get(req, 0) or 0)
+                    _tok703 = int(getattr(st, "tokens", 0) or 0)
+                    if _plen703 <= 0 or _tok703 >= _plen703:
+                        self._apply_selection_d(req, st)
                     try:
                         open("/tmp/kvmem_knife681.jsonl", "a").write(
                             "tok=%s row=%s sel=%s log=%s\n" % (
