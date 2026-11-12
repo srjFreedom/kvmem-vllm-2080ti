@@ -839,6 +839,24 @@ class VllmSparseRuntime:
                     (nb if "nb" in dir() else -1), q, len(_rv),
                     (min(_rv) if _rv else -1), (max(_rv) if _rv else -1),
                     (int(paged[0].shape[0]) if paged else -1)))
+                try:
+                    _gs = list(getattr(self.view, "attn_groups", []) or [])
+                    _info = []
+                    for _g in _gs:
+                        try:
+                            _t = self.view.block_table_rows()[_gs.index(_g)]
+                            _vv = [int(x) for x in _t[int(row_index_i)].tolist()[:8]] if False else None
+                        except Exception:
+                            _vv = None
+                        _info.append((_g, _vv))
+                    _g824.write("groups=%s tables=%s" % (
+                        _gs, [(int(t.shape[0]), int(t.shape[1])) for t in self.view.block_table_rows()]))
+                    _g824.write(chr(10))
+                except Exception as _e834:
+                    try:
+                        _g824.write("grp_err %s" % str(_e834)[:80]); _g824.write(chr(10))
+                    except Exception:
+                        pass
                 _g824.write("shapes n=%s %s blocks=%s" % (
                     (len(paged) if paged else -1),
                     (str(tuple(int(x) for x in paged[0].shape)) if paged else "-"),
