@@ -2996,3 +2996,12 @@ skip=不重放只装视图 - 顺路）。
 - 且 `no_row`/`no_logical` 分支未触发 ⇒ 函数在 FUNC-ENTER 之后、`kept` 计算之前的某条早退返回，或走完但未改动 row。
 - 下一步（唯一）：在 FUNC-ENTER 与 `kept = …` 之间逐条 `return st` 加见证（大约 3–5 处），一次 92K 运行即可定位到具体分支。
 **本阶段可用读数**：89K 池 + 92K 请求 → `ZX-4417` 正确（207s）；140K → 退化；执行通道 ✅、全量落主机 ✅、刀进入 ✅。
+
+## 696-697. Round 462：问题锁解除；刀算完但不改行 —— 缺"把选择应用到 row"的一步
+- 696：D 路径改走**问题刀**（`pressure=False`）；`question_lock` 早退消失（此前 MID 刀被终态锁挡住，永远直接 return）。
+- 读数：`FUNC-ENTER` 22 次/rank、无早退；但 `knife681` 仍 `row=1666 sel=1666` ⇒ 选择算出来了，**没有写回行**。
+- 原因：把选择应用到 block-table 行的那段逻辑属于 legacy 的 apply/proposal 路径，D 路径没有调用它（D 只旋转环）。
+- 下一步（唯一）：在 `_reselect_blockwise` 返回后，D 分支自己做三件事：
+  ① 用选择结果重建 `st.row`（长度 = sink+middle+recent 的块数）；
+  ② `restore_pages_batch` 从 store 恢复这些页（store 已 100% 覆盖：4,482 页）；
+  ③ `seq_len = 选中 token 数`，`delta = frontier − seq_len`。
