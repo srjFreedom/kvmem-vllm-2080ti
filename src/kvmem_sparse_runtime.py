@@ -905,6 +905,14 @@ class VllmSparseRuntime:
             except Exception:
                 pass
         try:
+            with open("/tmp/kvmem_apply.jsonl", "a") as _af9:
+                _af9.write("selmap first=%s mid=%s last=%s min=%s max=%s n=%s" % (
+                    sel[:3], sel[len(sel)//2:len(sel)//2+3], sel[-3:],
+                    min(sel), max(sel), len(sel)))
+                _af9.write(chr(10))
+        except Exception:
+            pass
+        try:
             open("/tmp/kvmem_apply.jsonl", "a").write(
                 "sel=%s missing=%s restored=%s rebaked=%s row=%s seq_len=%s inst=%s\n" % (
                     len(sel), len(missing), restored, _rebaked,
