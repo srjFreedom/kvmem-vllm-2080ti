@@ -4047,6 +4047,30 @@ class VllmSparseRuntime:
                 try:
                     if getattr(self, "d_mode", False) and getattr(st, "row", ()):
                         st.view_installed = True
+                        # design 661: THE ROLL, done where the state actually
+                        # lives (the plugin's caches see a different instance and
+                        # never had a state: measured has=False tok=-1 for 40 steps).
+                        _pt661 = int(self.page_tokens)
+                        _blk661 = _pt661 * 32
+                        _win661 = int(self.budget_tokens) + int(self.gen_reserve)
+                        _tok661 = int(getattr(st, "tokens", 0) or 0)
+                        _base661 = max(0, _tok661 - _win661)
+                        _old661 = int(getattr(st, "roll_base", 0) or 0)
+                        _k661 = max(0, (_base661 - _old661) // max(1, _blk661))
+                        _row661 = list(getattr(st, "row", ()) or ())
+                        try:
+                            open("/tmp/kvmem_roll.jsonl", "a").write(
+                                "%s tok=%s k=%s row=%s base=%s\n" % (
+                                    str(req)[-4:], _tok661, _k661,
+                                    len(_row661), _base661))
+                        except Exception:
+                            pass
+                        if _k661 > 0 and _row661 and _k661 < len(_row661):
+                            st.row = tuple(_row661[_k661:] + _row661[:_k661])
+                            st.roll_base = _base661
+                            self._install(int(row_index), list(st.row),
+                                          int(getattr(st, "seq_len", 0) or _win661),
+                                          [])
                 except Exception:
                     pass
                 self.log({"kind": "d_adopt_knife", "req": str(req)[-6:],
