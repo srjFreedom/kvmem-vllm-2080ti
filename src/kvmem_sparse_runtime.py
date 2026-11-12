@@ -7922,6 +7922,12 @@ class VllmSparseRuntime:
         # therefore PRESERVE the current view's middle blocks and spend
         # only the INCREMENT of question hits, never a full replace.
         _question_preserve = not bool(pressure)
+        try:
+            with open("/tmp/kvmem_at.jsonl", "a") as _af:
+                _af.write("AT7925")
+                _af.write(chr(10))
+        except Exception:
+            pass
         kept = set(range(min(sink_blocks, n_blocks))) \
             | set(range(max(0, n_blocks - recent_blocks), n_blocks))
         if _question_preserve:
@@ -8850,6 +8856,12 @@ class VllmSparseRuntime:
                     moved += 1
                 except Exception:
                     failed += 1
+        try:
+            with open("/tmp/kvmem_at.jsonl", "a") as _af:
+                _af.write("AT8853")
+                _af.write(chr(10))
+        except Exception:
+            pass
         _pre_row0 = [int(x) for x in (st.row or ())]
         _pre_off0 = int(getattr(st, "off_pages", 0) or 0)
         st.row = tuple(phys_pages)
