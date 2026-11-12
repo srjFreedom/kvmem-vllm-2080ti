@@ -3430,3 +3430,13 @@ Core 收到后置 `kvmem_view_ready/view_tokens`，并把 `blocks` 记为该请�
 ### 验收
 1. 89K 池 + 92K → 视图应用（`VIEW ... inst=1`）且答对；
 2. 140K → 答对；3. 250K → 答对；4. 两会话并发各跑 B 内长上下文互不越界；5. 离线四套。
+
+## 762. Round 496：更正一条判读 —— `pos=[0..4095]` 很可能是**槽位偏移**，不是模型位置
+- 代码事实：clamp 把 `num_computed_tokens` 设为 `window - num_new - lookahead` = 45,056 − 4,096 = **40,960**，
+  所以引擎的模型位置应是 **40,960..45,055**，而不是 0..4,095；
+- 我此前用 `view.query_position_slots(req)` 读到的 `[0..4095]` 更可能是**该 chunk 在窗口内的偏移/槽位**，
+  而不是 `positions` 张量本身。
+- 影响：**不要再按"回卷到 0"去改**；正确做法是直接读引擎的 `positions` 张量取证
+  （`runner.input_batch.positions` 或 prepare 后的 positions 张量），与 `seq_len`/视图长度对齐后，
+  再判断 rebake 的 δ 是否一致。
+- 这条更正避免了往错误方向（重写 Core 记账）走一大步。
