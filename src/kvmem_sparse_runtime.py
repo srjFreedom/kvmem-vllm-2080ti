@@ -790,10 +790,18 @@ class VllmSparseRuntime:
         placeholders = {v for v, c in cnt.items() if c > q * 2}
         win_blocks = max(1, int(self.budget_tokens + self.gen_reserve) // max(1, block_tokens))
         want = min(win_blocks, max(1, len(owned)))
+        import os as _osid
+        _identity = _osid.environ.get("KVMEM_D_IDVIEW") == "1"
         # selection in position order, restricted to what we can actually host
         sel_blocks = sorted({p // q for p in sel})
         keep = [b for b in sel_blocks if b in owned][:want]
         need = [b for b in sel_blocks if b not in owned]
+        if _identity:
+            # control: view = the LAST `want` owned blocks at their own slots and
+            # with no rebake. If this answers correctly the install path is fine
+            # and only the re-ordering/rebake is at fault.
+            tail_ids = [b for b in owned if b >= nb - want]
+            keep = tail_ids[-want:] if len(tail_ids) >= want else tail_ids
         spare = [b for b in owned if b not in keep]
         orch = self._orch.get(req)
         paged = None
@@ -859,7 +867,8 @@ class VllmSparseRuntime:
                         break
                 theta = (rotary_inv_freq(rot, base_theta, device=paged[0].device)
                          if (rot > 0 and paged) else None)
-                do_rb = _os753.environ.get("KVMEM_D_REBAKE") == "1" and theta is not None
+                do_rb = (_os753.environ.get("KVMEM_D_REBAKE") == "1"
+                         and not _identity and theta is not None)
                 ksl = slice(0, hd)
                 for i, b in enumerate(keep):
                     bid = int(row[b * q])
