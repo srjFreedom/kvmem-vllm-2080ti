@@ -3567,3 +3567,17 @@ npos=4096 offs=1 vlens=1 last=583576 / 604883
 - 140K 在 ring 路径下稳定可跑（usage 137,873、215 s、不崩），答案退化。
 **下一步（必须先取证，不要再改公式）**：在该钩子段**入口**写一行无条件见证（记录 `_dv/_vl` 是否 None、
 live 是否空、是否 d_mode），一次 140K 即可定位是哪一层把这段挡住；然后再接滚行。
+
+## 803. Round 553：**140K 从 `duct…` 变成连贯英文**（tokens 账修正后窗口机制生效）
+根因与修正：
+- `/tmp/kvmem_hookin.jsonl` 实测 `st.tokens = -1` ⇒ `tok > win` 恒假 ⇒ 滚行/视图表分支**永不触发**。
+- 改为读调度器的权威前沿 `num_computed_tokens[_i631]`（design 803）。
+结果（140K，`KVMEM_RING_VIEW=1`，无 NOBLADE）：
+- 152 s（比之前 215 s 快）、usage 137,873、输出 **`'Based settles'`（连贯英文，但答案错）**。
+- 见证：`tok=137874 win=45472 base=92403 k=0 rowlen=128`
+  - base 正确（137,874−45,472=92,402）；
+  - **`rowlen=128`** ⇒ 适配器的行镜像只有 128 页（4,096 token），而引擎真实行在 140K 时是 2,343 页；
+    滚行作用在一个过短的行上 ⇒ 内容仍然不对；
+  - `sl=0` ⇒ `st.seq_len` 未被维护（attention 长度已由 fork 表承载，暂不影响）。
+**下一步**：先把行镜像同步成引擎的真实行（`sync_row_from_engine`，宽度 = ceil(seq_lens/block)），
+再滚行；然后看答案是否正确。
