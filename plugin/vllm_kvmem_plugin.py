@@ -1409,6 +1409,38 @@ def _attach_sparse(runner, log_path):
                 except Exception:
                     pass
                 try:
+                    if _env_flag("KVMEM_D_META"):
+                        for _rq9 in live:
+                            _r9 = view.row_index(_rq9)
+                            if _r9 is None:
+                                continue
+                            _row9 = int(_r9)
+                            _ent = {}
+                            try:
+                                _ent["seq_lens"] = int(view.seq_lens()[_row9])
+                            except Exception:
+                                _ent["seq_lens"] = -1
+                            try:
+                                _bt = runner.block_tables.block_tables[0]
+                                _ent["row_head"] = [int(x) for x in _bt[_row9, :8].tolist()]
+                            except Exception:
+                                _ent["row_head"] = []
+                            try:
+                                _st9 = runtime._state.get(_rq9)
+                                _ent["st_seq"] = int(getattr(_st9, "seq_len", -1) or -1)
+                                _ent["st_tok"] = int(getattr(_st9, "tokens", -1) or -1)
+                                _ent["st_rowlen"] = len(getattr(_st9, "row", ()) or ())
+                            except Exception:
+                                pass
+                            try:
+                                with open("/tmp/kvmem_meta.jsonl", "a") as _mf:
+                                    _mf.write(str(_ent))
+                                    _mf.write(chr(10))
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+                try:
                     # design 660: standalone ring diagnostic - independent of the
                     # delta tables, so we can see whether the roll branch is even
                     # reachable (dv/vl may be None, which silently skipped 631/652).
