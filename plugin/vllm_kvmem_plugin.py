@@ -1651,9 +1651,34 @@ def _attach_sparse(runner, log_path):
                             _win631 = int(getattr(runtime, "budget_tokens", 0) or 0) \
                                 + int(getattr(runtime, "gen_reserve", 0) or 0)
                             if not _has:
-                                with _t631.no_grad():
-                                    _dv[int(_row)] = 0
-                                    _vl[int(_row)] = 0
+                                if (os.environ.get("KVMEM_RING_VIEW") == "1"
+                                        and _tok631 > _win631 > 0):
+                                    # design 801: the plain ring DOES compress once the
+                                    # prompt outgrows the row, so the tables must carry
+                                    # the window - zeroing them made the engine read the
+                                    # stock causal length (137,873) over a row that only
+                                    # holds 45,472 tokens of live blocks (measured:
+                                    # fluent-looking but degenerate output).
+                                    _base801 = _tok631 - _win631
+                                    with _t631.no_grad():
+                                        _dv[int(_row)] = _base801
+                                        _vl[int(_row)] = _win631 - 1
+                                    try:
+                                        _rn801 = getattr(view, "runner", None)
+                                        _ro801 = getattr(_rn801, "kvmem_rope_offset", None)
+                                        if _ro801 is not None:
+                                            _ro801.fill_(_base801)
+                                        _so801 = getattr(_rn801, "kvmem_slot_offset", None)
+                                        if _so801 is not None:
+                                            _so801.fill_(0)
+                                        if _rn801 is not None:
+                                            _rn801.kvmem_view_active = True
+                                    except Exception:
+                                        pass
+                                else:
+                                    with _t631.no_grad():
+                                        _dv[int(_row)] = 0
+                                        _vl[int(_row)] = 0
                             elif (os.environ.get("KVMEM_D_APPLY") == "1"
                                   and os.environ.get("KVMEM_D_NOACT") != "1"
                                   and bool(getattr(_st631, "view_installed", False))):
