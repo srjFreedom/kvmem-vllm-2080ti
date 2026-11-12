@@ -1183,6 +1183,9 @@ def _attach_sparse(runner, log_path):
                                 try:
                                     if _env_flag("KVMEM_D_META"):
                                         with open("/tmp/kvmem_build.jsonl", "a") as _bf:
+                                            _bf.write("BUILD rank=%s rt=%s " % (
+                                                getattr(runner, "tp_rank",
+                                                        getattr(runner, "rank", "?")), id(runtime)))
                                             _bf.write("base=%s new=%s ovr=%s" % (
                                                 [int(x) for x in _saved[:4].tolist()],
                                                 [int(x) for x in _new[:4].tolist()],
@@ -4661,6 +4664,16 @@ def _install(cls, module_name, probe, smoke, state):
                                 # the resident length and the compacted positions win.
                                 rt.before_step(req, row_index=row,
                                                position_slots=rt.view.query_position_slots(req))
+                                try:
+                                    if _env_flag("KVMEM_D_META"):
+                                        with open("/tmp/kvmem_seqcheck.jsonl", "a") as _sf0:
+                                            _sf0.write("INSTALL rank=%s rt=%s row=%s ovr=%s" % (
+                                                getattr(runner, "tp_rank", getattr(runner, "rank", "?")),
+                                                id(rt), row,
+                                                dict(list(getattr(rt, "_seq_override", {}).items())[:2])))
+                                            _sf0.write(chr(10))
+                                except Exception:
+                                    pass
                                 try:
                                     if _env_flag("KVMEM_D_META"):
                                         with open("/tmp/kvmem_seqcheck.jsonl", "a") as _sf:
