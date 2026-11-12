@@ -4284,8 +4284,12 @@ class VllmSparseRuntime:
                     and __import__("os").environ.get("KVMEM_D_APPLY") == "1"
                     and int(n_query_tokens or 0) == 1
                     and not bool(getattr(st, "roll_frozen", False))
-                    and int(getattr(st, "tokens", 0) or 0)
+                    and max(int(getattr(st, "tokens", 0) or 0),
+                            int(self._prompt_len.get(req, 0) or 0))
                     > int(self.budget_tokens) + int(self.gen_reserve)):
+                # design 759: use the PROMPT length, not the token book, for the
+                # "longer than the working set" test - with the clamp off the
+                # token book can lag the prompt and the view never fired.
                 self._reselect_blockwise(req, pressure=False)
                 if getattr(st, "row", ()):
                     st.view_installed = True
