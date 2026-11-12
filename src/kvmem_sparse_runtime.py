@@ -4845,6 +4845,26 @@ class VllmSparseRuntime:
                 # prefix-cache bookkeeping.
                 table[row_index, :len(row)] = torch.tensor(row, dtype=table.dtype,
                                                            device=table.device)
+            # design 813: the block COUNT must follow the row we installed.
+            # `gather_block_tables` copies `num_blocks[row]` entries and asserted
+            # on the device when the book still held the true count (~4,310) while
+            # our row only owns len(row) entries.
+            try:
+                _bt = None
+                try:
+                    _bt = self.view.runner.input_batch.block_table
+                except Exception:
+                    _bt = None
+                _nb = getattr(_bt, "num_blocks", None) if _bt is not None else None
+                _np = getattr(_nb, "np", None) if _nb is not None else None
+                if _np is not None:
+                    _np[:, int(row_index)] = int(len(row))
+                    try:
+                        _nb.copy_to_gpu(int(_np.shape[1]))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
         if self.install_seq:
             # design 627: snapshot the engine's own seq_lens for this batch row
             # before the first overwrite; entries we wrote must be restored when
