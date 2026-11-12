@@ -3395,3 +3395,38 @@ VIEW keep=29 need=1 restored=0 rebaked=28 seq_len=45472 inst=1 ph=0 pos=[0..4095
   `num_computed_tokens` / 分配账上（工作项 B），metadata 的 seq_lens 替换只是"读"的一侧。
 **最终形态（结论）**：D 的完整实现 = ①Core 侧把请求的"账"限制在 B（分配 + num_computed + positions 一起）；
 ②worker 侧按 B 组装视图（选块→自有块→rebake→装行）。两者缺一不可；本轮已分别验证了"只有②"会卡死、"只有①"会退化。
+
+## 761. Round 495：Core 侧「预算 = B」的实现规格（可直接照此编码）
+**目标**：请求从准入到 decode，全程只按 B 记账与分配；worker 视图与之一致。
+
+### S1. 准入与分配（`vllm/v1/core/scheduler.py` + `kv_cache_manager.py`）
+- 新请求的长度记为 `L_true`（tokenizer 给出），但 **分配上限** `L_alloc = min(L_true, B)`；
+- `allocate_slots` 只在 `num_computed < B` 时分配；`num_computed` 达到 B 后**不再增长**（请求进入"视图态"）；
+- prefill 仍在 worker 上按真 token 流跑（`slot_mapping` 由 worker 的 delta 决定），但 Core 只记 B 的账。
+
+### S2. 记账（`Request`）
+新增三个字段（Core 侧，单一来源）：
+```python
+request.kvmem_budget_tokens = B           # 该请求（该用户）的份额
+request.kvmem_view_ready   = False        # worker 已装好视图
+request.kvmem_view_tokens  = 0            # 视图实际 token 数（= n_blocks * block_tokens）
+```
+- `num_computed_tokens` 的语义改为"**视图内**已计算 token 数"：prefill 期间照常增长，达到 B 后**冻结**；
+- `positions` 由 `num_computed + 本步偏移` 生成 ⇒ 天然落在 `[0, B)` 内（与视图坐标一致，不需要额外回卷）。
+
+### S3. 元数据（已实现的部分）
+- `attention_seq_lens` 用 `request.kvmem_view_tokens`（worker 回传，见 S4）替换 seq_lens ✓（已有 `_seq_override` 通道，改成读 Core 值）；
+- GDN 层继续用真长度（`num_computed` 真值另存一份 `num_computed_true`）。
+
+### S4. worker → Core 回传（复用 block channel 的 `compact` 消息）
+worker 装好视图后发送：`{kind: "view", request, view_tokens, blocks: [ids]}`；
+Core 收到后置 `kvmem_view_ready/view_tokens`，并把 `blocks` 记为该请求持有（用于份额校验）。
+
+### S5. 份额（多用户）
+- 池块总数 `N_pool`；每用户份额 `S = B / block_tokens`（当前 29 块）；
+- Core 维护 `share_owner[block] = session_id`；分配只从**本会话未用满的份额**里取；
+- 视图块固定占用该会话的 S 块，历史块落盘后归还同会话（或全局池）。
+
+### 验收
+1. 89K 池 + 92K → 视图应用（`VIEW ... inst=1`）且答对；
+2. 140K → 答对；3. 250K → 答对；4. 两会话并发各跑 B 内长上下文互不越界；5. 离线四套。
