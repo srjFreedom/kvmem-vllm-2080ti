@@ -5259,6 +5259,17 @@ class VllmSparseRuntime:
                 _w2 = -(-max(0, _sl) // max(1, _blk))
                 if _w2 > w:
                     w = _w2
+                # design 830: never mirror past the page pool. The block table is
+                # wider than the pool, so entries beyond num_blocks() are engine
+                # garbage - measured: a 1,715-entry row carried values up to 4,263
+                # while the KV tensors only have 2,842 pages, and every restore
+                # target derived from them asserted on the device.
+                try:
+                    _np830 = int(self.view.num_blocks())
+                    if _np830 > 0 and w > _np830:
+                        w = _np830
+                except Exception:
+                    pass
         except Exception:
             pass
         if st is None or w <= 0:
