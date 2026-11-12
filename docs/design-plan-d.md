@@ -3318,3 +3318,15 @@ bp=49 pt=32 rowlen=2343 longest_run=677 seq_lens=74948   （88K 请求，绿跑 
 2. 占位块的 49 页逐页从 `orch.store` 恢复到目标块槽（`target_block_id*49 + inner`），无 store 则跳过该块；
 3. 恢复后按 `(i − b) × 1,568` 重旋；
 4. 用 `row[pos//32]` 与 `len(row)==ceil(seq/32)` 双断言校验。
+
+## 750-751. Round 488：KV 张量是**页索引**，行是块 id ⇒ 物理槽 = `block_id*49 + page%49`
+**取证**：`paged_kv()[0].shape = (2842, 2, 32, 512)`（uint8）
+- 2,842 = 池内**页数**（2842×32 = 90,944 token ≈ 池 88,914 ✓）
+- 2 = KV heads；32 = page_tokens；512 = 2×256 字节（K/V 各 256，fp8）
+⇒ KV 按**页**寻址，而行里存的是**块 id**（1 块 = 49 页）；所以页 p 的物理槽 =
+`row[p]*49 + (p % 49)`。**此前所有 store/restore/commit 都把块 id 当页槽用**，存进去的是错误字节。
+**已修（design 750）**：滚行提交改为按上式取址。读数：92K 请求 106s **答对**（绿），`store=1,536`。
+**下一步**：把同一取址规则应用到
+① `_apply_selection_d` 的占位块恢复（目标槽 = `bid*49 + inner`）；
+② 所有 `restore_pages_batch`/`store.get` 路径；
+③ 然后重跑打包测试（这次字节是真的）。
