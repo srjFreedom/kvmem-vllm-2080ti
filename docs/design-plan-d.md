@@ -3170,3 +3170,11 @@ rotate_k_pages_fp8(kv_tensor, page_map, page_tokens, inv_freq, rotary_dim, k_sli
 ⇒ `_seq_override` 在 builder 所在的 rank 上是**空的**：D 的安装只发生在 rank0 的 runtime 上，rank1 的 runtime 里连请求 state 都没有（此前 `st_tok=-1`）。
 **这就是"任何设置都不生效"的最终机制**：TP=2 时需要**逐 rank 镜像** D 状态与 `_seq_override`；当前只有单 rank 有。
 **下一步（唯一）**：让 `_state`/`_seq_override`/行安装在**每个 rank** 建立（在 `before_step` 里按 `runner.tp_rank` 全量执行，或由 rank0 广播 rank 无关的覆盖值），并断言两 rank 的 builder 都看到 `new == 窗口`。这一步通过后，打包视图才可能生效。
+
+## 732. Round 477：override 的写入点已定位；两条路径各写各的
+- 代码事实（`src/kvmem_sparse_runtime.py`）：
+  - 视图路径（`view_installed=True`，4625）：`_seq_override[row] = len(row)*page`；
+  - 经典/环形路径（4658）：`_seq_override[row] = step_end`（真长度）。
+- 读数（88K，`NOBLADE=1`）：builder 看到 `base=new=74,955`（override=真长度）⇒ 环形路径**不做压缩**，是原生全量注意力，所以"绿"；
+- 打包路径下 override 会变成视图长度，但**行安装**受 `install_row` 多重条件约束（`not sched_compact`、`st.row`、视图标记），实测退化说明"seq 覆盖生效而行未按视图重排"仍可能发生。
+**下一步（唯一）**：在打包路径下同时断言两件事——`_seq_override[row] == len(row)*page` 且 `block_table.row[:len(row)] == st.row`；两者必须同时成立，否则内核会读到"短行 + 长序列"的组合。
