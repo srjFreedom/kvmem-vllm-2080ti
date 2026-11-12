@@ -4973,6 +4973,19 @@ class VllmSparseRuntime:
 
         Returns the number of entries added.
         """
+        try:
+            import os as _os742
+            if _os742.environ.get("KVMEM_D_META") == "1":
+                _st742 = self._state.get(req)
+                with open("/tmp/kvmem_syncrow.jsonl", "a") as _srf:
+                    _srf.write("req=%s written=%s rowlen=%s tok=%s ntreq=%s" % (
+                        str(req)[-6:], int(written),
+                        len(getattr(_st742, "row", ()) or ()),
+                        int(getattr(_st742, "tokens", -1) or 0),
+                        len(self._state)))
+                    _srf.write(chr(10))
+        except Exception:
+            pass
         st = self._state.get(req)
         w = int(written or 0)
         if st is None or w <= 0:
