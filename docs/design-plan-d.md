@@ -3695,3 +3695,14 @@ restore_err n=49 CUDA error: device-side assert triggered
   `kernel_block_sizes` 参与），**不能把行值当页号**。
 **下一步（一次 console 打印即可定案）**：在 `compute_slot_mappings` 之后打印第一条 slot 值与
 `block_table[0][0..3]`，反推 `slot = f(block_id)` 的公式；拿到 f 之后，restore 目标 = f(row[slot])。
+
+## 832-833. Round 568：映射公式确认 + 组选择问题
+- 内核（`_compute_slot_mappings_kernel`）：`slot_ids = block_numbers * kernel_block_size + block_offsets`
+  ⇒ **页号 = block_id**（kernel_block_size=32），因此 block_id 必须 < 池页数（2,842）。
+- 但 140K 时镜像行出现 4,263 > 2,842 ⇒ 这些值只能来自**另一组的块表**；
+  `LiveRunnerView.block_table_rows()` 用 `sorted(attn_groups)[0]`，混合模型可能有多套 full-attention 组
+  （各自独立池），`[0]` 未必是与 `paged_kv()` 同一池的那组。
+- attach 期 `kv_caches` 还是空的（`n=0`），所以池形状是运行时懒绑定得到的；
+  需要把"组 → paged 张量"的配对做成按池大小/组 id 显式匹配。
+**下一步**：在 `_apply_selection_d` 打印 `attn_groups`、每组的 `block_table_rows()[g][row][:4]`、
+以及 `paged` 每张的 shape，确认哪一组与 2,842 页同池；然后用那一组的行值。
