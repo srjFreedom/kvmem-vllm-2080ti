@@ -73,7 +73,7 @@ class _ReqState:
     # row:      PHYSICAL slot ids written into the block table (what the kernel reads).
     # logical:  logical page id (true token page) occupying each row position, so a written
     #           token can be attributed to the history block it belongs to.
-    __slots__ = ("row, knife_frontier", "logical", "seq_len", "tokens", "next_page", "steps", "spare",
+    __slots__ = ("row", "logical", "seq_len", "tokens", "next_page", "steps", "spare",
                  "row_index", "prefill_done", "query_reselected", "resume", "resumed",
                  "replay_snap", "replay_n", "replay_at", "replay_at_resident", "rebuilt",
                  "compacted_in_prefill", "applied_view_coord", "off_pages", "window_src",
@@ -86,7 +86,7 @@ class _ReqState:
                  "rebuild_armed",
                  "resume_needs_retrieval",
                  "row_head",
-                 "view_installed",)
+                 "view_installed", "knife_frontier",)
 
     def __init__(self):
         self.row = ()
