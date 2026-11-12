@@ -4019,6 +4019,16 @@ class VllmSparseRuntime:
                                       bool(getattr(st, "view_installed", False))))
         except Exception:
             pass
+        # design 667: the roll must run EVERY step and must live in before_step -
+        # the publish method that carried it never runs for a D request (measured:
+        # adopt logged row=1666 while publish logged nothing).
+        try:
+            if getattr(self, "d_mode", False) and getattr(st, "row", ()):
+                st.view_installed = True
+                if int(getattr(st, "tokens", 0) or 0) > int(self.budget_tokens) + int(self.gen_reserve):
+                    self._roll_window(req, st, row_index)
+        except Exception:
+            pass
         # design 593: the knife must fire for every over-window request.
         # Waiting for the pressure watermark meant it never fired at all
         # (measured: d_view_needle=0 across 140K/152K/250K), so the whole
