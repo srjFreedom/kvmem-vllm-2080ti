@@ -4650,6 +4650,18 @@ def _install(cls, module_name, probe, smoke, state):
                                 # the resident length and the compacted positions win.
                                 rt.before_step(req, row_index=row,
                                                position_slots=rt.view.query_position_slots(req))
+                                try:
+                                    if _env_flag("KVMEM_D_META"):
+                                        with open("/tmp/kvmem_seqcheck.jsonl", "a") as _sf:
+                                            _sf.write("row=%s seq_lens=%s st_seq=%s tok=%s" % (
+                                                row, int(rt.view.seq_lens()[int(row)]),
+                                                int(getattr(rt._state.get(req),
+                                                            "seq_len", -1) or -1),
+                                                int(getattr(rt._state.get(req),
+                                                            "tokens", -1) or -1)))
+                                            _sf.write(chr(10))
+                                except Exception:
+                                    pass
                 except Exception as exc:
                     # belt: the append itself must not die (traceback module
                     # resolved locally; prior versions of this handler were
