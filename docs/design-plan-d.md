@@ -3150,3 +3150,10 @@ rotate_k_pages_fp8(kv_tensor, page_map, page_tokens, inv_freq, rotary_dim, k_sli
 ⇒ **旋转与否都不影响退化**，说明问题不在相位帧，而在「视图长度/槽位 vs 引擎自己的元数据（`num_computed`、`seq_lens`、`block_table`）」的一致性。
 **下一步（唯一）**：在首个 decode step 同时 dump：`view.seq_lens()[row]`、`block_table.row.copy()`、`positions`、Core 的 `num_computed`，并在「环形（绿）」与「打包（退化）」两种情形各取一份对照——差异点即为最后的不变量。
 **当前状态**：绿点已恢复（92K 正确，103s），实验路径在 `KVMEM_D_APPLY` 门后。
+
+## 728-729. Round 475：两个 runtime id = TP2 两个 worker（非双实例 bug）；但 install 未落地
+- 取证：插件钩子 `rt_id=131884745047696`（rank1），`before_step` `id=131884786122384`（rank0）⇒ **这是 TP2 的两个 worker**，不是双实例缺陷。此前把它当 bug 的判断已更正。
+- 更重要的读数：`seq_lens = 74,955`（88K 请求），≈ 真长度而非窗口（45,056）⇒ **我们的 `seq_lens` 覆盖没有落地到该 rank**；
+  `st_seq=-1/st_tok=-1/st_rowlen=1` 说明该 rank 的 `_state` 里查不到这个请求（D 状态只在一个 rank 上建立/或 key 不同）。
+- 因此：**D 的安装（行/seq/位置）在 rank 维度上没有对齐** —— 这解释了为什么环形的"绿"来自引擎原生路径，而打包后的写法只影响了某个 rank。
+- 下一步（唯一）：确认 D 状态/安装需要在**每个 rank** 建立（`_state` 的 key 是 req 字符串，应当两 rank 都有；若只有一 rank，需查 `_attach_sparse` 的 rank 过滤），然后逐 rank 断言 `seq_lens == 窗口`。
