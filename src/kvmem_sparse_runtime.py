@@ -966,6 +966,21 @@ class VllmSparseRuntime:
         except Exception:
             pass
         try:
+            with open("/tmp/kvmem_apply.jsonl", "a") as _afv:
+                _afv.write("VERIFY ovr=%s seq_lens=%s" % (
+                    int(getattr(self, "_seq_override", {}).get(int(getattr(st, "row_index", -1)), -1)),
+                    int(self.view.seq_lens()[int(getattr(st, "row_index", 0))])))
+                try:
+                    _tb9 = self.view.block_table_rows()[0]
+                    _afv.write(" tbl=%s strow=%s" % (
+                        [int(x) for x in _tb9[int(getattr(st, "row_index", 0)), :6].tolist()],
+                        [int(x) for x in list(st.row)[:6]]))
+                except Exception as _ee9:
+                    _afv.write(" tbl_err=%s" % str(_ee9)[:60])
+                _afv.write(chr(10))
+        except Exception:
+            pass
+        try:
             open("/tmp/kvmem_apply.jsonl", "a").write(
                 "sel=%s missing=%s restored=%s rebaked=%s row=%s seq_len=%s inst=%s\n" % (
                     len(sel), len(missing), restored, _rebaked,
