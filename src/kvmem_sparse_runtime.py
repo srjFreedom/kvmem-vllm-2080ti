@@ -749,17 +749,18 @@ class VllmSparseRuntime:
                 pass
 
     def _apply_selection_d(self, req, st):
-        """design 746: BLOCK-granular view assembly.
+        """design 753: build the view from the request's OWN blocks.
 
-        The engine row is PAGE granular but each entry is a BLOCK id, and one
-        block id repeats for its q pages (measured: top=[(19,32),(20,32)],
-        len(row)=ceil(window/32)). So the packing unit is the block
-        (q * page_tokens = 1024 tokens), and reordering a block is just writing
-        its id into the target block slot - no byte movement, and its K must be
-        rotated by (i - b_orig) * block_tokens.
+        Facts (measured): the row is page granular, its values are BLOCK ids,
+        one block spans `block_pages` (49) pages, and retired pages carry a
+        placeholder block id that repeats many times. Writing restored KV into a
+        placeholder position would stomp a block the engine may already have
+        given to someone else, so the view is assembled only from blocks this
+        request really owns; pages wanted from retired blocks are restored from
+        the host store into the request's own spare blocks.
         """
-        import os as _os746
-        if _os746.environ.get("KVMEM_D_APPLY") != "1":
+        import os as _os753
+        if _os753.environ.get("KVMEM_D_APPLY") != "1":
             return
         prop = getattr(self, "_last_proposal", None)
         row = list(getattr(st, "row", ()) or ())
@@ -769,124 +770,128 @@ class VllmSparseRuntime:
         if not sel:
             return
         pt = max(1, int(self.page_tokens))
-        q = max(1, int(getattr(self, "block_pages", 0) or 32))
+        q = max(1, int(getattr(self, "block_pages", 0) or 1))
         block_tokens = q * pt
         nb = len(row) // q
         if nb <= 0:
             return
-        # selected blocks, position order
-        blocks = []
-        seen = set()
-        for p in sorted(sel):
-            b = p // q
-            if b not in seen:
-                seen.add(b)
-                blocks.append(b)
-        n = min(len(blocks), nb)
-        # fill up to the working-set window in blocks (Core rewinds num_computed
-        # to the window, so the view length must match it)
-        win_blocks = int(self.budget_tokens + self.gen_reserve) // max(1, block_tokens)
-        if win_blocks > 0:
-            b_recent = [b for b in range(nb - 1, -1, -1) if b not in seen]
-            while len(blocks) < min(win_blocks, nb) and b_recent:
-                b = b_recent.pop(0)
-                blocks.append(b)
-                seen.add(b)
-            n = min(len(blocks), nb)
-        try:
-            _pv9 = self.view.paged_kv()
-            with open("/tmp/kvmem_kvshape.jsonl", "a") as _kf:
-                _kf.write("layers=%s shape=%s dtype=%s page_tokens=%s bp=%s" % (
-                    len(_pv9), tuple(_pv9[0].shape), str(_pv9[0].dtype),
-                    int(pt), int(q)))
-                _kf.write(chr(10))
-        except Exception as _ek:
-            try:
-                with open("/tmp/kvmem_kvshape.jsonl", "a") as _kf2:
-                    _kf2.write("err %s" % str(_ek)[:100])
-                    _kf2.write(chr(10))
-            except Exception:
-                pass
-        row_new = list(row)
-        rebaked = 0
+        from collections import Counter as _C753
+        cnt = _C753(int(v) for v in row)
+        owned = [b for b in range(nb) if cnt[int(row[b * q])] <= q * 2]
+        placeholders = {v for v, c in cnt.items() if c > q * 2}
+        win_blocks = max(1, int(self.budget_tokens + self.gen_reserve) // max(1, block_tokens))
+        want = min(win_blocks, max(1, len(owned)))
+        # selection in position order, restricted to what we can actually host
+        sel_blocks = sorted({p // q for p in sel})
+        keep = [b for b in sel_blocks if b in owned][:want]
+        need = [b for b in sel_blocks if b not in owned]
+        spare = [b for b in owned if b not in keep]
+        orch = self._orch.get(req)
+        paged = None
         try:
             paged = self.view.paged_kv()
-            from kvmem_sparse_rope import rotate_k_pages_fp8, rotary_inv_freq
-            cfg = self.view.runner.model_config.hf_config
-            cands = [cfg, getattr(cfg, "text_config", None)]
-            hd = rot = 0
-            base_theta = 1e6
-            for _c in cands:
-                if _c is None:
-                    continue
-                _hd = int(getattr(_c, "head_dim", 0) or 0)
-                if _hd <= 0:
-                    _hs = int(getattr(_c, "hidden_size", 0) or 0)
-                    _nh = int(getattr(_c, "num_attention_heads", 0) or 0)
-                    _hd = (_hs // _nh) if (_hs and _nh) else 0
-                if _hd > 0:
-                    hd = _hd
-                    rot = int(_hd * float(getattr(_c, "partial_rotary_factor", 1.0) or 1.0))
-                    base_theta = float(getattr(_c, "rope_theta", 1e6) or 1e6)
-                    break
-            theta = rotary_inv_freq(rot, base_theta, device=paged[0].device) if rot > 0 else None
-            do_rb = _os746.environ.get("KVMEM_D_REBAKE") == "1" and rot > 0
-            ksl = slice(0, hd)
-            for i, b in enumerate(blocks[:n]):
-                bid = int(row[b * q])
-                if bid <= 0:
-                    continue
-                row_new[i * q:(i + 1) * q] = [bid] * q
-                if do_rb and b != i:
-                    shift_pages = (i - b) * q
-                    pmap = [(p, p + shift_pages) for p in range(i * q, (i + 1) * q)]
-                    for t in paged:
-                        rotate_k_pages_fp8(t, pmap, int(pt), theta, rot, ksl)
-                    rebaked += 1
-        except Exception as _e746:
+        except Exception:
+            paged = None
+        restored = 0
+        try:
+            if orch is not None:
+                for b in need:
+                    if len(keep) >= want or not spare:
+                        break
+                    dst_b = spare.pop(0)
+                    dst_bid = int(row[dst_b * q])
+                    if dst_bid <= 0 or dst_bid in placeholders:
+                        continue
+                    pairs = []
+                    for j in range(q):
+                        pg = b * q + j
+                        if b < len(st.logical) and st.logical[b] is not None:
+                            pg = int(st.logical[b]) * q + j
+                        if orch.store.has(pg):
+                            pairs.append((pg, dst_bid * q + j))
+                    if len(pairs) < q // 2:
+                        continue
+                    orch.restore_pages_batch(pairs)
+                    restored += 1
+                    keep.append(dst_b)
+        except Exception as _e753:
             try:
-                with open("/tmp/kvmem_apply.jsonl", "a") as _af746:
-                    _af746.write("pack_err %s" % str(_e746)[:140])
-                    _af746.write(chr(10))
+                with open("/tmp/kvmem_apply.jsonl", "a") as _af753:
+                    _af753.write("restore_err %s" % str(_e753)[:120])
+                    _af753.write(chr(10))
             except Exception:
                 pass
         try:
+            if len(keep) < want:
+                for b in owned:
+                    if len(keep) >= want:
+                        break
+                    if b not in keep:
+                        keep.append(b)
+            row_new = list(row)
+            rebaked = 0
+            try:
+                from kvmem_sparse_rope import rotate_k_pages_fp8, rotary_inv_freq
+                cfg = self.view.runner.model_config.hf_config
+                hd = rot = 0
+                base_theta = 1e6
+                for _c in (cfg, getattr(cfg, "text_config", None)):
+                    if _c is None:
+                        continue
+                    _hd = int(getattr(_c, "head_dim", 0) or 0)
+                    if _hd <= 0:
+                        _hs = int(getattr(_c, "hidden_size", 0) or 0)
+                        _nh = int(getattr(_c, "num_attention_heads", 0) or 0)
+                        _hd = (_hs // _nh) if (_hs and _nh) else 0
+                    if _hd > 0:
+                        hd = _hd
+                        rot = int(_hd * float(getattr(_c, "partial_rotary_factor", 1.0) or 1.0))
+                        base_theta = float(getattr(_c, "rope_theta", 1e6) or 1e6)
+                        break
+                theta = (rotary_inv_freq(rot, base_theta, device=paged[0].device)
+                         if (rot > 0 and paged) else None)
+                do_rb = _os753.environ.get("KVMEM_D_REBAKE") == "1" and theta is not None
+                ksl = slice(0, hd)
+                for i, b in enumerate(keep):
+                    bid = int(row[b * q])
+                    if bid <= 0 or bid in placeholders:
+                        continue
+                    row_new[i * q:(i + 1) * q] = [bid] * q
+                    if do_rb and b != i and paged:
+                        shift = (i - b) * q
+                        pmap = [(pp, pp + shift) for pp in range(i * q, (i + 1) * q)]
+                        for t in paged:
+                            rotate_k_pages_fp8(t, pmap, int(pt), theta, rot, ksl)
+                        rebaked += 1
+            except Exception as _e753b:
+                rebaked = -1
             st.row = tuple(row_new)
             st.logical = tuple([-1] * len(row_new))
             st.seq_len = min(int(self.budget_tokens) + int(self.gen_reserve),
-                             n * block_tokens)
-        except Exception:
-            pass
-        _inst = -1
-        try:
+                             len(keep) * block_tokens)
             _ri = int(getattr(st, "row_index", -1))
+            _inst = -1
             if _ri >= 0:
                 self._seq_override[int(_ri)] = int(st.seq_len)
-                _ps746 = []
+                _ps = []
                 try:
-                    _ps746 = list(self.view.query_position_slots(req))
+                    _ps = list(self.view.query_position_slots(req))
                 except Exception:
-                    _ps746 = []
-                self._install(_ri, list(st.row), int(st.seq_len), _ps746)
+                    _ps = []
+                self._install(int(_ri), list(st.row), int(st.seq_len), _ps)
                 _inst = 1
-        except Exception as _e746b:
-            _inst = -2
+            with open("/tmp/kvmem_apply.jsonl", "a") as _af:
+                _af.write("VIEW keep=%s need=%s restored=%s rebaked=%s seq_len=%s inst=%s ph=%s" % (
+                    len(keep), len(need), restored, rebaked, int(st.seq_len), _inst,
+                    len(placeholders)))
+                _af.write(chr(10))
+        except Exception as _e753c:
             try:
-                with open("/tmp/kvmem_apply.jsonl", "a") as _af746b:
-                    _af746b.write("install_err %s" % str(_e746b)[:140])
-                    _af746b.write(chr(10))
+                with open("/tmp/kvmem_apply.jsonl", "a") as _af2:
+                    _af2.write("view_err %s" % str(_e753c)[:140])
+                    _af2.write(chr(10))
             except Exception:
                 pass
-        try:
-            with open("/tmp/kvmem_apply.jsonl", "a") as _af:
-                _af.write("BLOCKPACK blocks=%s rebaked=%s rowlen=%s seq_len=%s inst=%s ovr=%s" % (
-                    n, rebaked, len(getattr(st, "row", ()) or ()),
-                    int(getattr(st, "seq_len", 0) or 0), _inst,
-                    int(getattr(self, "_seq_override", {}).get(
-                        int(getattr(st, "row_index", -1)), -1))))
-                _af.write(chr(10))
-        except Exception:
-            pass
 
     def _dump_side(self, tag, req, st=None):
         """design 629: dump the DEVICE-side state the kernel actually sees."""
