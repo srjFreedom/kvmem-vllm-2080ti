@@ -4163,7 +4163,11 @@ class VllmSparseRuntime:
                 try:
                     st.adopt_knife_pending = False
                     st.knife_frontier = int(getattr(st, "tokens", 0) or 0)
-                    self._reselect_blockwise(req, pressure=True)
+                    # design 696: run the QUESTION lane, not MID. After the first
+                    # question knife the terminal lock makes every MID call return
+                    # immediately (measured: 'question_lock' bail, row never
+                    # reshaped), so pressure=True could never install a view.
+                    self._reselect_blockwise(req, pressure=False)
                     if getattr(st, "row", ()):
                         st.view_installed = True
                     # design 691: once the knife has chosen a view, the per-step
@@ -7752,6 +7756,10 @@ class VllmSparseRuntime:
         if (getattr(self, "d_mode", False) and bool(pressure)
                 and self._state.get(req) is not None
                 and getattr(self._state[req], "d_question_cut", False)):
+            try:
+                open("/tmp/kvmem_bail.jsonl", "a").write("question_lock\n")
+            except Exception:
+                pass
             return st
         # UNCONDITIONAL knife-entry evidence (previous probes sat INSIDE the
         # `if core is not None` gate, so "final ran without scores" and
