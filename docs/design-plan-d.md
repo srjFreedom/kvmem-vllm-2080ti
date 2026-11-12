@@ -3138,3 +3138,15 @@ rotate_k_pages_fp8(kv_tensor, page_map, page_tokens, inv_freq, rotary_dim, k_sli
 - 728 之后所有相关代码都在 `KVMEM_D_APPLY` 门后，默认不进入生产路径。
 
 **回退记录（本轮）**：700（放开 no-shrink 门）、696（改问题刀）都在实测中破坏了绿点，已分别用 721/722 恢复原语义 —— 教训：**任何让刀真正改写视图的改动都必须以 92K 绿点为门禁先验**。
+
+## 727. Round 474：搬迁/重旋/长度的四种组合全部退化 ⇒ 需要在线元数据对照
+| 组合（`KVMEM_D_APPLY=1`）| 参数 | 输出 |
+|---|---|---|
+| 指针重排 | row 不变 | ❌ |
+| 物理搬迁 + 重旋 (i−p) | `rebaked=556, seq_len=45056` | ❌ |
+| 精确选择长度 | `seq_len=19360` | ❌ |
+| 填满窗口 + 重旋 | `sel=1323, rebaked=1274, seq_len=42336` | ❌ |
+| **搬迁但不重旋** | `rebaked=0, seq_len=42336` | ❌ |
+⇒ **旋转与否都不影响退化**，说明问题不在相位帧，而在「视图长度/槽位 vs 引擎自己的元数据（`num_computed`、`seq_lens`、`block_table`）」的一致性。
+**下一步（唯一）**：在首个 decode step 同时 dump：`view.seq_lens()[row]`、`block_table.row.copy()`、`positions`、Core 的 `num_computed`，并在「环形（绿）」与「打包（退化）」两种情形各取一份对照——差异点即为最后的不变量。
+**当前状态**：绿点已恢复（92K 正确，103s），实验路径在 `KVMEM_D_APPLY` 门后。
