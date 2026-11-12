@@ -3592,3 +3592,17 @@ live 是否空、是否 d_mode），一次 140K 即可定位是哪一层把这�
 - 810：apply 前先 sync（避免用 1,536 行截断 4,310 行的表）；仍然 **restore/install 处 device-side assert**。
 **结论**：ring 通道已是可用的"载体"；缺的是"把中段块塞进窗口"的搬运（restore + install）在 140K 下不安全。
 下一步应在此处用**断点/console**逐个文件核查 restore 的目标页号与 store 张量形状（4 分钟一次的黑盒循环效率太低）。
+
+## 811-812. Round 555：assert 精确定位到 `gather_block_tables`（Triton）
+eager 模式的 traceback（Worker_TP1）：
+```
+gpu/model_runner.py:1995 execute_model
+gpu/model_runner.py:1664 prepare_attn
+gpu/block_table.py:166 gather_block_tables   ← Triton kernel，device-side assert
+```
+- `gather_block_tables` 按 `self.num_blocks.gpu[i]` 拷贝该请求的行条目数；
+- 我们的 `_install` 只写 `table[row, :len(row)]`（1,536），**没有更新 `num_blocks[row]`**；
+- 于是 kernel 按真实块数（≈4,310）拷贝，越过我们拥有的区间 ⇒ assert。
+- `restore` 侧已加边界过滤（`/tmp/kvmem_restore.jsonl: pairs=0 kept=0 npages=2842`）——它现在不崩，崩的是 gather。
+**下一步**：安装视图时同步 `num_blocks[row] = ceil(seq_len / block_tokens)`（或等价地
+`view.num_blocks.np[row] = …` 并 copy_to_gpu），让 gather 只拷我们拥有的区间。
