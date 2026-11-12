@@ -3706,3 +3706,17 @@ restore_err n=49 CUDA error: device-side assert triggered
   需要把"组 → paged 张量"的配对做成按池大小/组 id 显式匹配。
 **下一步**：在 `_apply_selection_d` 打印 `attn_groups`、每组的 `block_table_rows()[g][row][:4]`、
 以及 `paged` 每张的 shape，确认哪一组与 2,842 页同池；然后用那一组的行值。
+
+## 834-835. Round 569：块表宽 8,232；按窗口裁剪后 rowlen=1,421，但值域仍到 4,263
+`/tmp/kvmem_inplace.jsonl`：
+```
+guard inp=True orch=True need=12 nb=29 q=49 rowlen=1421 rowmin=6 rowmax=4263 npages=2842
+groups=[3]  tables=[(1, 8232)]  shapes n=16 (2842,2,32,512) blocks=2842
+```
+- `groups=[3]` 只有**一个** full-attention 组，表宽 8,232（= max_model_len/32），所以"选错组"被排除；
+- 按窗口裁到 1,421 项后，**前 1,421 项里仍有 4,263** ⇒ 引擎真实写下的 block id 就超过本 rank 的 2,842 页；
+- 结合内核 `slot = block_id*32 + off` 与 90,944 slot 上限，唯一自洽解释是：
+  **block id 是跨 rank 的全局编号**（2,842 × 2 ≈ 5,684 ≥ 4,263），本 rank 的本地页号需要由全局 id 推导
+  （很可能是 `id % per_rank_pages` 或 `id // tp`）。
+**下一步**：打印 `runner.parallel_config.tensor_parallel_size` 与 `cache_config.num_gpu_blocks`、
+以及 `kernel_block_size`，确定 per-rank 页数与全局 id 的换算，再据此修正 restore 目标。
