@@ -2899,3 +2899,13 @@ skip=不重放只装视图 - 顺路）。
   2. "超池"指的是**对话历史总量**超出池，而不是单条 prefill 超池（turn 2 只需 prefill 增量，历史在主机）。
 - 因此：用"89K 池 + 单条 140K 提示"当验收床与产品语义不符；正确的超池验收是**多轮对话**：总历史 > 池，每轮 prefill 增量 < 池，decode 前从主机恢复按 query 选中的块。
 - 下一步：把测试改成多轮（turn1 建历史 → turn2 提问 needle），在 89K 池上验证 resume/选块路径能否答对。
+
+## 671. Round 449：为什么"多轮超池"也不是现成路径
+- 多轮场景下 vLLM 每次请求都会带上**完整历史**：turn2 的 prefill = 历史 + 新增。即使用 resume 跳过前缀，恢复的也是**全前缀**（60K）占用池，turn2 仍需 60K+50K > 89K。
+- 因此真正的超池只能靠：**历史全量落主机 + decode 前按 query 只恢复被选中的块**（用户流程第 2–3 步）。这正是当前实现缺失的能力（现在只有"全前缀 resume"与"整行环滚"两种，都不满足）。
+- 结论：Plan D 的剩余工作不是"再调一个参数"，而是补上 **"选块恢复"** 这条数据通路：
+  ① prefill 完把全部 KV 打包到 HostPageStore（已有 `put/get` + `restore_pages_batch` 纯拷贝）；
+  ② 释放 GPU 行（行内容置空/零块）；
+  ③ decode 前用 query 打分（mean-K 已有 `statistics` 通道）选 sink+recent+top-k；
+  ④ 只把这些块 `restore_pages_batch` 回窗口行，并按行内顺序重排（环语义）；
+  ⑤ 生成写 R；超 R 再追加/再选。
