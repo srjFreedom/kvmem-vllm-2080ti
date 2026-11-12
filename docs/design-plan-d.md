@@ -3062,3 +3062,9 @@ skip=不重放只装视图 - 顺路）。
   **A. 回卷** `num_computed_tokens` 到视图长度（查询索引从视图位置开始）；
   **B. rebake** 选中页 KV 到视图位置空间（否则 RoPE 相位与新位置不匹配）。
 - 二者缺一不可；当前只做到了「打包 + 装行 + 视图长度」，因此必然退化。
+
+## 709-710. Round 468：legacy 压缩与 D 视图仍互斥；"duct" 前缀是已知交替伪影
+- D + `INREQUEST_COMPACTION=1`（刀已真开）→ 92K 请求 116s **HTTP 错误**（legacy compact 拒绝 D 视图）。
+  ⇒ 「A 回卷」不能靠 legacy compact 直接拿到，必须按 D 语义单独实现。
+- 基线（`PLAN_D=0` + legacy 压缩）88K → `'ductZX-4417-QJ7'`（needle 在，但带 `duct` 前缀）；把 delta 规则限定回 D 模式后**仍是同样输出** ⇒ 该前缀是**已知的交替伪影**（记忆里 "duct/正确/duct"），非本轮回归。
+- 结论不变：缺 **A 回卷 + B rebake** 两步，且必须自己实现（不能借用 legacy compact）。
