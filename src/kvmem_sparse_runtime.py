@@ -827,11 +827,33 @@ class VllmSparseRuntime:
                 from kvmem_sparse_rope import rotate_k_pages_fp8, rotary_inv_freq
                 paged = self.view.paged_kv()
                 cfg = self.view.runner.model_config.hf_config
-                hd = int(getattr(cfg, "head_dim", 0) or 0)
-                if hd <= 0:
-                    hd = int(cfg.hidden_size) // int(cfg.num_attention_heads)
-                rot = int(hd * float(getattr(cfg, "partial_rotary_factor", 1.0)))
-                base_theta = float(getattr(cfg, "rope_theta", 1e6))
+                _cands = [cfg, getattr(cfg, "text_config", None)]
+                hd = rot = 0
+                base_theta = 1e6
+                _src = "none"
+                for _i716, _c in enumerate(_cands):
+                    if _c is None:
+                        continue
+                    _hd = int(getattr(_c, "head_dim", 0) or 0)
+                    if _hd <= 0:
+                        _hs = int(getattr(_c, "hidden_size", 0) or 0)
+                        _nh = int(getattr(_c, "num_attention_heads", 0) or 0)
+                        _hd = (_hs // _nh) if (_hs and _nh) else 0
+                    if _hd > 0:
+                        hd = _hd
+                        rot = int(_hd * float(getattr(_c, "partial_rotary_factor", 1.0) or 1.0))
+                        base_theta = float(getattr(_c, "rope_theta", 1e6) or 1e6)
+                        _src = "hf" if _i716 == 0 else "text_config"
+                        break
+                try:
+                    with open("/tmp/kvmem_apply.jsonl", "a") as _af8:
+                        _af8.write("rebake_meta hd=%s rot=%s base=%s src=%s" % (
+                            hd, rot, base_theta, _src))
+                        _af8.write(chr(10))
+                except Exception:
+                    pass
+                if hd <= 0 or rot <= 0:
+                    raise ValueError("no rotary metadata")
                 theta = rotary_inv_freq(rot, base_theta, device=paged[0].device)
                 ksl = slice(0, hd)
                 for i, pg in enumerate(sel):
