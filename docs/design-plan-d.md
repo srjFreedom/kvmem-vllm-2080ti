@@ -3380,3 +3380,10 @@ VIEW keep=29 need=1 restored=0 rebaked=28 seq_len=45472 inst=1 ph=0 pos=[0..4095
 - **(ii) 回卷量 = 视图长度**：clamp 回卷到 `视图长度 - 本步 token 数`。
 并且 **apply 只能发生在解码首步**（prefill 结束），不能在途中。
 **下一步**：先在 D 模式关掉 clamp（选项 i，改动最小），并把 apply 严格限定在 `n_query_tokens==1` 且 prefill 完成的时刻，再复测。
+
+## 757-758. Round 493：**关掉 clamp + 只在解码首步装视图** 后，92K 首次在"视图模式"下跑通
+- 改动：①`_apply_selection_d` 只由解码首步（`n_query_tokens==1`）调用（prefill 中途那个入口删除）；
+  ②Core 在 `KVMEM_D_APPLY=1` 时**不做 clamp**（因为 clamp 会把 num_computed 回卷到 ~0，与视图长度 45,472 不匹配）。
+- 读数：`NOCLAMP757 106s ok=True 'The unique record KEY-MID has access code ZX-4417-QJ7.'`
+- 注意：本次 `/tmp/kvmem_apply.jsonl` 为空 ⇒ **视图没有被真正应用**（706 的门还要求 `tokens > B`，关掉 clamp 后条件未满足），因此这是**原生路径**的成功，不是视图的成功。
+**下一步（明确）**：把视图应用的门改为"解码首步 + 请求长度 > B"（不依赖 clamp），然后用同一 92K 请求验证**视图真的被应用**（`VIEW ...` 有日志）且答案仍正确；之后再上 140K。
