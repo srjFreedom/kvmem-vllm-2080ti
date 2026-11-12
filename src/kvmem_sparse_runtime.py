@@ -668,6 +668,33 @@ class VllmSparseRuntime:
             pass
         return False
 
+    def _roll_window(self, req, st, row_index):
+        """design 664: slide the window by rotating the row book every chunk.
+
+        The row is a ring of physical slots; after `k` blocks of forward movement
+        row[i] must name the slot holding logical block (base + i). Rotating the
+        book and letting the normal install path write the table is enough - a
+        direct `_install` here with an empty slot list stalled the engine.
+        """
+        pt = int(self.page_tokens)
+        blk = pt * 32
+        win = int(self.budget_tokens) + int(self.gen_reserve)
+        tok = int(getattr(st, "tokens", 0) or 0)
+        base = max(0, tok - win)
+        old = int(getattr(st, "roll_base", 0) or 0)
+        k = max(0, (base - old) // max(1, blk))
+        row = list(getattr(st, "row", ()) or ())
+        try:
+            open("/tmp/kvmem_roll.jsonl", "a").write(
+                "%s tok=%s k=%s row=%s base=%s\n" % (
+                    str(req)[-4:], tok, k, len(row), base))
+        except Exception:
+            pass
+        if k > 0 and row and k < len(row):
+            st.row = tuple(row[k:] + row[:k])
+            st.roll_base = base
+            st.install_pending = True
+
     def _dump_side(self, tag, req, st=None):
         """design 629: dump the DEVICE-side state the kernel actually sees."""
         rec = {"tag": tag, "req": str(req)[-6:]}
@@ -4048,33 +4075,7 @@ class VllmSparseRuntime:
                 try:
                     if getattr(self, "d_mode", False) and getattr(st, "row", ()):
                         st.view_installed = True
-                        # design 661: THE ROLL, done where the state actually
-                        # lives (the plugin's caches see a different instance and
-                        # never had a state: measured has=False tok=-1 for 40 steps).
-                        _pt661 = int(self.page_tokens)
-                        _blk661 = _pt661 * 32
-                        _win661 = int(self.budget_tokens) + int(self.gen_reserve)
-                        _tok661 = int(getattr(st, "tokens", 0) or 0)
-                        _base661 = max(0, _tok661 - _win661)
-                        _old661 = int(getattr(st, "roll_base", 0) or 0)
-                        _k661 = max(0, (_base661 - _old661) // max(1, _blk661))
-                        _row661 = list(getattr(st, "row", ()) or ())
-                        try:
-                            open("/tmp/kvmem_roll.jsonl", "a").write(
-                                "%s tok=%s k=%s row=%s base=%s\n" % (
-                                    str(req)[-4:], _tok661, _k661,
-                                    len(_row661), _base661))
-                        except Exception:
-                            pass
-                        if _k661 > 0 and _row661 and _k661 < len(_row661):
-                            st.row = tuple(_row661[_k661:] + _row661[:_k661])
-                            st.roll_base = _base661
-                            # design 662: rotate the BOOK first; the table write
-                            # happens through the regular install path (which also
-                            # writes seq_lens/positions). Calling _install here with
-                            # an empty slot list stalled the engine right after the
-                            # first roll (measured: two roll lines, then timeout).
-                            st.install_pending = True
+                        st.view_installed = True
                 except Exception:
                     pass
                 self.log({"kind": "d_adopt_knife", "req": str(req)[-6:],
@@ -5896,6 +5897,13 @@ class VllmSparseRuntime:
                                       "ok": bool(_ok), "detail": str(_det)[:160]})
         finally:
             self._in_quiescent = False
+        try:
+            if (getattr(self, "d_mode", False)
+                    and bool(getattr(st, "view_installed", False))
+                    and int(getattr(st, "tokens", 0) or 0) > int(self.budget_tokens) + int(self.gen_reserve)):
+                self._roll_window(req, st, row_index)
+        except Exception:
+            pass
         proposal = getattr(self, "_last_proposal", None)
         if (getattr(self, "d_mode", False) and proposal is not None
                 and not bool(getattr(st, "view_installed", False))):
