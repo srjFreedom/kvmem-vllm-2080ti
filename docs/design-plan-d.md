@@ -3493,3 +3493,19 @@ npos=4096 offs=1 vlens=1 last=583576 / 604883
 **结论**：positions 的正确注入点在 **fork 的 `prepare_inputs` / `model_input.positions`**，不是这个 hook。
 **下一步**：在 fork 里加一个「视图模式位置偏移」：`model_input.positions -= (frontier - view_len)`，并且
 只对 attention 层生效的位置数组做（mrope 若为 3 段则同步 3 段）。
+
+## 788-790. Round 545：**关键发现——引擎用的是 V2 runner，且 fork 已内建 D 视图支持**
+1. 引擎实际 import 的 vllm 是 **`/home/srj/vLLM-2080Ti-Definitive/vllm`**（不是 `engines/vllm`）。
+   本会话此前对 `engines/vllm` 的引擎改动（757/768/774/788/789）**全部没有生效** —— 那些"读数"来自旧代码。
+2. worker 通过 `use_v2_model_runner` 选择 **`vllm/v1/worker/gpu/model_runner.py`（V2）**；
+   V2 里 **已经内建** Plan D 支持：
+   - `prepare_pos_seq_lens(...)` 传的是 `self.input_buffers.positions`（真位置，注释明确：K 存的是真相位）；
+   - `kvmem_view_lens`（device 表）覆盖 attention 长度；
+   - `kvmem_rope_offset`（device 标量）：RoPE 用真位置、slot 映射用压缩位置；
+   - `kvmem_view_active` 门控该覆盖是否生效。
+3. 插件步进钩子（~1700）**已经在写** `_dv`（slot delta）与 `_vl`（view lens）并把 `runtime.kvmem_view_active = True`。
+**结论**：fork 的设计是「真位置 + 压缩地址 + 视图长度」，**不需要 rebake、不需要平移 positions**。
+我本会话加的 `_install(seq_lens/row)`、`_apply_selection_d` 打包与 rebake 是**与内建机制冲突的平行实现**，
+这正是装了视图就退化的原因。
+**下一步**：只保留 fork 内建路径（滚行 + `_dv` + `_vl` + `kvmem_view_active`），关掉适配器的 install/pack/rebake，
+然后验证 92K 是否回到绿、再试 140K。
