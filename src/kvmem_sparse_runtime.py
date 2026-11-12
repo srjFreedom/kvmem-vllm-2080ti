@@ -4690,6 +4690,18 @@ class VllmSparseRuntime:
                     table[row_index, :len(st.row)] = torch.tensor(
                         st.row, dtype=table.dtype, device=table.device)
             return st
+        try:
+            import os as _os737
+            if _os737.environ.get("KVMEM_D_META") == "1":
+                with open("/tmp/kvmem_rowhead.jsonl", "a") as _rh:
+                    _rh.write("view=%s strow=%s tbl=%s" % (
+                        bool(getattr(st, "view_installed", False)),
+                        [int(x) for x in list(st.row or ())[:8]],
+                        [int(x) for x in self.view.block_table_rows()[0][
+                            int(row_index), :8].tolist()]))
+                    _rh.write(chr(10))
+        except Exception:
+            pass
         self._seq_override[row_index] = step_end
         if not self.install:
             return st
