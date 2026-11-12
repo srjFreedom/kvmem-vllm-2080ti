@@ -5311,6 +5311,30 @@ class VllmSparseRuntime:
                 # new engine entries the scheduler published for this step's growth.
                 grown = list(st.row) + values[len(st.row):w]
                 values = [int(p) for p in grown]
+            # design 835: the block table is 8,232 wide (max_model_len/pages) but the
+            # engine only writes the prefix it actually allocated (capped to the view
+            # window). Everything past that is STALE from the previous request on this
+            # row - measured: values up to 4,263 with a 2,842-page pool, which made
+            # every restore target invalid. Keep the window prefix and drop anything
+            # outside the pool.
+            try:
+                _win835 = int(getattr(self, "budget_tokens", 0) or 0) + int(
+                    getattr(self, "gen_reserve", 0) or 0)
+                _pt835 = int(getattr(self, "page_tokens", 32) or 32)
+                _np835 = int(self.view.num_blocks())
+                _wmax835 = (-(-_win835 // _pt835)) if _win835 > 0 else len(values)
+                if _wmax835 > 0:
+                    values = values[:_wmax835]
+                _bad835 = sum(1 for v in values if int(v) >= _np835 or int(v) <= 0)
+                values = [int(v) for v in values
+                          if 0 < int(v) < _np835]
+                if _bad835:
+                    with open("/tmp/kvmem_rowclamp.jsonl", "a") as _rc835:
+                        _rc835.write("kept=%s dropped=%s wmax=%s npages=%s" % (
+                            len(values), _bad835, _wmax835, _np835))
+                        _rc835.write(chr(10))
+            except Exception:
+                pass
             st.row = tuple(values)
             try:
                 import os as _os748
