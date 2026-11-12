@@ -793,12 +793,20 @@ class VllmSparseRuntime:
         for i, lp in enumerate(cur):
             if lp is not None:
                 pos_of.setdefault(int(lp), i)
+        # design 735: slots that repeat across the row are the engine's NULL
+        # placeholders (its own sliding-window retirement). A page "present" in
+        # such a slot has no bytes, so it must be restored from the store instead
+        # of copied (measured: the packed row came out as [6,6,6,...] and the
+        # kernel read one null page for the whole view).
+        from collections import Counter as _C735
+        _cnt = _C735(int(v) for v in row)
+        _null = {v for v, c in _cnt.items() if c > 32}
         used = set()
         packed = []
         missing = []
         for idx, pg in enumerate(sel):
             src = pos_of.get(pg)
-            if src is not None and src < len(row):
+            if src is not None and src < len(row) and int(row[src]) not in _null:
                 slot = int(row[src])
                 packed.append(slot)
                 used.add(slot)
@@ -808,7 +816,7 @@ class VllmSparseRuntime:
         # design 733: never let the packed row repeat a physical slot. A repeated
         # slot means the mapping collapsed (measured: the table came out as
         # [6,6,6,...] and the kernel read one page for the whole view).
-        if len(set(packed)) != len([v for v in packed if v is not None]):
+        if len(set(v for v in packed if v is not None)) != len([v for v in packed if v is not None]):
             packed = [int(row[i]) for i in range(min(len(sel), len(row)))]
             used = set(packed)
         spare = [int(s) for s in row if int(s) not in used]
