@@ -823,6 +823,99 @@ class VllmSparseRuntime:
             paged = self.view.paged_kv()
         except Exception:
             paged = None
+        # design 823: IN-PLACE selection. The ring row is a WINDOW of the sequence:
+        # slot s covers logical block (base_blocks + s). The selector works in
+        # LOGICAL block space, so map each needed block onto a sacrificed slot,
+        # copy its stored pages into the pages that slot already points at (all
+        # below the pool size), and rotate those pages from the block's true phase
+        # to the slot's window phase. Nothing about the row, its length or its
+        # block count changes.
+        _inp823 = __import__("os").environ.get("KVMEM_D_INPLACE") == "1"
+        if _inp823 and orch is not None and need:
+            try:
+                _bt823 = int(self.page_tokens) * 32
+                _base823 = int(getattr(st, "roll_base", 0) or 0)
+                if _base823 <= 0:
+                    _base823 = max(0, int(getattr(st, "tokens", 0) or 0)
+                                   - int(getattr(st, "seq_len", 0) or 0))
+                _blkbase823 = _base823 // max(1, _bt823)
+                _slots823 = [s_ for s_ in range(nb) if s_ not in keep]
+                _rb823 = []
+                _moved823 = 0
+                for _b823 in need:
+                    if not _slots823:
+                        break
+                    _s823 = _slots823.pop(0)
+                    _pairs823 = []
+                    for _j823 in range(q):
+                        _src823 = _b823 * q + _j823
+                        if not orch.store.has(_src823):
+                            continue
+                        _dst823 = int(row[_s823 * q + _j823])
+                        if 0 <= _dst823 < 1 << 20:
+                            _pairs823.append((_src823, _dst823))
+                    if not _pairs823:
+                        continue
+                    try:
+                        orch.restore_pages_batch(_pairs823)
+                        _moved823 += 1
+                        _rb823.append((_s823, _b823))
+                    except Exception:
+                        pass
+                if _rb823:
+                    try:
+                        from kvmem_sparse_rope import rotate_k_pages_fp8, rotary_inv_freq
+                        _cfg823 = self.view.runner.model_config.hf_config
+                        _hd823 = rot823 = 0
+                        _th823 = 1e6
+                        for _c823 in (_cfg823, getattr(_cfg823, "text_config", None)):
+                            if _c823 is None:
+                                continue
+                            _h823 = int(getattr(_c823, "head_dim", 0) or 0)
+                            if _h823 <= 0:
+                                _hs823 = int(getattr(_c823, "hidden_size", 0) or 0)
+                                _nh823 = int(getattr(_c823, "num_attention_heads", 0) or 0)
+                                _h823 = (_hs823 // _nh823) if (_hs823 and _nh823) else 0
+                            if _h823 > 0:
+                                _hd823 = _h823
+                                rot823 = int(_h823 * float(getattr(_c823, "partial_rotary_factor", 1.0) or 1.0))
+                                _th823 = float(getattr(_c823, "rope_theta", 1e6) or 1e6)
+                                break
+                        _theta823 = (rotary_inv_freq(rot823, _th823, device=paged[0].device)
+                                     if (rot823 > 0 and paged) else None)
+                        _ksl823 = slice(0, _hd823)
+                        _pt823 = int(self.page_tokens)
+                        _rbcount = 0
+                        for (_s823b, _b823b) in _rb823:
+                            _sh823 = (_base823 // max(1, _pt823)
+                                      + (_s823b - _b823b) * q)
+                            _pmap823 = [(int(row[_s823b * q + j]), int(row[_s823b * q + j]) + _sh823)
+                                        for j in range(q)]
+                            for _t823 in paged:
+                                rotate_k_pages_fp8(_t823, _pmap823, _pt823, _theta823,
+                                                   rot823, _ksl823)
+                            _rbcount += 1
+                        with open("/tmp/kvmem_inplace.jsonl", "a") as _ip:
+                            _ip.write("moved=%s rebaked=%s base=%s blkbase=%s need=%s nb=%s" % (
+                                _moved823, _rbcount, _base823, _blkbase823,
+                                len(need), nb))
+                            _ip.write(chr(10))
+                        restored += _moved823
+                        rebaked = _rbcount
+                    except Exception as _e823:
+                        try:
+                            with open("/tmp/kvmem_inplace.jsonl", "a") as _ip2:
+                                _ip2.write("rebake_err %s" % str(_e823)[:120])
+                                _ip2.write(chr(10))
+                        except Exception:
+                            pass
+            except Exception as _e823b:
+                try:
+                    with open("/tmp/kvmem_inplace.jsonl", "a") as _ip3:
+                        _ip3.write("inplace_err %s" % str(_e823b)[:120])
+                        _ip3.write(chr(10))
+                except Exception:
+                    pass
         restored = 0
         try:
             try:
