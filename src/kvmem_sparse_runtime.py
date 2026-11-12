@@ -871,18 +871,21 @@ class VllmSparseRuntime:
                          and not _identity and theta is not None)
                 ksl = slice(0, hd)
                 for i, b in enumerate(keep):
-                    bid = int(row[b * q])
-                    if bid <= 0 or bid in placeholders:
+                    # design 772: the row holds PHYSICAL PAGE ids, so a block is
+                    # q CONSECUTIVE values - copying one id across the block made
+                    # all 49 pages alias one page (measured: rebake out of range
+                    # because the "block id" was really a page id).
+                    _blk = [int(row[b * q + j]) for j in range(q)]
+                    if min(_blk) <= 0:
                         continue
-                    row_new[i * q:(i + 1) * q] = [bid] * q
+                    row_new[i * q:(i + 1) * q] = _blk
                     if do_rb and b != i and paged:
                         import os as _osr
                         shift = ((b - i) if _osr.environ.get("KVMEM_D_REBAKE_INV") == "1"
                                  else (i - b)) * q
                         # design 771: rotate the BLOCK's PHYSICAL pages
                         # (block_id*block_pages + inner), not the row page indices.
-                        _src_bid = int(row[b * q])
-                        pmap = [(_src_bid * q + j, _src_bid * q + j + shift)
+                        pmap = [(int(row[b * q + j]), int(row[b * q + j]) + shift)
                                 for j in range(q)]
                         for t in paged:
                             rotate_k_pages_fp8(t, pmap, int(pt), theta, rot, ksl)
