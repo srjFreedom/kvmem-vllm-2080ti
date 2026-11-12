@@ -1833,6 +1833,7 @@ def _attach_sparse(runner, log_path):
                                     # was always k=0 and the engine kept reading the
                                     # OLDEST pages (measured: answer quoted the opening
                                     # of the document instead of the needle).
+                                    _raw_old806 = _old655
                                     if (os.environ.get("KVMEM_RING_VIEW") == "1"
                                             and _old655 >= _base652 > 0):
                                         _old655 = 0
@@ -1848,8 +1849,10 @@ def _attach_sparse(runner, log_path):
                                     _rowv655 = list(getattr(_st631, "row", ()) or ())
                                     try:
                                         open("/tmp/kvmem_ring.jsonl", "a").write(
-                                            "%s k=%s row=%s base=%s\n" % (
-                                                str(_row)[-4:], _k655, len(_rowv655), _base652))
+                                            "%s k=%s row=%s base=%s rawold=%s old=%s rv=%s\n" % (
+                                                str(_row)[-4:], _k655, len(_rowv655),
+                                                _base652, _raw_old806, _old655,
+                                                os.environ.get("KVMEM_RING_VIEW", "-")))
                                     except Exception:
                                         pass
                                     if _k655 > 0 and _rowv655 and _k655 < len(_rowv655):
