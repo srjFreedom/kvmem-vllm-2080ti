@@ -759,6 +759,10 @@ class VllmSparseRuntime:
         sel = [int(p) for p in (prop.get("selected_pages") or ())]
         if not sel:
             return
+        # design 713: probe - keep the same SET but in position order. The ring
+        # (identity order) answered correctly while every permuted packing
+        # degenerated, which points at an order-sensitive mask in the engine.
+        sel = sorted(sel)
         pt = max(1, int(self.page_tokens))
         cur = list(getattr(st, "logical", ()) or ())
         pos_of = {}
