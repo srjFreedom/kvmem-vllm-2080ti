@@ -4541,11 +4541,16 @@ def _install(cls, module_name, probe, smoke, state):
                             if _prefix_mode:
                                 _sync_iter = ()
                             else:
+                                # design 740: sync EVERY step, not only for groups
+                                # that pack several pages per engine block. With
+                                # bpk == 1 the row was never mirrored and stayed a
+                                # one-entry placeholder (measured: st_rowlen=1
+                                # against seq_lens=74,955), which is why every
+                                # packed view degenerated.
                                 _sync_iter = ((g, ppb) for g, ppb
-                                              in enumerate(bt.blocks_per_kv_block)
-                                              if int(ppb) > 1)
+                                              in enumerate(bt.blocks_per_kv_block))
                             for group, pages_per_block in _sync_iter:
-                                if int(pages_per_block) > 1:
+                                if int(pages_per_block) >= 1:
                                     for pos, req in enumerate(reqs):
                                         if rt.is_rebuilt(req):
                                             continue
