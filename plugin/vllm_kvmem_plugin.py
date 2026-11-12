@@ -1668,11 +1668,18 @@ def _attach_sparse(runner, log_path):
                             # /tmp/kvmem_hookin.jsonl "tok=-1"), which made every
                             # over-window test false and left the ring/table branches
                             # dead. The scheduler's num_computed_tokens is authoritative.
-                            try:
-                                _tok631 = int(num_computed_tokens[_i631])
-                            except Exception:
-                                _tok631 = 0
-                            if _tok631 < 0:
+                            # design 804: only the ring-view experiment reads the
+                            # scheduler frontier; the classic path keeps its old book
+                            # (switching it unconditionally moved the write base and
+                            # cost the 88K green point).
+                            if os.environ.get("KVMEM_RING_VIEW") == "1":
+                                try:
+                                    _tok631 = int(num_computed_tokens[_i631])
+                                except Exception:
+                                    _tok631 = 0
+                                if _tok631 < 0:
+                                    _tok631 = int(getattr(_st631, "tokens", 0) or 0)
+                            else:
                                 _tok631 = int(getattr(_st631, "tokens", 0) or 0)
                             _win631 = int(getattr(runtime, "budget_tokens", 0) or 0) \
                                 + int(getattr(runtime, "gen_reserve", 0) or 0)
