@@ -1312,12 +1312,24 @@ def _attach_sparse(runner, log_path):
                     # single-request case shifts the whole tensor.
                     try:
                         from kvmem_sparse_runtime import VIEW_OFFSETS as _VO8
+                        try:
+                            from kvmem_sparse_runtime import VIEW_LENS as _VL8
+                        except Exception:
+                            _VL8 = {}
                     except Exception:
                         _VO8 = {}
+                        _VL8 = {}
                     if _VO8 and positions is not None:
                         if len(_VO8) == 1:
                             _off8 = int(list(_VO8.values())[0] or 0)
-                            if _off8 > 0:
+                            # design 783: only shift when the engine still holds TRUE
+                            # positions. The Core clamp already rewinds them to the view
+                            # frame; shifting again made the query land at
+                            # 45,471-29,476 = 15,995 (measured), which is the
+                            # degeneration we have been chasing.
+                            _vl8 = int(list(_VL8.values())[0] or 0) if _VL8 else 0
+                            _last8 = int(positions[-1]) if len(positions) else 0
+                            if _off8 > 0 and (_vl8 <= 0 or _last8 > _vl8):
                                 positions -= _off8
                                 # design 781: the hybrid model also derives mrope
                                 # positions; they must move with the same offset.

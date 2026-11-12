@@ -69,6 +69,7 @@ class _SkipSeqFromRow(Exception):
 # sit on different runtime instances (TP workers), so the offset must not travel
 # through instance state.
 VIEW_OFFSETS = {}
+VIEW_LENS = {}
 
 
 class SparseViewCapacityError(RuntimeError):
@@ -912,6 +913,7 @@ class VllmSparseRuntime:
             try:
                 VIEW_OFFSETS[str(req)] = max(0, int(getattr(st, "tokens", 0) or 0)
                                              - int(st.seq_len))
+                VIEW_LENS[str(req)] = int(st.seq_len)
             except Exception:
                 pass
             _ri = int(getattr(st, "row_index", -1))
