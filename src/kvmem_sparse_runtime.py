@@ -886,6 +886,15 @@ class VllmSparseRuntime:
                         if not orch.store.has(_src823):
                             continue
                         _dst823 = int(row[_s823 * q + _j823])
+                        # design 836: with KVMEM_SKIP_KV_CHECK the block ids can exceed
+                        # the pool (measured 4,263 vs 2,778 pages), so the write slot is
+                        # the id wrapped into the page count.
+                        try:
+                            _np836 = int(self.view.num_blocks())
+                            if _np836 > 0 and _dst823 >= _np836:
+                                _dst823 = _dst823 % _np836
+                        except Exception:
+                            pass
                         if 0 <= _dst823 < 1 << 20:
                             _pairs823.append((_src823, _dst823))
                     if not _pairs823:
