@@ -3387,3 +3387,11 @@ VIEW keep=29 need=1 restored=0 rebaked=28 seq_len=45472 inst=1 ph=0 pos=[0..4095
 - 读数：`NOCLAMP757 106s ok=True 'The unique record KEY-MID has access code ZX-4417-QJ7.'`
 - 注意：本次 `/tmp/kvmem_apply.jsonl` 为空 ⇒ **视图没有被真正应用**（706 的门还要求 `tokens > B`，关掉 clamp 后条件未满足），因此这是**原生路径**的成功，不是视图的成功。
 **下一步（明确）**：把视图应用的门改为"解码首步 + 请求长度 > B"（不依赖 clamp），然后用同一 92K 请求验证**视图真的被应用**（`VIEW ...` 有日志）且答案仍正确；之后再上 140K。
+
+## 760. Round 494：关 clamp 后 92K 卡死 ⇒ **B 必须在 Core 的账上，而不只是 metadata**
+- 实验：`KVMEM_D_APPLY=1 + REBAKE=1`（view 模式，clamp 关）跑 92K → **570 s 超时**，且视图未应用（配置里 `NOBLADE=1` 残留导致刀未选中）。
+- 机理：clamp 关掉后 Core 按真长度分配块，92K > 89K 池 ⇒ 分配失败停住。**这证明"视图"无法绕过 Core 的账**：
+  要让 92K/140K 在 B 内跑，Core 必须相信请求长度是 B（而不是真长度），也就是 B 必须落在
+  `num_computed_tokens` / 分配账上（工作项 B），metadata 的 seq_lens 替换只是"读"的一侧。
+**最终形态（结论）**：D 的完整实现 = ①Core 侧把请求的"账"限制在 B（分配 + num_computed + positions 一起）；
+②worker 侧按 B 组装视图（选块→自有块→rebake→装行）。两者缺一不可；本轮已分别验证了"只有②"会卡死、"只有①"会退化。
