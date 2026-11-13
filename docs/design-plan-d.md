@@ -4008,3 +4008,33 @@ positions 与 token feed 保持 TRUE，worker 侧不做任何页搬运。
   （疑似 SW 组的准入/管理器在入队处卡住）。此路要可用，需在引擎侧修 SW 组的调度，不是配置问题。
 
 **现状**：默认臂恢复（实验开关 0 条），88K 中段针 `ZX-4417-QJ7` ✓；滑臂开关默认关。
+
+## 848. Round 584：三条"测量/脚手架"缺陷修正（max_tokens=2 截断、env 泄漏、env 基线），
+   并拿到关键区分：脚注式丢头 → 通常仍流畅；needle 仍读不到
+
+**A. 我自己的测量缺陷（全部修正）**
+1. `/tmp/p577_50k_tail.json` 的 `max_tokens` 是 **2** —— 之前所有 `'ZX from'`/`'KEY-M'`/`'ZX-'`
+   都是**被截断的前两个 token**，不是退化。修正后（max_tokens=64）该 prompt 输出
+   `'ZX from arrives arrives…'`（复读退化），才是我该看的现象。
+2. `arm_boot.sh` 只合并 env：上一轮实验留下的 `KVMEM_SLIDING_WINDOW=8192` + `KVMEM_NATIVE_SW=1`
+   让"滑臂"实际以**原生滑窗**运行（请求一直 `waiting`，running/waiting=0、无 prefill 日志），
+   连续三次误判为"卡死/崩溃"。已改成：**每次 arm 启动先复制干净基线** `/tmp/kvmem_env_baseline`，
+   实验键不可能泄漏到下一次。
+3. 同因，`KVMEM_MASK_WIN` 那次"引擎崩溃"其实也是 env 泄漏的产物，尚未重测。
+
+**B. 关键新数据（干净的滑臂，真滑窗，基线 env）**
+- 50K 尾针（max 64）：`'ZX from arrives arrives…'` —— 读到了 needle 前缀（"ZX"）后进入复读。
+- **刚好跨窗的 prompts（45,525 tokens，只丢 53 个头部 token）：答案流畅**——
+  `'The user is asking for the access code for KEY-MID. Based on the provided text, the access code
+  is "4444…"'`：**格式与任务完全正常，但 needle 的码是编造的**。
+- 对照：同一 prompt 在默认臂正确（头 45,472 内 needle 在尾部 ✓）。
+
+**结论（本轮最重要）**：跨窗时模型的"语言能力"是好的（小丢头时输出完全不乱），坏的是**needle 那几页
+KV 没有被正确读到/写入**；而大丢头（3,868 tokens，含系统提示）才会引发复读退化。所以环窗口的几何
+虽然逐项对齐，**跨窗 chunk 写入的那 15~16 页（视图尾部）仍是可疑点**：第一次旋转后行尾是"回收页"，
+它们在安装行的同一 forward 内被写入并读取——若写入地址与读取列错开一页，needle 就恰好丢失。
+
+**下一步（同帧、可直接判定）**
+1. 默认臂跑同一个刚好跨窗 prompt（应在 45,472 头内，needle 在尾部 → 正确），作为对照基线；
+2. 滑臂上对 needle 所在的两页做"写时 vs 读时"设备指纹（复用 `KVMEM_TRACE_PAGES` 或 console 读
+   `paged[0][page]` 的 bytes/sha）：若两页指纹不同，就锁定"跨窗 chunk 的写地址错一页"。

@@ -1237,6 +1237,34 @@ def _attach_sparse(runner, log_path):
         _wrap529["done"] = bool(_n > 0)
         return _n
 
+    # design 584: MASK-ONLY ablation. `KVMEM_MASK_WIN=<tokens>` sets the sliding window on
+    # every attention impl (dense storage, true positions, NO ring): the FA kernel then
+    # masks to the last <tokens> positions. This isolates "window semantics" from "page
+    # moving": if dense+mask is fluent and the ring is not, the ring's addressing is the
+    # defect; if dense+mask also fragments, the hybrid model's recurrent (GDN) state and a
+    # truncated attention view are fundamentally inconsistent.
+    try:
+        _mw584 = int(os.environ.get("KVMEM_MASK_WIN", "0") or 0)
+    except Exception:
+        _mw584 = 0
+    if _mw584 > 0:
+        _n584 = 0
+        try:
+            _model = getattr(runner, "model", None)
+            for _name, _mod in (list(_model.named_modules())
+                                if _model is not None else []):
+                _impl = getattr(_mod, "impl", None)
+                if _impl is not None and hasattr(_impl, "sliding_window"):
+                    try:
+                        _impl.sliding_window = _mw584
+                        _n584 += 1
+                    except Exception:
+                        pass
+        except Exception as _exc584:
+            _append(log_path, {"kind": "mask_win_error",
+                               "error": str(_exc584)[:160]})
+        _append(log_path, {"kind": "mask_win", "pid": os.getpid(),
+                           "win": _mw584, "impls": _n584})
     wrapped = _wrap_attn_builders()
 
     # Hook 1: install the view right after the engine builds positions/seq_lens.
