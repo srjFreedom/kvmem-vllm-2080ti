@@ -323,6 +323,18 @@ def _paged_attn_tensors(runner):
         group = group_ids[i] if i < len(group_ids) else None
         if group in attn_groups and tensor.dim() == 4:
             paged.append((i, tensor, group))
+    if not paged and not group_ids:
+        # design 612: on the very first execute_model `kv_cache_group_ids` can still be empty,
+        # which made the whole adapter skip as "no paged attention KV" (sticky failure) and
+        # every request then ran DENSE - the source of several bogus "green" readings.
+        # Fall back to any 4-dim paged tensor (attention payloads are 4-dim; Mamba states
+        # are not) so the attach survives the race.
+        for i, tensor in enumerate(caches):
+            try:
+                if tensor is not None and tensor.dim() == 4:
+                    paged.append((i, tensor, None))
+            except Exception:
+                continue
     return paged, attn_groups, config
 
 
@@ -1841,7 +1853,16 @@ def _attach_sparse(runner, log_path):
                                             "ids": [str(x)[-6:] for x in _live609[:3]]}) + chr(10))
                                 except Exception:
                                     pass
+                        _pp611 = getattr(rt, "_pp611", 0)
                         for _i631, _rq in enumerate(_live609):
+                            try:
+                                if _pp611 < 200:
+                                    _pp611 += 1
+                                    rt._pp611 = _pp611
+                                    with open("/tmp/kvmem_ringloop.jsonl", "a") as _pl:
+                                        _pl.write("enter i=%s req=%s\n" % (_i631, str(_rq)[-6:]))
+                            except Exception:
+                                pass
                             _row = view.row_index(_rq)
                             if _row is None and _ring_any609:
                                 # the view's binding needs the ids it never got; the runner's
@@ -1853,6 +1874,12 @@ def _attach_sparse(runner, log_path):
                                         _row = None
                                 except Exception:
                                     _row = None
+                            try:
+                                if _pp611 < 200:
+                                    with open("/tmp/kvmem_ringloop.jsonl", "a") as _pl:
+                                        _pl.write("row i=%s row=%s\n" % (_i631, _row))
+                            except Exception:
+                                pass
                             if _row is None:
                                 continue
                             _st631 = None
@@ -1909,6 +1936,13 @@ def _attach_sparse(runner, log_path):
                                                 - int(query_start_loc[_i631]))
                                 except Exception:
                                     _n577 = 1
+                                try:
+                                    if _pp611 < 200:
+                                        with open("/tmp/kvmem_ringloop.jsonl", "a") as _pl:
+                                            _pl.write("call i=%s slide=%s st=%s\n" % (
+                                                _i631, _slide577, _st631 is not None))
+                                except Exception:
+                                    pass
                                 try:
                                     if not (str(_rq).startswith("_warmup")
                                             or str(_rq).startswith("_v2_mixed_warmup")):

@@ -4452,3 +4452,25 @@ probe 记录（`/tmp/kvmem_ring576.jsonl` 0 行、`/tmp/kvmem_slide577_err.jsonl
 （进入循环 / `_row` 解析 / 调用前），一次定位。
 
 **默认臂不受影响**（本轮所有改动只在环臂分支内生效）：88K 中段针 `ZX-4417-QJ7` ✓。
+
+## 862. Round 612：legacy 路径的 attach 是**竞态**（首次 execute_model 时 `kv_caches`/group id 未就绪），
+   已判定"不可作为验收路径"；clean fork ring 是唯一可靠且可仪表的路径
+
+**本轮证据**
+1. 每个"没触发环"的 boot 里都有 `sparse_skip: reason="no paged attention KV"`（最近一次日志里 6 条），
+   且 `sparse_failed` 是**粘性**的 ⇒ 整条请求以 DENSE 运行 ⇒ 之前多轮"绿"是稠密结果，不能作为环的验收。
+   已加 `_paged_attn_tensors` 的兜底（group id 为空时退化为"任意 4 维张量"），但该 boot 仍未 attach
+   （说明竞态点不止 group id 一处）。
+2. 3 点 probe（环循环体的 enter/row/call）在该 boot **一行没写** ⇒ 与 1 一致（运行时压根没 attach）。
+3. **clean fork ring 稳定运行并完整记录**：150 条记录（22 identity + 128 slid），
+   `view=45,455 / true=45,615 / base=160 / rowlen=1,421 / head_distinct=1,421` 全部合理；
+   但答案仍是 `'ZXusman…'`（读到 needle 前缀后乱）。
+
+**判定（本轮结论）**：legacy 环路径（plugin hook + 10k 行 runtime）**不再作为验收路径**——它的 attach
+是竞态、失败即静默 DENSE，上层还有 7 层历史静默失败；任何"绿"都可能是稠密结果。clean fork ring
+（`vllm/v1/worker/gpu/kvmem_ring.py`，约 280 行、无闭包、每步落盘）是唯一可仪表、可复现的路径。
+
+**下一发（在 clean ring 内一次取全）**：在 fork 的 ring 钩子里，publish 之后立刻记录
+`seq_lens[0] / kvmem_view_lens[0] / kvmem_slot_deltas[0] / kvmem_rope_offset / positions[0]`，
+并在 rope 相加之后、gather 之后各记一次；用它判定 `'ZXusman…'` 到底坏在"seq 长度"、"slot"、
+"RoPE 相位"还是"gather 后的行"——一处定位，不再依赖 console/plugin。
