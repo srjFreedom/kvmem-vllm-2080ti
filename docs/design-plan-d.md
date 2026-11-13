@@ -5224,3 +5224,24 @@ ring 用它自己的累加器（`st["roll"]` 与 `st["true"]`）推 base。两�
 
 **已回退**：三个文件（scheduler / ring / worker）全部回退到 HEAD，绿基线复验
 just-crossing / 88K mid / 88K tail = `ZX-4417-QJ7` ✓✓✓。
+
+## 899. Round 671–673：块回收的三次尝试都失败，**根因是"worker 的行不可能与 base 精确对齐"**
+
+**尝试记录（窗口 45,472，`KVMEM_RING_RECYCLE=1`）**
+| 变体 | 88K mid |
+|---|---|
+| ① 两侧各自算 base + 回收 + worker book 递减 | `'KEY-MID'` ✗ |
+| ② 单一来源 base（scheduler 发布到文件）+ 回收 + 递减 | `'KEY-MID'` ✗ |
+| ③ 单一来源 base + 回收 + **不**递减（窗口=引擎行尾部） | `'ZX-4471-MID'` ✗（近错，差 1–2 块） |
+
+**根因（本轮定论）**：窗口起点必须精确等于 `base/32`，而 worker 侧的 `num_blocks` **不等于**
+`base/32 + win_pages`（它有我们装过的宽度、引擎的追加、以及夹紧的余量），所以"引擎行尾部"
+永远差 1–2 块；递减又会和引擎自己的 append 抢同一个计数器。**worker 的块表无法作为精确窗口的
+来源**——它只是"追加日志"。
+
+**正确的架构（留给下一次独立工作项）**：窗口的页序列必须由 **scheduler 的持有块列表**单向派生：
+scheduler 每步把"当前窗口的块 id 序列"（≤ 30 个）放进 `SchedulerOutput` 的新字段，
+worker 直接照它装行（不再读自己的块表），并且**由 scheduler 负责 free/allocate** 的原子性。
+这是一个明确、可实现的协议改动（约 60 行，跨 3 个文件），但需要单独一轮专注实现与回归。
+
+**现状（已全部回退并复验）**：just-crossing / 88K mid / 88K tail = `ZX-4417-QJ7` ✓✓✓。
