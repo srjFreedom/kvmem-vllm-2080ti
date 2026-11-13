@@ -231,8 +231,9 @@ def main():
         n_new = min(chunk, 160000 - true_tok)
         true_after = true_tok + n_new
         base = ((true_after - WIN + PT - 1) // PT) * PT if true_after > WIN else 0
-        book = true_tok - base
-        out = rt2.d_ring_slide("r", st2, 0, book, n_new)
+        book = true_tok - base          # the VIEW-frame book the fork will see
+        # the method takes the ENGINE book (true) and derives the view book itself
+        out = rt2.d_ring_slide("r", st2, 0, true_tok, n_new)
         if true_after > WIN:
             sl = int(out.get("base", -1))
             check(sl == base, f"slide derives the Core base at frontier {true_after} ({sl} == {base})")

@@ -1046,7 +1046,12 @@ class VllmSparseRuntime:
                 _win_env = 0
             if _win_env > 0:
                 win = _win_env
-            true_before = int(getattr(st, "d_slide_true", 0) or 0)
+            # The engine's book is the TRUE count in this arm (the worker never rewinds it;
+            # the Core's clamp is transient). Using it makes the slide exact on EVERY step,
+            # including the first one and any step the per-request hook did not see: the
+            # self-counter lagged by one chunk (measured round 581: 45,273 for a 49,340
+            # prompt), so the crossing chunk was written outside the row -> fragments.
+            true_before = int(book_in if book_in is not None else 0)
             true_after = true_before + int(n_new)
             # design 577: the worker computes the SAME page-aligned slide the Core does
             # (the Core's book never reaches the worker: the executor keeps its own

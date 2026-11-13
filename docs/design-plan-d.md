@@ -3922,3 +3922,27 @@ positions 与 token feed 保持 TRUE，worker 侧不做任何页搬运。
 
 **现状**：默认臂已恢复（`/etc/default/kvmem-vllm` 还原为实验前文件），88K 中段针
 `ZX-4417-QJ7` ✓；服务 active/health 200。
+
+## 845. Round 581：滑臂激活改为"用引擎账本当真值"（每步精确）；读到的上下文在 needle 后截断
+
+**本轮修复（实测生效）**
+- 之前滑臂用 worker 自记的 `d_slide_true` 当 "true"：**每个请求的第一个 step 看不到**（hook 按
+  `live` 逐请求跑，首步状态刚创建），计数器因此永久少一个 chunk（实测 49,340 的 prompt 只记到
+  45,273），跨窗那一步的 base 算成 0 ⇒ 激活晚一步、跨窗 chunk 写到行外。
+- 改为直接用**引擎的 `num_computed_tokens`（本臂里它始终是真值）**：`true_before = book_in`，
+  `true_after = book_in + n_new`，base 由 ceil 得出。probe 实测：跨窗步 `book_in=49,152,
+  base=3,904, book(view)=45,248, pos_head=[45,248,45,249]` ✓ 每步精确、不再滞后。
+
+**新的在线读数（50K 尾针 prompt，49,369 tokens）**
+- 答案变成 `'ZX-'`（正好是 needle 里代号的前缀，也就是**上下文在 needle 结束处被截断**）：
+  模型看到的最后 token 是 "ZX-"，而不是其后 20 多个 token 的问题句。
+- 同一 prompt 上一次运行为 `'ZX from'`、`'ZX where settles…'`、`'KEY-M'`——都表现为"读到的片段
+  随某处偏移漂移"，而不是"读不到 needle"。
+- 结论（待下一发钉死）：**视图的"末端"与 seq_len/positions 对不齐**（例如最后一个 chunk 的
+  `n_new`、`book` 与 `_vl+ql` 的组合使 seq_len 短了 ~30 token，或 positions 的 shift 与
+  `query_start_loc` span 不重合）。下一发同帧取证：最后一个 chunk 的
+  `num_computed / n_new / book / seq_lens[0] / positions[-1] / view_lens[0]` 五元组，核对
+  `seq_lens == book + n_new` 且 `positions[-1] == true_last - base`。
+
+**现状**：默认臂已恢复（`/etc/default/kvmem-vllm` 还原，`FORCE_EAGER=0`、`D_KNIFE=1`、`PLAN_D=1`），
+88K 中段针 `ZX-4417-QJ7` ✓；滑臂与原生滑窗开关全部默认关。
