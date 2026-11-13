@@ -5373,3 +5373,16 @@ row   = pages[: win_pages + pages_per_block]
 **仍未达成（下一个独立工作段）**
 - 超池 152K tailA/tailB 仍只读到开头内容（`'The text is … river deltas'`）。窗口/帧/行都已由 scheduler 单源确定 ⇒ 只剩"窗口内 token 的写入是否真的落到这些页"，需要 slot_mapping 级审计。
 - **探针基建需先修**：本段多次探针出现"0 行且 0 错误"的静默失败，说明 `prepare_attn` 的注入点与执行链在某些臂上并不一致。下一段第一步应先用一个必然触发的 marker 探针确认注入点，再做任何审计。
+
+## 906. Round 687：**探针"不触发"之谜仍未解开**（但排除了几个平凡解释）
+
+**事实**：在 `prepare_attn` 顶部加了一个"必然触发"的 marker（第一次调用即写一行 `/tmp/kvmem_marker.jsonl`），
+超池 152K 跑完后 **marker 0 行**；同时 `/tmp` 有 31G 空闲（非磁盘满）、引擎日志确认
+`vllm=…/engines/vllm/vllm/…` 与 `runner=…/gpu/model_runner.py`（就是被改的文件）、文件里 marker 文本存在。
+
+⇒ 说明 **该函数在这条执行路径上没有跑**（或第一次调用的写盘失败且被 flag 永久跳过）。
+下一步（下一段第一件事）：
+1. 用 `print()`+flush 到 *stderr*（进引擎日志）确认 `prepare_attn` 是否被调用——绕开文件与 flag；
+2. 若确实没被调用，把审计改挂到**环自己的 step**（已知会跑 ✓）或 `execute_model` 入口。
+
+**其余状态不变**：池内窗口化三绿（单源协议）；超池不崩但只读到开头内容。
