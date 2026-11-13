@@ -5287,3 +5287,19 @@ row   = pages[: win_pages + pages_per_block]
 **当前可复现成果（不回退）**
 - 窗口化内池召回：just-crossing / 88K mid / 88K tail = `ZX-4417-QJ7` ✓（窗口来自 scheduler 单源）
 - 引擎 fork：design 900（`scheduler_output.kvmem_ring_blocks`）
+
+## 902. Round 676–679：**重新定性超池问题**——`'# KEY-MID'` 是"帧冻结"，而帧一推进就撞非法访存
+
+**决定性观测（页审计探针，无条件写文件）**：152K 的环在**整个请求里 base 冻结在 3,136**（24 步全同）。
+⇒ 帧（`dv=base`/`seq=view`）描述的是**早期窗口** [3,136, 48,608)，模型只看到 prompt 开头 ⇒
+读到记录名 `KEY-MID`、读不到 code —— **这才是 `'# KEY-MID'` 的真因**（不是页内容代际）。
+
+**让 base 正确推进（从 `positions` 取真实位置）后**：审计确实显示 base 从 3,136 一路推进到 48,608，
+但 **worker 抛 `Triton Error [CUDA]: an illegal memory access`**，请求 500。关闭 MTP
+（`speculative_config=None`）后**仍然崩溃** ⇒ 与草稿无关。
+
+**当前结论**：超池尾针现在卡在**一个确定的崩溃点**：帧正确推进到 true≈94K（≈池大小 90,944）时
+出现越界访存。下一步需要 `CUDA_LAUNCH_BLOCKING=1` + 缩小范围定位（最可能是某个仍按"真实位置"
+索引 KV 的路径，例如 gather/slot 之外的第二条写路径）。
+
+**已回退到可复现基线**：帧冻结版（design 900/901 + 冻结 base）⇒ 内池三绿、超池 `'# KEY-MID'`。
