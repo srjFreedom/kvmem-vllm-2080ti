@@ -5791,7 +5791,11 @@ class VllmSparseRuntime:
                 # copied 653 stale pages into the head (measured: rowlen 1421 at true
                 # 24,576, head_distinct 931 at the crossing step). The caller's `written`
                 # (true_after // page_tokens) is authoritative for this request.
-                if _w2 > w and not int(written or 0):
+                # design 583 gated to the slide arm: the default (knife) path relies on this
+                # growth to fetch the engine's post-rewind append columns, and gating it
+                # globally regressed the default arm's 88K needle (measured: 88K -> "KEY-MID").
+                if (_w2 > w and (not int(written or 0)
+                                 or os.environ.get("KVMEM_D_SLIDE") != "1")):
                     w = _w2
                 # design 830: never mirror past the page pool. The block table is
                 # wider than the pool, so entries beyond num_blocks() are engine

@@ -4083,3 +4083,15 @@ KV**；若陈旧页范围更大（取决于上一请求的残留），正好覆�
    使引擎行与 worker 行天然同源。
 
 **现状**：默认臂干净、88K 中段针 `ZX-4417-QJ7` ✓；滑臂开关默认关。
+
+### 849b. 自查发现回归：583 的镜像宽度收紧是全局的，打伤默认臂（已按臂隔离）
+
+- 现象：恢复默认臂后 88K 中段针从 `ZX-4417-QJ7` 退化成 `'KEY-MID'`。
+- 根因：round 583 给 `sync_row_from_engine` 加的"不再用 seq_lens 扩大镜像宽度"是**无条件**的；
+  默认（knife）路径正依赖这个扩张去取引擎 rewind 后 append 的列。
+- 修：该收紧仅在 `KVMEM_D_SLIDE=1` 生效。修后默认臂 88K 中段针恢复 `ZX-4417-QJ7` ✓。
+- 教训（写进流程）：任何改动 `sync_row_from_engine`/页账的补丁，默认臂 88K 必须当场复测。
+
+**默认臂当前验收状态（实测）**：88K 中段 `ZX-4417-QJ7` ✓；**152K 中段失败**
+（`'The text is a literary description of a river, not a technical description of a river, not a…'`，
+142,868 tokens，3m10s，复读退化）。这正是本 goal 要修的验收项（不是本轮的回归）。
