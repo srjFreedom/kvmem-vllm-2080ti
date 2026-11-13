@@ -1183,6 +1183,33 @@ class VllmSparseRuntime:
             st.d_slide_true = int(true_after)
             try:
                 runner = self.view.runner
+                # design 588: CREATE the tables when absent. The classic publisher is skipped
+                # in this arm (round 582 guard), so `kvmem_rope_offset` never existed and the
+                # fork's rope add was a no-op: the pre-slide pages carry TRUE phases while the
+                # post-slide writes and the query carried VIEW phases, and `kvmem_view_lens`
+                # stayed 0 so the seq-lens override never fired (measured round 588: forward
+                # showed rope=-1, view_lens=0, seq_lens=TRUE).
+                import torch as _t588
+                if getattr(runner, "kvmem_rope_offset", None) is None:
+                    with _t588.inference_mode(False):
+                        _ro588 = _t588.zeros((), dtype=_t588.int64, device="cuda")
+                    runner.kvmem_rope_offset = _ro588
+                if getattr(runner, "kvmem_slot_offset", None) is None:
+                    with _t588.inference_mode(False):
+                        _so588 = _t588.zeros((), dtype=_t588.int64, device="cuda")
+                    runner.kvmem_slot_offset = _so588
+                if getattr(runner, "kvmem_slot_deltas", None) is None:
+                    _n588 = int(getattr(runner, "max_num_reqs", 0) or 0) or 1
+                    with _t588.inference_mode(False):
+                        _dv588 = _t588.zeros(_n588, dtype=_t588.int32, device="cuda")
+                        _vl588 = _t588.zeros(_n588, dtype=_t588.int32, device="cuda")
+                    runner.kvmem_slot_deltas = _dv588
+                    runner.kvmem_view_lens = _vl588
+                if getattr(runner, "kvmem_view_lens", None) is None:
+                    _n588b = int(getattr(runner, "max_num_reqs", 0) or 0) or 1
+                    with _t588.inference_mode(False):
+                        _vl588b = _t588.zeros(_n588b, dtype=_t588.int32, device="cuda")
+                    runner.kvmem_view_lens = _vl588b
                 # design 577: do NOT rewrite the engine book - the token FEED slices
                 # the prompt by num_computed, so a rewound book feeds the wrong chunk
                 # (measured round 578). The offset is applied to `positions` after

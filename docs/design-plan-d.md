@@ -4145,3 +4145,35 @@ KV**；若陈旧页范围更大（取决于上一请求的残留），正好覆�
 
 **实测记录**：滑臂 88K 中段 `'Nothing is about codes, keys, or codes…'`（1m24s）；刚好跨窗 prompt
 `'ZXagesmanman…'`；默认臂 88K `ZX-4417-QJ7` ✓。
+
+## 852. Round 588：滑臂缺表导致 RoPE/槽帧错位（已补建表）；解码步仍拿到 `delta=0`，
+   写地址落到 page 0 —— 解码复读的直接原因
+
+**A. 已修：滑臂自己建表（design 588）**
+- 上一轮（582）给 classic 发布块加了 `KVMEM_D_SLIDE` 守卫后，`kvmem_rope_offset` 在滑臂里**从未被创建**，
+  fork 的 RoPE 加偏移变成 no-op：pre-slide 页是 TRUE 相位、post-slide 写入与 query 却是 VIEW 相位。
+  实测（decode 步）：`rope=-1`、`vl=0`、`seq_lens=TRUE`。
+- 修：`d_ring_slide` 现在**缺表就建**（`kvmem_rope_offset`/`kvmem_slot_offset`/`kvmem_slot_deltas`/
+  `kvmem_view_lens`，用 `inference_mode(False)` 建，避免 inference tensor 不可原地写）。修后实测
+  `rope=96` ✓、`seq_lens=45,461 = book+1`（视图）✓、post-rope `positions=45,556`（真值）✓。
+- 输出随之变化（`'4417'`、`'KEY-MID-42'`、`'Based-d--'`），但仍**提前 EOS / 复读**。
+
+**B. 新钉死的缺陷（解码步）**
+同一个 decode 前向（`compute_slot_mappings` 断点）：
+```
+positions[0] = 45,556   (post-rope = TRUE ✓)
+seq_lens[0]  = 45,461   (VIEW ✓ = book+1)
+rope_offset  = 96       (✓)
+kvmem_slot_deltas[0] = 0   (✗ 应为 96)
+kvmem_view_lens[0]   = 0   (✗ 应为 book)
+```
+⇒ `slot_positions = positions - delta = 45,556` → 列 `1,423`，**超出安装行（1,421）**，
+`input_block_tables[3][0,1423] = 0`（未分配页）⇒ 生成 token 的 KV 写进 page 0，
+下一步读到的就是垃圾 ⇒ **模型吐 1–3 个正确片段后 EOS/复读**。
+
+同一 step 里 `rope`（标量）是 96 ✓ 而两张表是 0 —— 说明表在 `prepare_inputs`（override 用到了 book）
+之后、`prepare_attn` 之前被**换成了新 zeros**。下一步：在 override 与 prepare_attn 两处各记 `id()` 与
+值，定位替换者（候选：plugin 的 classic 块/`plan_d_wired` 重建、或 hook 里第二次 `d_ring_slide` 调用）。
+
+**本轮实测**：滑臂 88K 中段 `'ZX where where…'`；刚好跨窗 `'4417'`/`'KEY-MID-42'`/`'Based-d--'`
+（每次不同，但都提前 EOS）；默认臂 88K `ZX-4417-QJ7` ✓。
