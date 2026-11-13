@@ -4411,3 +4411,17 @@ kvmem/kvmem-vllm 的做法对照，缺的是"归档 **raw pre-RoPE K**、装配�
   打印 `id(rt)`、`id(rt.view.runner)`、`bool(input_batch)`、`len(live)`，一次定位。
 
 **状态**：默认臂已恢复；88K 与 just-crossing 仍 `ZX-4417-QJ7`（稠密路径）。
+
+### 860b. 回归追查结论：问题出在本轮的 plugin 改动（已回滚到 8664c52）
+
+- 我把 `live`（环循环的请求列表）改成经 live view 解析后，**default 臂的 88K 退化成
+  `ZX where where…`**；先怀疑 attach 重试（606）与 `view.bind_step`，逐个回滚都不解决。
+- 最终定位：**整组 plugin 改动**（attach 重试 606 + `live_ring` 607 + bind 分流）都要回滚——
+  `git checkout 8664c52 -- plugin/vllm_kvmem_plugin.py` 后，88K 立刻回到 `ZX-4417-QJ7` ✓。
+- 教训：`live` 这个"恒空"的列表是 classic/default 臂**实际依赖的行为**（它的设置是按"逐请求工作
+  从不执行"调的）。任何让它非空的修复都会同时启用 classic 臂的视图工作 ⇒ 必须先显式分流，
+  并且**每次都要复测 default 臂的 88K**。
+
+**当前服务状态**：默认臂（基线 env），服务 active/health 200，88K 中段针 `ZX-4417-QJ7` ✓；
+引擎 fork 在 `c3b9517`，适配器 plugin 在 `8664c52` 的内容（未提交的 `vllm_ring_clean.py` 保留为
+未启用模块）。

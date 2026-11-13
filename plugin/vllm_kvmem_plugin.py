@@ -1575,16 +1575,9 @@ def _attach_sparse(runner, log_path):
                     pass
                 view.bind_step(idx_mapping, getattr(runner, "_kvmem_req_ids", None) or [],
                                query_start_loc)
-                # design 607: `runner` here is the MODULE, so `runner.input_batch` is
-                # always None and `_kvmem_req_ids` is never filled -> `live` was EMPTY on
-                # every step, the ring loop never ran, and every "green" legacy-arm result
-                # was in fact a DENSE run (no ring at all). Resolve through the live view.
-                _lr607 = getattr(getattr(rt, "view", None), "runner", None)
-                live = (list(getattr(getattr(_lr607, "input_batch", None),
+                live = (list(getattr(getattr(runner, "input_batch", None),
                                     "req_ids", None) or [])
-                        or list(getattr(getattr(runner, "input_batch", None),
-                                       "req_ids", None) or [])
-                        or list(getattr(runner, "_kvmem_req_ids", []) or []))
+                            or list(getattr(runner, "_kvmem_req_ids", []) or []))
                 try:
                     view.bind_step(idx_mapping, live, query_start_loc)
                 except Exception:
@@ -4614,14 +4607,7 @@ def _install(cls, module_name, probe, smoke, state):
                     and not state["sparse_failed"]):
                 state["sparse"] = _attach_sparse(self, probe or smoke or
                                                  "/tmp/kvmem_sparse.jsonl")
-                # design 606: a transient "no paged attention KV" on the first step used to
-                # mark the attach permanently failed, so the whole request ran with NO ring
-                # and read the prompt head ("ferryman…"). Retry a bounded number of times.
-                if state["sparse"] is None:
-                    state["_sparse_tries"] = int(state.get("_sparse_tries", 0)) + 1
-                    state["sparse_failed"] = state["_sparse_tries"] >= 8
-                else:
-                    state["sparse_failed"] = False
+                state["sparse_failed"] = state["sparse"] is None
             if _config().get("smoke_log") and state["adapter_step"] is None \
                     and not state["attach_failed"]:
                 state["adapter_step"] = _attach_adapter(self, smoke)
