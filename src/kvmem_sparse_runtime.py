@@ -5774,7 +5774,12 @@ class VllmSparseRuntime:
                 _bt = self.view.runner.block_tables
                 _blk = int(getattr(_bt, "block_size", 0) or 0) or int(self.page_tokens)
                 _w2 = -(-max(0, _sl) // max(1, _blk))
-                if _w2 > w:
+                # design 583: seq_lens[row] can still hold the PREVIOUS request's length
+                # (the staged row is not cleared between requests): growing the mirror to it
+                # copied 653 stale pages into the head (measured: rowlen 1421 at true
+                # 24,576, head_distinct 931 at the crossing step). The caller's `written`
+                # (true_after // page_tokens) is authoritative for this request.
+                if _w2 > w and not int(written or 0):
                     w = _w2
                 # design 830: never mirror past the page pool. The block table is
                 # wider than the pool, so entries beyond num_blocks() are engine

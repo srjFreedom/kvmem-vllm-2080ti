@@ -3973,3 +3973,38 @@ positions 与 token feed 保持 TRUE，worker 侧不做任何页搬运。
 
 **现状**：默认臂恢复（实验开关 0 条），88K 中段针 `ZX-4417-QJ7` ✓；本轮改动（rope 发布守卫）在
 `KVMEM_D_SLIDE` 下才生效。
+
+## 847. Round 583：滑臂第一次"全绿几何 + 只在活跃请求上"跑通；但输出仍是片段 ⇒ 指向混合模型的
+   循环状态（GDN）与窗口视图不一致；原生滑窗臂连 14K prompt 都卡在调度前
+
+**A. 三处会让滑臂"作用在错误对象上"的缺陷（本轮修掉）**
+1. hook 里 `runner` 不是 `GPUModelRunner` 实例（实例挂在 live view 上），`runner.input_batch`
+   永远 None，回退的 `_kvmem_req_ids` 是**上一个请求**的 id ⇒ 环/滑臂把状态写给了旧请求
+   （实测：probe 有 `08ba57` 的 slid 记录，而当时活跃的是 `cbc2d3`，活跃请求整场 `vl=0`）。
+   改为 `rt.view.runner.input_batch.req_ids` 优先。
+2. `sync_row_from_engine` 会用 `seq_lens[row]` 把镜像宽度"变大"，而该行可能还是**上一个请求**的
+   长度 ⇒ 干净头部被 653 个陈旧页污染（实测 rowlen 1421 @ true 24,576、跨窗 head_distinct=931）。
+   改为：调用方给了 `written` 时不再用 seq_lens 扩大。
+3. （上一轮）classic 的 `kvmem_rope_offset` 发布块在 hook 之后把 rope 擦成 0 —— 已加守卫。
+
+**B. 本轮第一次拿到"干净几何 + 活跃请求"的滑臂运行**
+- 首个 slid 步恰在跨窗 chunk：`true_after=49,152, base=3,680, book(view)=41,376,
+  head_distinct=1421, rowlen=1421, pos_head=[41,376,41,377]`（镜像取自身份期，未被 clamp 变形）。
+- 前向同帧：`positions=[45,248..]`（视图帧）、`seq_lens=45,465=book+n`、`rope=base`、`delta=base`。
+- **输出仍是 `'ZX from'`**（模型读到 needle 前缀就断）。几何已无可查，缺陷在"内容/语义"。
+
+**C. 新的主假设：混合模型的 GDN 循环状态与窗口视图不一致**
+- Qwen3.5/Next 是混合模型：GDN 线性注意力层持有**整请求的循环状态**（本配置 `mamba_cache_mode
+  =none`，每请求 1 槽），而 full-attention 层被我们裁成 45,472 窗口。两层对"上下文有多长"的
+  认知不一致 ⇒ 模型看到的是两套互相矛盾的上下文（片段化输出的合理来源）。
+- 该假设的判别实验：在**稠密**（无环）情况下单独施加窗口掩码，看是否同样片段化。原生滑窗臂
+  正是这个实验，但它卡在调度前（见 D），需要先修好才能判。
+
+**D. 原生滑窗臂：spec 生效后，连 14K prompt 都在调度前卡住**
+- `__post_init__` 修正后 spec 真为 `SlidingWindowSpec`（组块大小 64）；窗口 8,192 时池
+  `58,478 tokens` ✓、窗口 45,472 时池 `18,036 tokens`（混合 LCM 记账被 64-token 块拖垮）。
+- 但 14,011-token marker prompt（窗口 8,192、池 58,478）**5 分钟无响应**，引擎日志连
+  `Prefill progress` 都没有、metrics 显示 running/waiting 均为 0 ⇒ 请求连 prefill 都没进
+  （疑似 SW 组的准入/管理器在入队处卡住）。此路要可用，需在引擎侧修 SW 组的调度，不是配置问题。
+
+**现状**：默认臂恢复（实验开关 0 条），88K 中段针 `ZX-4417-QJ7` ✓；滑臂开关默认关。

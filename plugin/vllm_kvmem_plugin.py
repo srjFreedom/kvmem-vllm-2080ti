@@ -1492,7 +1492,15 @@ def _attach_sparse(runner, log_path):
                     # `_kvmem_req_ids` is filled by execute_model, which prefill chunks do not
                     # reach; the input batch is populated at prepare time and is in the same order
                     # as query_start_loc / num_scheduled_tokens.
-                    batch = getattr(runner, "input_batch", None)
+                    # design 583: the hook's `runner` is NOT the GPUModelRunner instance (the
+                    # live view holds it), so `runner.input_batch` was always None and the
+                    # fallback `_kvmem_req_ids` is stale - the ring/slide arms were driven
+                    # with a PREVIOUS request's id (measured: slid records for 08ba57 while
+                    # cbc2d3 was live, and the live request saw vl=0 all the way).
+                    batch = getattr(getattr(getattr(rt, "view", None), "runner", None),
+                                    "input_batch", None)
+                    if batch is None:
+                        batch = getattr(runner, "input_batch", None)
                     reqs = list(getattr(batch, "req_ids", None) or []) or \
                         list(getattr(runner, "_kvmem_req_ids", None) or [])
                     if rt is not None and len(reqs) != query_start_loc.shape[0] - 1:
