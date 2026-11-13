@@ -3795,3 +3795,32 @@ needle 落在窗口内时，答案必须在"纯环形、无选择"下正确，�
   （环形日志此后不再增长），不能作为新臂结论；必须在干净重启上取这一发。
 
 预算：本轮 7 boots，超支停止。生产臂已恢复（`KVMEM_RING_VIEW` 关闭，`PLAN_D=1` 不变）。
+
+## 841. Round 577：环臂的两条硬事实——warmup 假视图会杀 worker；瞬时 clamp 让引擎行不可作位置映射
+
+**1. warmup 假视图（已修，commit 之前的崩溃根因）**
+- 环臂在 `_warmup_*` / `_v2_mixed_warmup_*` 的 dummy 请求上发布视图（其 frontier 是 max_model_len 级），
+  下一步 dummy 用被污染的视图表 → 两个 TP worker **静默被杀**（exit code None、无 traceback、无 Xid），
+  EngineCore 只看到 `RuntimeError: cancelled`。11:05/11:07/11:10/11:19 四次启动失败全是这一条。
+- 修：`d_ring_window` 与 hook 都跳过 warmup id；首次安装的切片加"distinct ≥ 90%"校验（不合格 fail closed）。
+  修后引擎可正常启动并跑完请求。
+
+**2. 前向侧实测（`kvmem_dbg` 断点，文档里的设施）**
+- 50K 请求、decode 步 `position=49369`：`slot_positions == positions`（**delta=0**），slot 落到
+  `page 9728`（池只有 2,842 页）⇒ 写地址在池外——这就是"发布正确却仍退化"的直接原因。
+- 同一帧里 `kvmem_slot_deltas[0]=0`、`kvmem_view_lens[0]=0`；而环方法的 probe 记录的是它写入的
+  `delta=3680/vl=45472`。断点打在 `before_step` 的守卫行时 `ring_ready=False`、`roll_base=0`
+  ⇒ **请求态没有被环的写入看到**（runner 张量有值、请求对象没值），`_d_reset_row` 于是把表清零。
+
+**3. 架构判决：环不能建在瞬时 clamp 的分配上**
+- 50K 首次安装的切片 `slice_distinct=906`（应=1,421）：瞬时 clamp 在分配时把 `num_computed` 回卷，
+  引擎随后按回卷后的位置重新 append 块 id，于是**块表行不再是"位置→页"的忠实映射**（同一页 id 出现在多个列）。
+  88K 那次 `slice_distinct=1421` 只是 clamp 时机的巧合。
+- 结论：环臂（`KVMEM_RING_VIEW`，瞬时 clamp）在架构上不可成立；环必须走**持久回卷**的 apply 臂：
+  Core 把 `num_computed_tokens` 回卷到**页对齐的 `frontier - win`**（按页滑动，而不是每步重置到
+  `win - num_new`），则 positions 天然是视图帧、分配与视图同构；worker 侧只发布 `delta=0`、
+  `rope_offset=base` 并安装旋转后的行（K 字节保持 TRUE 相位）。这是下一步的施工面（scheduler +
+  prepare 链 + 适配器三处，权限清晰）。
+
+**现状**：默认臂已恢复（`KVMEM_RING_VIEW=0`），88K 中段针实测 `ZX-4417-QJ7`；环臂的所有改动都被
+开关隔离，生产路径无回归。环臂实验的失败记录（崩溃、退化、slice 重复）保留在 /tmp 与本节。

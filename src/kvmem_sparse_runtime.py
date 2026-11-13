@@ -847,6 +847,15 @@ class VllmSparseRuntime:
         out = {"kind": "d_ring_window", "req": str(req)[-6:],
                "row_index": int(row_index), "state": "init"}
         try:
+            # Warmup/dummy requests are crafted with a max_model_len frontier; letting the
+            # ring publish a view for one of those rows leaves a stale view table pointing
+            # at a dummy block table, and the next real step replays it (measured round
+            # 577: both TP workers died silently during compile_or_warm_up_model).
+            if (str(req).startswith("_warmup")
+                    or str(req).startswith("_v2_mixed_warmup")):
+                out["state"] = "warmup_skip"
+                self._ring1576(req, out)
+                return out
             pt = max(1, int(self.page_tokens))
             win = int(self.budget_tokens) + int(self.gen_reserve)
             frontier = int(tok) + int(n_new)
@@ -901,7 +910,12 @@ class VllmSparseRuntime:
                 head = [v for v in eng[:steps] if 0 < v < npages]
                 out["store"] = self._ring_commit_pages(req, 0, min(steps, len(eng)), eng)
                 row = [v for v in eng[steps:steps + want] if 0 < v < npages]
-                if len(row) < want:
+                distinct = len(set(row))
+                out["slice_distinct"] = distinct
+                if len(row) < want or distinct < int(want * 0.9):
+                    # A warmup/dummy row (or a stale table) does not hold one page per
+                    # position. Publishing a view over it points attention at somebody
+                    # else's pages and the next step dies in the kernel - fail closed.
                     out["state"] = "short_slice"
                     self._ring1576(req, out)
                     return out

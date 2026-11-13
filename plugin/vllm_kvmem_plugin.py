@@ -1733,8 +1733,10 @@ def _attach_sparse(runner, log_path):
                                     # opening while the runtime had already published a
                                     # 45,472-token view).
                                     try:
-                                        runtime.d_ring_window(_rq, _st631, int(_row),
-                                                              int(_tok631), int(_n_new576))
+                                        if not (str(_rq).startswith("_warmup")
+                                                or str(_rq).startswith("_v2_mixed_warmup")):
+                                            runtime.d_ring_window(_rq, _st631, int(_row),
+                                                                  int(_tok631), int(_n_new576))
                                     except Exception as _e1576:
                                         try:
                                             with open("/tmp/kvmem_ring576_err.jsonl", "a") as _re:
