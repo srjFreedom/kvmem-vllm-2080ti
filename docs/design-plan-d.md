@@ -5268,3 +5268,22 @@ row   = pages[: win_pages + pages_per_block]
 **超池（`RING_ALLOC=1`）仍不达**：152K tailA/tailB 都是 `'# KEY-MID … **KEY-MID**'`
 （读到记录名、缺 code），窗格本身已由 scheduler 精确定义 ⇒ 剩余缺口不在"窗口是哪几页"，
 而在**这些页在冻结块集下的内容代际**（下一步只剩页内容级验证）。
+
+## 901. Round 675：窗口块序列已按窗口顺序发布，内池三绿；超池内容仍不对
+
+**改动**：scheduler 发布的不再是"持有列表尾部"，而是**按窗口顺序的循环序列**
+`blocks[k] = held[(base/bs + k) mod n]`（池内天然线性、超池天然循环）。内池三绿复验 ✓✓✓。
+
+**超池（`RING_ALLOC=1`）**：152K tailA/tailB 仍是 `'# KEY-MID … **KEY-MID**'`。
+此时已排除：窗口是哪几页（现在由 scheduler 精确给出并核对过顺序）、大 base、MTP、诱饵、
+帧、行安装（staged-write 回读一致）、表项、别名（窗口 1,421 页 < 周期 1,470 页、页内偏移
+`dense % 32` 也互不重叠）。
+
+**结论**：剩余差异只能是"**冻结块集下页内容的写入时序**"——即引擎在 prefill 早期写入这些页的
+内容与环后续写入的覆盖关系。要定论必须做**页内容级、按 pid 分组**的时间对照（已写过两版探针，
+都因 guard 或 except 静默失败）；建议作为下一个独立工作项，用"无条件写文件 + 只记 page/fp/step"
+的最小探针完成，而不是继续在几何层试错。
+
+**当前可复现成果（不回退）**
+- 窗口化内池召回：just-crossing / 88K mid / 88K tail = `ZX-4417-QJ7` ✓（窗口来自 scheduler 单源）
+- 引擎 fork：design 900（`scheduler_output.kvmem_ring_blocks`）
