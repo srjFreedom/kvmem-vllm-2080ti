@@ -4390,3 +4390,24 @@ kvmem/kvmem-vllm 的做法对照，缺的是"归档 **raw pre-RoPE K**、装配�
 先只对超池请求启用（`KVMEM_REBAKE=1`），用 152K tailA 判成败。
 
 **默认臂已恢复**（基线 env），88K `ZX-4417-QJ7` ✓。
+
+## 860. Round 606–607：**重大发现——legacy 滑臂的环从未运行过**（此前"绿"全是稠密路径）
+
+**证据链**
+1. 152K 请求跑完但没有任何 `d_ring576` probe 记录（`/tmp/kvmem_ring576.jsonl` 0 行），而插件日志里
+   运行时的 `d_hv_funnel/d_step_call/d_final_sweep` 都在 ⇒ **运行时在、环没跑**。
+2. 根因：hook 里 `live = runner.input_batch.req_ids or runner._kvmem_req_ids` —— 此处的 `runner` 是
+   **模块**（`input_batch` 恒 None），而 `_kvmem_req_ids` 从未被填充 ⇒ **`live` 恒空** ⇒ 环循环
+   （`for _i631, _rq in enumerate(live)`）一次都没执行。
+3. 结论：round 589/590/603 里那些 `ZX-4417-QJ7` 的"绿"，凡是池内 prompt（45.5K/74.9K < 池 88,914）
+   都是**纯稠密运行**（不需要压缩）；环真正跑过的只有 fork 内的 clean ring（会 `duct`）。
+4. 超池 152K 的 `'ferryman…'`（prompt 开头）也由此解释：无环 + 窗口预留把页集冻结在第一个窗口，
+   模型读到的就是开头 45K。
+
+**已尝试的修复（未生效，下一步继续）**
+- 插件 attach 的"瞬时失败永久失败"改成**有界重试**（design 606）；
+- `live` 改为优先 `rt.view.runner.input_batch.req_ids`（design 607）。
+  两者都没让 probe 出现记录 ⇒ `live` 仍然空／`rt` 在该作用域不是预期对象。下一发在 hook 里直接
+  打印 `id(rt)`、`id(rt.view.runner)`、`bool(input_batch)`、`len(live)`，一次定位。
+
+**状态**：默认臂已恢复；88K 与 just-crossing 仍 `ZX-4417-QJ7`（稠密路径）。
