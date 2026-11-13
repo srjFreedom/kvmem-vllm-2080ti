@@ -4999,3 +4999,23 @@ last: {'base': 97216, 'want': 1457, 'got': 1457, 'rowlen': 1470}
 **下一发**：在 `prepare_attn` 里把 ①`input_block_tables[gi][0,1359]`（gather 后）、
 ②`block_tables[gi][0,1359]`（staged）与 ③环的 `_row[1359]` 三者同时落盘对照；三者一致后
 超池的写入就会落到页 1,457，内容层即可收口。
+
+## 887. Round 653–654：改用引擎官方 staged-write 后，**表项终于正确**（1,310），但答案仍 `'ZX the season…'`
+
+**修复（真实进展）**：安装从"直接写 device 张量"改为引擎自己的
+`block_tables[gi].stage_write(rs, 0, row)` + `apply_staged_writes()`，此后 slot 映射在 needle 列
+1,359 上取到的表项是 **1,310**（合法页号，而非此前的 9,551 越界值）。⇒ **"slot 映射读到陈旧副本"
+这一层已修复**。
+
+**当前全部已验证为正确**：帧（真相位/稠密 slot/稠密 seq，override ON）、行安装（回读一致 174/174）、
+表项（1,310）、写读页一致、无崩溃（不再改写 position 缓冲）、能跑完 142,931 token。
+**但答案仍是 `'ZX the season…'`** ⇒ 剩余差异在**内核内部**（大位置下的 RoPE/掩码交互），
+已低于当前仪表的分辨率。
+
+**决策点（下一轮需用户定）**
+1. **继续内核级排查**：需要 dump 某层某 step 的 q/k 与 attention 输出，或对比"稠密跑"与"窗口跑"
+   同 token 的 logits；成本高（每次 boot + 逐层探针）。
+2. **改走选择式超池**（store + restore + mandatory-span）：超池不依赖"纯滑窗正确"，而是把
+   needle 页从 store 还原进窗口——这正是文档最初对 152K 中段针的设计，且我们已有
+   `_ring_commit_pages` / `_apply_selection_d` 的现成接口。
+3. **park 超池**：保留内池窗口化三绿 + 本次的 staged-write 修复，等后续专门立项。
