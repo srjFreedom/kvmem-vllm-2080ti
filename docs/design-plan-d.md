@@ -4095,3 +4095,25 @@ KV**；若陈旧页范围更大（取决于上一请求的残留），正好覆�
 **默认臂当前验收状态（实测）**：88K 中段 `ZX-4417-QJ7` ✓；**152K 中段失败**
 （`'The text is a literary description of a river, not a technical description of a river, not a…'`，
 142,868 tokens，3m10s，复读退化）。这正是本 goal 要修的验收项（不是本轮的回归）。
+
+## 850. Round 586：页内容审计上线（文件触发，自报错）；首次读数显示"目标页写入后内容仍在变"；
+   并记两条会让实验失真的运维事实
+
+**A. 页内容审计（design 586，已可用）**
+- 在 `d_ring_slide` 的 slid 分支按 `KVMEM_AUD_PAGE`（或文件 `/tmp/kvmem_aud_page`）对一个**绝对页**
+  取设备指纹：`col = (abs*pt - base)//pt`、`page = installed_row[col]`、`sha1(paged[0][page])`，逐 step
+  写入 `/tmp/kvmem_pageaud.jsonl`；异常也会写一条 `err`（第一次实现踩了 `state` 不在作用域，正是靠
+  自报错暴露的）。
+- 首次读数（刚好跨窗 prompt，绝对页 1,421 = tokens 45,472..45,503）：视图列随 base 前移
+  （1,418 → 1,416）、**页 id 恒为 196**（映射稳定 ✓），但**该页指纹在写入后仍随 step 变化**
+  （`fa08…` → `a0fa…` → `4b3e…`）。若映射与写地址都正确，这个页在写入后不应再被改写 ⇒ 说明
+  **有第二个写者（或旋转把仍在视图内的页回收复用）**，这正是 needle "写进去读不到"的形态。
+  待下一发把 pid/rank 与两次 `put` 都记录下来钉死写者。
+
+**B. 运维事实（会让实验失真，必须每次核对）**
+1. **worker 的 env 不等于 API server 的 env**：API server 有 40 个 `KVMEM_*`，worker 只有 19 个
+   （新加的键如 `KVMEM_RING_PROBE`/`KVMEM_AUD_PAGE` 根本到不了 worker，静默失效）。对策：审计改成
+   文件触发；或由 console 在 worker 进程内 `os.environ[k]=v`。
+2. **"health 200" 不代表本次 boot 生效**：服务曾撞 start-limit，`systemctl restart` 静默失败，
+   旧实例继续服务 ⇒ 我一度把旧实例的结果当成新配置的结果（也是"同配置跨启动不确定"的一部分）。
+   判定方法：`log` 文件 mtime + worker pid + probe 记录里的 pid 三者一致才算新实例。

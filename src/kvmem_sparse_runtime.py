@@ -1203,6 +1203,54 @@ class VllmSparseRuntime:
                 runner.kvmem_view_active = True
             except Exception as exc:
                 out["table_error"] = str(exc)[:80]
+            # design 586: content audit of ONE absolute page as the ring moves it.
+            # Fingerprints the device page the installed row points at for that page, so
+            # "written but never read correctly" can be told apart from "never written".
+            try:
+                _ap586 = int(os.environ.get("KVMEM_AUD_PAGE", "0") or 0)
+            except Exception:
+                _ap586 = 0
+            if _ap586 <= 0:
+                # Fallback trigger: a file, so the audit needs no env plumbing (the worker
+                # env is filtered: measured round 586 - only the 19 keys systemd exported at
+                # the launcher's boot reach the workers, so a new KVMEM_ key silently does
+                # nothing unless it is set in-process or listed here).
+                try:
+                    with open("/tmp/kvmem_aud_page", "r") as _af:
+                        _ap586 = int(_af.read().strip() or 0)
+                except Exception:
+                    _ap586 = 0
+            if _ap586 > 0:
+                try:
+                    _col586 = (int(_ap586) * pt - int(base)) // pt
+                    _row586 = list(row)
+                    self._aud_seq586 = int(getattr(self, "_aud_seq586", 0) or 0) + 1
+                    _aud = {"kind": "page_aud", "req": str(req)[-6:],
+                            "pid": os.getpid(), "step": int(self._aud_seq586),
+                            "base": int(base), "rowlen": len(_row586),
+                            "tokens": int(getattr(st, "tokens", 0) or 0),
+                            "true_after": int(true_after)}
+                    if 0 <= _col586 < len(_row586):
+                        _pg586 = int(_row586[_col586])
+                        try:
+                            import hashlib as _h
+                            _paged586 = self.view.paged_kv()
+                            _b = _paged586[0][_pg586].float().cpu().numpy().tobytes()
+                            _aud["col"] = _col586
+                            _aud["page"] = _pg586
+                            _aud["fp"] = _h.sha1(_b).hexdigest()[:12]
+                        except Exception as _e586:
+                            _aud["fp"] = "err:%s" % str(_e586)[:40]
+                    else:
+                        _aud["col"] = _col586
+                        _aud["fp"] = "out"
+                    with open("/tmp/kvmem_pageaud.jsonl", "a") as _f586:
+                        _f586.write(__import__("json").dumps(_aud) + chr(10))
+                except Exception as _e586b:
+                    with open("/tmp/kvmem_pageaud.jsonl", "a") as _f586:
+                        _f586.write(__import__("json").dumps(
+                            {"err": str(_e586b)[:160],
+                             "req": str(req)[-6:]}) + chr(10))
             out["state"] = "slid"
         except Exception as exc:
             out["state"] = "error"
