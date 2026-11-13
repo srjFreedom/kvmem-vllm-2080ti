@@ -5303,3 +5303,21 @@ row   = pages[: win_pages + pages_per_block]
 索引 KV 的路径，例如 gather/slot 之外的第二条写路径）。
 
 **已回退到可复现基线**：帧冻结版（design 900/901 + 冻结 base）⇒ 内池三绿、超池 `'# KEY-MID'`。
+
+## 903. Round 680–683：两个真实发现 + 完整的协议定义
+
+**发现 1（能修崩溃）**：`illegal Triton access` 的根因是 **gather 宽度 = worker 的 per-row 块数**，
+而我们只装 1,470 列的行走不到那么宽 ⇒ 内核读到越界列。把 `num_blocks` 钉成行宽后**崩溃消失**
+（152K 变成干净的 `'Nothing.'`，不再 500）。
+
+**发现 2（钉了之后必须帧也对）**：只钉 book、帧仍旧冻结（base=3,136）时，池内三绿**变红**
+（88K 中段乱码）。⇒ **帧与行必须同源**，否则 slot 落在行外。
+
+**完整的正确协议（下一轮一次实现，无半成品）**
+1. scheduler 每步发布两样东西：`kvmem_ring_base[req]`（窗口起点）与 `kvmem_ring_blocks[req]`
+   （按窗口顺序的块序列，已实现 901）；
+2. worker 的环**只读**这两者：`base` 用于 `dv`/`rope`/`vl` 与行尾（不再自推），`blocks` 用于装行；
+3. 装行后把 `num_blocks[gi, 0]` 钉成行宽（发现 1）；
+4. 帧的三个量全部由 `base` 推出：`deltas=base`、`rope=0`（positions 保持 TRUE）、`vl=view`。
+
+已回退到绿基线（design 901 + 冻结帧）：池内三绿；超池仍是冻结窗口的 `'# KEY-MID'`。
