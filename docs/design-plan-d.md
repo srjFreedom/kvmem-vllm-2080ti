@@ -5245,3 +5245,26 @@ worker 直接照它装行（不再读自己的块表），并且**由 scheduler 
 这是一个明确、可实现的协议改动（约 60 行，跨 3 个文件），但需要单独一轮专注实现与回归。
 
 **现状（已全部回退并复验）**：just-crossing / 88K mid / 88K tail = `ZX-4417-QJ7` ✓✓✓。
+
+## 900. Round 674：**单源窗口协议（design 900）落地：scheduler 发布窗口块序列，内池三绿**
+
+**改动**：scheduler 每步把"当前窗口的 kv-block 序列"（取持有列表最后 `win_blocks+1` 项）
+挂到 `scheduler_output.kvmem_ring_blocks`；worker 的环直接按它展开成页行（不再自己推导）：
+
+```
+pages = [b*pages_per_block + k for b in blocks for k in range(pages_per_block)]
+row   = pages[: win_pages + pages_per_block]
+```
+
+**实测（内池，窗口 45,472，`RING_ALLOC=0`）**
+| 输入 | 答案 |
+|---|---|
+| just-crossing | `ZX-4417-QJ7` ✓ |
+| 88K mid | `ZX-4417-QJ7` ✓ |
+| 88K tail | `ZX-4417-QJ7` ✓ |
+
+这是**第一个"窗口来自单一真相源"且三绿齐全的版本**（此前的绿版本依赖 worker 侧自推）。
+
+**超池（`RING_ALLOC=1`）仍不达**：152K tailA/tailB 都是 `'# KEY-MID … **KEY-MID**'`
+（读到记录名、缺 code），窗格本身已由 scheduler 精确定义 ⇒ 剩余缺口不在"窗口是哪几页"，
+而在**这些页在冻结块集下的内容代际**（下一步只剩页内容级验证）。
