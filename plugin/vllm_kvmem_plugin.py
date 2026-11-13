@@ -75,6 +75,29 @@ def _sched_cfg(scheduler):
         return {}
 
 
+def _sw610(cfg_key, env_name, runner=None):
+    """Config-first boolean switch.
+
+    The EngineCore's and the workers' environments are FILTERED: a new KVMEM_* key does not
+    reach them (measured: the hook read KVMEM_D_SLIDE as False while the service env had it).
+    The additional_config dict does reach every process, so it wins.
+    """
+    try:
+        _c = _config() or {}
+        if _c.get(cfg_key):
+            return True
+    except Exception:
+        pass
+    try:
+        _ac = getattr(getattr(runner, "vllm_config", None), "additional_config", None) or {}
+        _kv = _ac.get("kvmem") if isinstance(_ac, dict) else None
+        if isinstance(_kv, dict) and _kv.get(cfg_key):
+            return True
+    except Exception:
+        pass
+    return os.environ.get(env_name) == "1"
+
+
 def _config():
     """KVMem settings for this process: additional_config first, a file only as a legacy fallback."""
     if _ACTIVE_CONFIG:
@@ -1707,8 +1730,70 @@ def _attach_sparse(runner, log_path):
                     # only cleared on error. A request that never installed a view
                     # must not inherit the previous request's translation on that row
                     # (measured: alternating correct/duct with identical witnesses).
-                    _dv = getattr(runner, "kvmem_slot_deltas", None)
-                    _vl = getattr(runner, "kvmem_view_lens", None)
+                    # design 610: `runner` here is the MODULE, so these were always None and
+                    # the whole ring branch was dead. Resolve through the live view - but ONLY
+                    # for the ring arms, because making them non-None for the classic arm would
+                    # enable its view work and cost the 88K green point (measured round 607).
+                    try:
+                        # NB: `rt` is re-assigned later in this function, which makes it a
+                        # function-local name that does not exist yet here (measured: round
+                        # 611 UnboundLocalError, the ring block was silently skipped forever).
+                        _rt610 = runtime  # closure var set by _attach_sparse
+                        # design 611: the ring gates on the device tables existing, but they
+                        # are created inside the ring itself - a chicken-and-egg that kept the
+                        # whole arm dead (measured: dv=False vl=False at every step). Create
+                        # them here, outside inference mode.
+                        if _rt610 is not None and getattr(_rt610, "install_row", False):
+                            try:
+                                import torch as _t611
+                                _rn611 = getattr(getattr(_rt610, "view", None), "runner", None)
+                                if _rn611 is not None and getattr(
+                                        _rn611, "kvmem_view_lens", None) is None:
+                                    _n611 = int(getattr(_rn611, "max_num_reqs", 0) or 0) or 1
+                                    with _t611.inference_mode(False):
+                                        _rn611.kvmem_slot_deltas = _t611.zeros(
+                                            _n611, dtype=_t611.int32, device="cuda")
+                                        _rn611.kvmem_view_lens = _t611.zeros(
+                                            _n611, dtype=_t611.int32, device="cuda")
+                            except Exception:
+                                pass
+                        _act610 = (getattr(getattr(_rt610, "view", None), "runner", None)
+                                   or runner)
+                        _ring_any610 = (_sw610("ring_view", "KVMEM_RING_VIEW", _act610)
+                                        or _sw610("d_slide", "KVMEM_D_SLIDE", _act610))
+                    except Exception as _e610a:
+                        import traceback as _tb610
+                        try:
+                            with open("/tmp/kvmem_ring610.jsonl", "a") as _f610:
+                                _f610.write("resolve_err %s\n%s\n" % (
+                                    str(_e610a)[:120], _tb610.format_exc()[-500:]))
+                        except Exception:
+                            pass
+                        _act610 = runner
+                        _ring_any610 = False
+                    try:
+                        if not getattr(_rt610, "_ring610_said", False):
+                            if _rt610 is not None:
+                                _rt610._ring610_said = True
+                            with open("/tmp/kvmem_ring610.jsonl", "a") as _f610:
+                                _f610.write("rt=%s act_is_runner=%s any=%s slide=%s dv=%s vl=%s\n" % (
+                                    _rt610 is not None, _act610 is runner, _ring_any610,
+                                    _sw610("d_slide", "KVMEM_D_SLIDE", _act610),
+                                    getattr(_act610, "kvmem_slot_deltas", None) is not None,
+                                    getattr(_act610, "kvmem_view_lens", None) is not None))
+                    except Exception as _e610:
+                        try:
+                            with open("/tmp/kvmem_ring610.jsonl", "a") as _f610:
+                                _f610.write("probe_err %s\n" % str(_e610)[:100])
+                        except Exception:
+                            pass
+                    if _ring_any610:
+                        _act610 = getattr(getattr(rt, "view", None), "runner", None) or runner
+                        _dv = getattr(_act610, "kvmem_slot_deltas", None)
+                        _vl = getattr(_act610, "kvmem_view_lens", None)
+                    else:
+                        _dv = getattr(runner, "kvmem_slot_deltas", None)
+                        _vl = getattr(runner, "kvmem_view_lens", None)
                     try:
                         with open("/tmp/kvmem_hookin.jsonl", "a") as _hi:
                             _st0 = None
@@ -1728,8 +1813,46 @@ def _attach_sparse(runner, log_path):
                         pass
                     if _dv is not None and _vl is not None:
                         import torch as _t631
-                        for _i631, _rq in enumerate(live):
+                        # design 609: the RING arms resolve their own request ids. `live`
+                        # above is always empty (`runner` is the module) and must stay that
+                        # way for the classic/default arm - turning it non-empty enabled the
+                        # classic view work and cost the 88K green point (measured 607).
+                        _ring_any609 = (_sw610("ring_view", "KVMEM_RING_VIEW", _act610)
+                                        or _sw610("d_slide", "KVMEM_D_SLIDE", _act610))
+                        _live609 = live
+                        if _ring_any609:
+                            _lr609 = getattr(getattr(rt, "view", None), "runner", None)
+                            try:
+                                _live609 = (list(getattr(getattr(_lr609, "input_batch", None),
+                                                         "req_ids", None) or [])
+                                            or list(live or []))
+                            except Exception:
+                                _live609 = live
+                            if not getattr(rt, "_ring609_said", False):
+                                rt._ring609_said = True
+                                try:
+                                    import json as _j609
+                                    with open("/tmp/kvmem_ring609.jsonl", "a") as _f609:
+                                        _f609.write(_j609.dumps({
+                                            "kind": "ring_ids",
+                                            "pid": os.getpid(),
+                                            "live": len(live),
+                                            "resolved": len(_live609),
+                                            "ids": [str(x)[-6:] for x in _live609[:3]]}) + chr(10))
+                                except Exception:
+                                    pass
+                        for _i631, _rq in enumerate(_live609):
                             _row = view.row_index(_rq)
+                            if _row is None and _ring_any609:
+                                # the view's binding needs the ids it never got; the runner's
+                                # own map is authoritative.
+                                try:
+                                    _row = int(getattr(_lr609.req_states, "req_id_to_index",
+                                                       {}).get(_rq, -1))
+                                    if _row < 0:
+                                        _row = None
+                                except Exception:
+                                    _row = None
                             if _row is None:
                                 continue
                             _st631 = None
@@ -1746,7 +1869,7 @@ def _attach_sparse(runner, log_path):
                             # scheduler frontier; the classic path keeps its old book
                             # (switching it unconditionally moved the write base and
                             # cost the 88K green point).
-                            if os.environ.get("KVMEM_RING_VIEW") == "1":
+                            if _sw610("ring_view", "KVMEM_RING_VIEW", _act610):
                                 try:
                                     _tok631 = int(num_computed_tokens[_i631])
                                 except Exception:
@@ -1761,7 +1884,7 @@ def _attach_sparse(runner, log_path):
                             # life, not just until the first install - the old gate was
                             # `not _has`, so from the second step on the (wrong) inline
                             # roll in the classic branch took over.
-                            _ringv576 = os.environ.get("KVMEM_RING_VIEW") == "1"
+                            _ringv576 = _sw610("ring_view", "KVMEM_RING_VIEW", _act610)
                             _n_new576 = 1
                             if _ringv576:
                                 try:
@@ -1769,7 +1892,7 @@ def _attach_sparse(runner, log_path):
                                                     - int(query_start_loc[_i631]))
                                 except Exception:
                                     _n_new576 = 1
-                            _slide577 = os.environ.get("KVMEM_D_SLIDE") == "1"
+                            _slide577 = _sw610("d_slide", "KVMEM_D_SLIDE", _act610)
                             if _slide577:
                                 # design 577: the Core keeps the book in the VIEW frame with
                                 # a page-aligned slide; the worker derives the absolute base

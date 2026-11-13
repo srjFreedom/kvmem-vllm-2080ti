@@ -4425,3 +4425,30 @@ kvmem/kvmem-vllm 的做法对照，缺的是"归档 **raw pre-RoPE K**、装配�
 **当前服务状态**：默认臂（基线 env），服务 active/health 200，88K 中段针 `ZX-4417-QJ7` ✓；
 引擎 fork 在 `c3b9517`，适配器 plugin 在 `8664c52` 的内容（未提交的 `vllm_ring_clean.py` 保留为
 未启用模块）。
+
+## 861. Round 611：剥掉 6 层"静默死掉"的原因——环仍未触发，但每一层现在都有实测/日志
+
+**本轮修掉的静默失败（全部有日志证据）**
+1. **worker/Core 的 env 被过滤**：hook 里 `KVMEM_D_SLIDE`/`KVMEM_RING_VIEW` 读到 False（而服务 env 是 1）
+   ⇒ 新增 `_sw610(cfg_key, env, runner)`：**config 优先**（`additional_config.kvmem` 能到每个进程），
+   worker.py 发布 `d_slide/ring_view`。
+2. **`rt` 是函数内被重新赋值的名字** ⇒ 在其赋值前读取抛 `UnboundLocalError`，被外层 try 吞掉
+   （实测日志：`cannot access local variable 'rt'`）⇒ 改用 `_rt610`。
+3. **`state` 不在 hook 的闭包里** ⇒ `NameError`（实测：`name 'state' is not defined`）⇒ 改用
+   `_attach_sparse` 的闭包变量 `runtime`。
+4. **设备表在环内部才创建**，而门控要求表已存在（鸡生蛋）⇒ 门控前先建 `kvmem_slot_deltas/view_lens`。
+5. `_dv/_vl` 从**模块**取（恒 None）⇒ 环分支改从 live view 的 runner 取（且只对环臂生效，classic
+   臂保持 None——否则 88K 会退化）。
+6. 环 probe 的 `KVMEM_RING_PROBE` 同样被 env 过滤 ⇒ 改成**文件触发** `/tmp/kvmem_ring_probe.on`，
+   并把限流从"每 pid 40"改为"每请求 600"。
+
+**现在的实测读数（ring 臂 boot）**
+```
+ring610: rt=True act_is_runner=True any=True slide=True dv=True vl=True
+```
+即：运行时、runner、开关、设备表**全部就位**；环分支的入口条件成立。但 `d_ring_slide` 仍未产生
+probe 记录（`/tmp/kvmem_ring576.jsonl` 0 行、`/tmp/kvmem_slide577_err.jsonl` 不存在）⇒ 卡在环循环体
+内部（`_row` 取得之后、调用之前）。**下一步**：在循环体里按 3 个点各写一条 probe
+（进入循环 / `_row` 解析 / 调用前），一次定位。
+
+**默认臂不受影响**（本轮所有改动只在环臂分支内生效）：88K 中段针 `ZX-4417-QJ7` ✓。

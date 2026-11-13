@@ -996,7 +996,9 @@ class VllmSparseRuntime:
 
     def _ring1576(self, req, rec):
         """Long-lived probe for the ring window (KVMEM_RING_PROBE=1, cap 40/pid)."""
-        if os.environ.get("KVMEM_RING_PROBE", "") not in ("1", "true", "yes", "on"):
+        # The worker env is filtered, so a file switch is the reliable trigger.
+        if (os.environ.get("KVMEM_RING_PROBE", "") not in ("1", "true", "yes", "on")
+                and not os.path.exists("/tmp/kvmem_ring_probe.on")):
             return
         try:
             import json as _json
@@ -1004,9 +1006,10 @@ class VllmSparseRuntime:
             _seen = getattr(self, "_rp1576", None)
             if _seen is None:
                 _seen = self._rp1576 = {}
-            if int(_seen.get(_pid, 0)) >= 40:
+            _key = (_pid, str(rec.get("req", "")))
+            if int(_seen.get(_key, 0)) >= 600:
                 return
-            _seen[_pid] = int(_seen.get(_pid, 0)) + 1
+            _seen[_key] = int(_seen.get(_key, 0)) + 1
             rec = dict(rec)
             rec["kind"] = "d_ring576"
             rec["pid"] = _pid
