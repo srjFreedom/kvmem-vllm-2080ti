@@ -5037,3 +5037,20 @@ apply_staged_writes 安装"这条是真实发现，值得在基线上**单独**�
 
 **下一发（纪律）**：从 `6b05f2b` 出发，**每次只引入一层**，并在每次之后复测 88K mid+tail：
 ①仅 staged-write 安装 → 复测；②仅 canonical 快照 → 复测；③再谈超池。
+
+## 889. Round 657–658：按"一次一层"纪律引入两层，内池保持三绿，超池读到记录名
+
+**基线**：引擎 fork `6b05f2b`（stateless mapper），`RING_CLEAN=1 RING_ALLOC=0 WINDOW=45472`
+
+| 层 | 改动 | 88K mid | 88K tail | 152K tailA（超池） |
+|---|---|---|---|---|
+| L1 | 安装改用引擎 `stage_write` + `apply_staged_writes` | `ZX-4417-QJ7` ✓ | `ZX-4417-QJ7` ✓ | `'The user is asking for a specific access code…'`（有推理无召回） |
+| L1+L2 | 再用 **canonical 快照 + 固定 modulus** 取行 | `ZX-4417-QJ7` ✓ | `ZX-4417-QJ7` ✓ | `'# KEY-MID … The access code for KEY-MID is **KEY-MID**'`（读到记录名，code 缺） |
+| L1+L2 | 152K tailB | — | — | 同上（`# KEY-MID …`） |
+
+⇒ 两层都**不破坏内池三绿**，且把超池从乱码推进到"读到记录名、缺 code 那 9 个 token"。
+
+**剩余缺口**：needle 句 `The unique record KEY-MID has access code ZX-4417-QJ7.` 里，`KEY-MID` 之后的
+`has access code ZX-4417-QJ7` 这一段取到的页内容是旧的。下一发（仍守一次一层）：
+对这几个 token 做"写入时刻 (base, col, page) vs 读取时刻 (base, col, page)"的三元对照，
+并用页指纹确认是"页被另一圈同名 token 覆盖"还是"写读不同页"。
