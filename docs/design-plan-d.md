@@ -4361,3 +4361,32 @@ legacy 滑臂立刻回到 `ZX-4417-QJ7`（just-crossing 与 88K 双绿，本轮�
 3. 选页的 **mandatory spans（system/query/policy 硬保留）+ capacity fit**，以及"归档 raw pre-RoPE K"。
 
 **默认臂已恢复**（基线 env，无实验键），服务 active、health 200。
+
+## 859. Round 605：in-pool 三绿 + 152K「不再停摆」；超池内容仍是 `duct`
+
+**本轮定案（臂：`D_SLIDE=1, D_KNIFE=0, RING_ALLOC=1, WINDOW=45472, PAGE=32`）**
+- 分配夹紧改为 **"仅超池请求 + 窗口已填满后"** 才触发（`prompt_len > pool_tokens` 且
+  `num_computed+n > window`）。实测门控读数：`[kvmem gate] pool=90944 prompt=142869 over=True`、
+  `[kvmem win] win=45472 bs=1568 held=29 cap=45056` ✓。
+- 池大小改为从 block pool 推导（`len(pool.blocks) * 1568`），因为 `kv_cache_manager.block_size`
+  在本 fork 不存在（打印为 -1）；`KVMEM_POOL_TOKENS` 也经 additional_config 传到 Core。
+- 首次滑步**不再从引擎行补尾**（design 605）：超池请求在同一个 step 里已经被夹紧，引擎行是变形的，
+  读它会把视图污染成复读（实测 `ferryman…` 循环）；缺的尾部列就是本 chunk 自己的写目标，用合法页
+  占位即可（同一 forward 内被覆盖）。
+
+**实测（同一 boot，连跑三发）**
+| 输入 | 答案 |
+|---|---|
+| just-crossing（45,554，池内） | `ZX-4417-QJ7` ✓ |
+| 88K mid（74,948，池内） | `ZX-4417-QJ7` ✓ |
+| **152K tailA（142,869，超池）** | 3m 内**跑完**（不再停摆）但输出 `ductduct…` ✗ |
+
+**结论**：分配/通道侧的 152K 已经通了（停摆消失、可复现完成）；剩下的纯粹是**视图内容**——与
+kvmem/kvmem-vllm 的做法对照，缺的是"归档 **raw pre-RoPE K**、装配时按新位置重旋"这一层（它们
+`window_assembly.py` 的做法）。我们已有的材料：`kvmem_sparse_rope.rotate_k_pages_fp8`（重旋）、
+`_ring_commit_pages`（页级 store，现在存的是 post-RoPE）、以及 `_apply_selection_d`（in-place 还原）。
+
+**下一发（按 kvmem-vllm 的机制）**：把 store 改成存 **pre-RoPE K**（原始 K）+ 装配时按目标位置重旋；
+先只对超池请求启用（`KVMEM_REBAKE=1`），用 152K tailA 判成败。
+
+**默认臂已恢复**（基线 env），88K `ZX-4417-QJ7` ✓。

@@ -216,7 +216,8 @@ def main(argv=None) -> int:
         if _env_flag(_k601):
             cfg[_ck601] = True
     for _k601, _ck601 in (("KVMEM_PAGE_TOKENS", "page_tokens"),
-                          ("KVMEM_WINDOW_TOKENS", "window_tokens")):
+                          ("KVMEM_WINDOW_TOKENS", "window_tokens"),
+                          ("KVMEM_POOL_TOKENS", "pool_tokens")):
         _v601 = os.environ.get(_k601, "").strip()
         if _v601:
             try:
