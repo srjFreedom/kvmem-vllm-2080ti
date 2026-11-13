@@ -4474,3 +4474,29 @@ probe 记录（`/tmp/kvmem_ring576.jsonl` 0 行、`/tmp/kvmem_slide577_err.jsonl
 `seq_lens[0] / kvmem_view_lens[0] / kvmem_slot_deltas[0] / kvmem_rope_offset / positions[0]`，
 并在 rope 相加之后、gather 之后各记一次；用它判定 `'ZXusman…'` 到底坏在"seq 长度"、"slot"、
 "RoPE 相位"还是"gather 后的行"——一处定位，不再依赖 console/plugin。
+
+## 863. Round 613–614：干净环的**帧、行、gather 三者全部验证一致**（有逐帧证据），
+   内容层成为唯一剩余嫌疑
+
+**本轮新增的仪表（fork 内，不依赖 plugin/console）**
+1. `frame_pre`（环 publish 时）：`view / true / base / n_new / pos_arg0 / dv / vl / qsl`；
+2. `frame_post`（rope 相加后、override 之后）：`pos0 / seq0 / rope / vl0 / dv0 / ncomp_gpu`；
+3. `gather`（`gather_block_tables` 之后）：注意力组的 `g_head/g_tail` + 环安装行的 `ring_head/ring_tail` + `nb`。
+
+**实测（clean ring，just-crossing 45,554 tokens，答案 `'ZXusman…'`）**
+```
+frame_post: pos0=45615  seq0=45456  rope=160  vl0=45455  dv0=160  ncomp_gpu=45615
+gather    : gi=3  g_head=[201,202,203] = ring_head ✓
+            g_tail=[…,196,197,198,199,200] = ring_tail ✓   nb=1421
+```
+含义：**positions(post-rope)=TRUE ✓、attention 长度=DENSE(vl+n) ✓、rope=base ✓、delta=base ✓、
+读路径拿到的行就是环安装的行（宽度 1,421）✓**。也就是说：帧、行、gather 三层全部正确，
+而模型仍吐 `'ZXusman…'` ⇒ 只剩**页内容（KV 字节）**这一层。
+
+**下一发（内容层，两处对照）**
+1. 在 `prepare_attn` 里记录本步的 `slot_positions[0:3]` 与 `positions[0:3]`（确认写地址确实是 dense）；
+2. 对"身份期写入的某页"做写时/读时指纹对照（环内已有 `paged[0][page]` 取页方法），判断是
+   "页被改写"还是"页内容本就带了错误相位"。这一步决定要不要上 kvmem/kvmem-vllm 的
+   **raw pre-RoPE K + 装配重旋**。
+
+**默认臂不受影响**（所有仪表只在 clean ring 开启时写入）。
