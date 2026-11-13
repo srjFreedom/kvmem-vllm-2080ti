@@ -4640,3 +4640,29 @@ window=74,000（约 30 次旋转）与 window=60,000（约 467 次）对照，�
 环本身在 152K 上是**正确滑动**的（`req 78da05: base=97,472, rowlen=1,421, head_distinct=1,421`），
 所以剩余缺口在**超池的分配夹紧（603）与环的页集/写入的交互**——下一步优先做"超池但关夹紧"的
 半程对照（会停在 ~73K，用来确认夹紧就是变量），再决定是否给环独立的窗口页集。
+
+## 870. Round 623：**重要更正——88K 的"全绿"是稠密读，不是窗口生效**
+
+**证据链**
+1. 内核按 **stock seq_len（真长度）** 索引页表；gather 宽度 = 引擎的 per-request book。
+   池内请求（88K）里，我们窗口之外的列**是引擎自己的真帧页**（内容=真位置 45,472..74,949 的 K）⇒
+   模型看到的是**完整上下文** ⇒ 答案正确 ✓（所以 round 622 的"绿"= 稠密，不是窗口效果）。
+2. 超池请求里窗口之外的列**没有有效页**（分配被夹紧冻结在 29 块）⇒ 内核读到垃圾 ⇒ 复读 ✓（解释了 152K/100K）。
+3. 让 seq_len = 窗口长度（override）**在任何组合下都坏**：
+   | 组合 | 结果 |
+   |---|---|
+   | override + 不钉 book | `'ZXusman…'` ✗ |
+   | override + 钉 book（窗口行=精确宽度，seq=窗口） | `'ZXusman…'` / 88K `'duct…'` ✗ |
+   | NOOVERRIDE + 不钉 book | 池内"绿"（稠密读 ✓，超池 ✗） |
+4. 把窗口之外的列**填成重复页**（以为会被掩码挡住）**有害** ✓ 已回退：重复 key 是可见的
+   （实测 just-crossing 变成 `The access code for KEY-MID is 4117`）。
+
+**结论（本轮定案）**
+- 要让窗口真正生效（seq ≤ 窗口），必须让**整套帧变成稠密**：positions、seq_lens、slot 全部用窗口坐标，
+  同时**窗口内的 K 必须按稠密位置重新做 RoPE**——这正是 kvmem/kvmem-vllm 的
+  `adapters/original_rope.py` + `serving/window_assembly.py`（从 **raw pre-RoPE K** 装配时重旋）。
+- 我们的 store 目前存 **post-RoPE** K，所以只能"真相位 + 稠密 slot"混用，而混用在 seq≤窗口时必坏
+  （本轮已由两组组合证伪）。
+- **下一步（唯一有上游证据的路线）**：store 改存 **pre-RoPE K**，窗口每步/每刷新时按当前 base 重旋
+  （我们已有 `kvmem_sparse_rope.rotate_k_pages_fp8` 与页级 store 接口）；先做"只对窗口内页重旋"的
+  离线校验，再接超池 152K。
