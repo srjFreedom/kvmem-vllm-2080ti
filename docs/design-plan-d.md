@@ -4224,3 +4224,25 @@ kvmem_view_lens[0]   = 0   (✗ 应为 book)
 **因此超池阶段的正确做法不再是 clamp**，而是：让引擎按真实增长分配，worker 用 store（已有 `_ring_commit_pages`
 与 `_apply_selection_d`）把被回收的页换出/必要时还原——即转入"选择/换出"阶段，这与 goal 的后半段
 （超池选择）本来就是同一件事。
+
+## 854. Round 590：滑臂 88K 电池 **2/2 全绿**（mid + tail），并给出超池的下一步
+
+**环窗口臂（`KVMEM_D_SLIDE=1, D_KNIFE=0, D_CLAMP=0`）实测**
+| 电池 | prompt tokens | 答案 | 判定 |
+|---|---|---|---|
+| `needle_88k`（needle 在 true 37,441，视图中部） | 74,948 | `ZX-4417-QJ7` | ✓ |
+| `needle_88k_tail`（needle 距尾 ~670） | 74,949 | `ZX-4417-QJ7` | ✓ |
+
+这两个 prompt 都在池内（88,914），所以**不需要 clamp**：窗口 45,472 使滑臂把视图压到 1,421 页、
+按页旋转、positions/δ/rope 同帧发布——端到端正确。加上 round 589 的"刚好跨窗"45.5K prompt，
+`D_KNIFE=0` 的滑臂在"池内 + 窗口已满"的三类输入上全部正确。
+
+**超池（152K）现状与下一步**
+- 无 clamp：块池在 ~73,728 tokens 处耗尽 → 调度等待（历史同款停摆）。
+- 有 clamp（阈值取整池或 66K）：通道能跑完（3m03s / 142,869 tokens），但 clamp 的"回退 + 释放
+  最新块"会把 needle 所在的最近页回收掉 → 复读（round 589/853b 已记）。
+- ⇒ 正确路线：**不做 rewind/clamp，而是让引擎在池将满时回收"最旧"的块**（这些页早已被 worker 的
+  ring 换进 store，且视图长度 ≤ 窗口，attention 从不读它们的列），从而既不 stall 也不动视图页。
+  回收点可以挂在 `allocate_slots` 返回 None 之前（或在 no_preempt 等待分支里先尝试回收再等）。
+  这与 goal 后半段（超池选择/换出）是同一套机制：store 已在 `_ring_commit_pages`，
+  还原已在 `_apply_selection_d`（单测覆盖）。
