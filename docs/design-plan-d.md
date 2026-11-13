@@ -5421,3 +5421,19 @@ row   = pages[: win_pages + pages_per_block]
 
 **方法论教训（写进纪律）**：①探针必须 print 到 stderr 或用一个自检 marker 先证明"探针会跑"；
 ②任何新协议都要先确认"接线真的通"（本轮两次都是"代码对、接线断"）。
+
+## 909. Round 695–697：环终于"真的跑起来"了（签名修复），但发布仍未到达 worker
+
+**修复**：`kvmem_ring.step`（模块级与 `RingClean` 方法）的签名缺少 `bases`/`blocks`，而
+`model_runner` 已在传 `bases=` ⇒ 每步抛 `TypeError: step() got an unexpected keyword argument`，
+被 hook 的 `except` 打一行 `[kvmem ring] hook failed` 吞掉 ⇒ **环在这一整段里根本没跑**
+（`run-logs/kvmem_ring_clean.jsonl` 0 条记录）。补上两个参数后：记录恢复（46 条）、
+`base` 从 3,136 推进到 48,608。
+
+**仍未通**：`pub_blocks = None`（scheduler 发布的窗口块序列**没有到达** worker），于是 base 仍来自
+环自己的计算 ⇒ 在 base≈48,608（true≈94K，≈池大小）处 **再次 illegal Triton access**。
+
+**下一步（精确到两条 print）**：
+1. 在 scheduler 的发布点 print 一次（`[kvmem pub] req=… n_blocks=…`）；
+2. 在 runner 读取处 print 一次（`[kvmem got] has_blocks=… has_base=…`）。
+两条都对 ⇒ 走 `SchedulerOutput` 的传递问题；只有第一条 ⇒ 属性没有挂到实际返回的对象上。
