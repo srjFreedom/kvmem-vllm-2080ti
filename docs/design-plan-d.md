@@ -4714,3 +4714,28 @@ slot          = block_numbers * kv_block_size + (local_positions % kv_block_size
 ⇒ 块粒度让"前缀正确"出现（说明行/相位这一层已经对上），剩下的差异集中在内核**因果轴**与
 窗口 seq 的交互上（override 打开后 88K 仍退化）。下一发：抓首个 decode step 的 logits/top-k
 （稠密 vs 窗口两种 arm 同一请求），判断模型到底读到了窗口内容还是被 seq 截断成"空上下文"。
+
+## 873. Round 626–630：**窗口真正生效**——just-crossing 与 88K 2/2 在 `seq=窗口` 下全对
+
+**关键修复（依次落地）**
+1. **列旋转 + 块对齐 base**：行是"32-token 列"索引的，旋转步长必须是 `Δbase/32` 列（不是块数），
+   而 base 必须按 1,568 块对齐（`_compute_slot_mappings_kernel` 的 `local_positions % kv_block_size`
+   决定块内偏移）。这一条让窗口 arm 首次产出正确结果。
+2. **base 向下取整 + 行多留一块**：向上取整会让 `view+n` 超出窗口、把最新 token 裁掉
+   （152K 曾答 `'ZX the season…'`）；改为 floor + 行宽 `win_pages + 49`、调度侧分配
+   `ceil(win/bs)+1` 块。
+
+**实测（arm: `RING_CLEAN=1 RING_ALLOC=0 WINDOW=45472 BLOCK=1568`，override ON = seq 取窗口）**
+| 输入 | 长度 | 答案 |
+|---|---|---|
+| just-crossing | 45,554 | **`ZX-4417-QJ7`** ✓ |
+| **88K mid** | 74,948 | **`ZX-4417-QJ7`** ✓ |
+| **88K tail** | 74,949 | **`ZX-4417-QJ7`** ✓ |
+| 152K tailA（无分配夹紧） | 142,869 | 无响应（停摆，预期） |
+
+⇒ 这是**第一次窗口真正起作用**（模型只看最后 45,472 token 仍答对），不再是"稠密读"。
+
+**超池（RING_ALLOC=1 + floor/slack）**：152K tailA 仍 `'ZX the season…'` ✗ ——
+读到 needle 首两字后跑飞 ⇒ needle 之后那些 token 的页内容错位（列/页对齐在"窗口回收 + 引擎
+块集被冻结"的组合下还有一处偏差）。下一发用两个落盘值对照：①该 token 的 **slot→页**
+（prepare_attn 侧）、②环行为该列给出的**块号→页**，直接看差在哪一页。
