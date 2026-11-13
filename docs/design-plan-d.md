@@ -4941,3 +4941,22 @@ canonical 重建一条路径；重建失败时本步不安装（`slid_skip`）�
 **下一发（崩溃二分）**：把 canonical 重建的每个阶段各写一条**已 flush** 的 probe（读 canon / 建 row /
 装表 / 发布 dv-vl / 位移 positions），用最后一次 probe 定位崩溃点；必要时先给 base 设**上限**
 （例如 20 个块）验证"小 base 多圈"是否安全。
+
+## 884. Round 649–650：崩溃根因 = **改写 position 缓冲**；去掉改写后写入首次落到 canonical 页
+
+**崩溃根因**：`positions[a:e] -= base` 会改写引擎共享的 position 缓冲，在 base 很大时（true≈94K+
+即 base≈48.6K）worker 无 traceback 死亡（stage 探针最后一条是 `F_true@94,208`，下一条 `B_canon`
+不再出现）。**去掉改写**（positions 保持 TRUE、`rope=0`）后崩溃消失，请求跑到 `true=142,931,
+base=97,216` 正常结束。
+
+**写入侧首次正确（探针）**
+```
+W {'T':136000, 'col':1359, 'entry':1310, 'slot':305632}   # slot = 1310*32 + 0，页号 1310 合法
+```
+⇒ delta 已正确（= base），写入列 (T-base)/32 = 1,359 ✓，落在 canonical 行给的页 1,310 ✓。
+
+**但答案仍是 `'ZX the season…'`**：帧（真相位 + 稠密 slot + 稠密 seq）、页映射、写入地址三者都已验证，
+内容仍不对 ⇒ 下一步必须做**页内容的时间对照**：同一 token 的页（如 1,310）在写入时刻与读取时刻的
+K 指纹是否一致（此前的指纹探针被 400 条上限与两 rank 交错干扰，需要按 pid 分组、按 T 定位）。
+
+**已提交的稳定化**：不再改写 position 缓冲（这同时消除了一个会杀 GPU 服务进程的隐患）。
