@@ -5342,3 +5342,34 @@ row   = pages[: win_pages + pages_per_block]
 窗口的**开头内容**（published base 已到 97,216，但页里的内容仍是早期 token 写入的）。这明确指向
 **"窗口内 token 的写入没有落到这些页"**：下一步查 `slot_mapping` 在超池档的实际值（是否被夹紧
 拒绝、或写到了别处），而不是继续调帧。
+
+## 905. Round 686：工作总结（本工作段收束点）
+
+**本工作段已落地（可复现、已提交）**
+1. **单源窗口协议（design 900/901/904）**：scheduler 每步发布 `kvmem_ring_base` +
+   `kvmem_ring_blocks`（窗口顺序）；worker 只读这两者决定帧（`dv`/`rope=0`/`vl`）与行；
+   装行后把 `num_blocks` 钉成行宽。
+2. **池内窗口化三绿**（窗口 45,472、seq=窗口）：just-crossing 45,554 / 88K mid 74,948 /
+   88K tail 74,949 全部 `ZX-4417-QJ7` ✓（一次 boot 内可复现）。
+3. **崩溃根因修复**：`illegal Triton access` = gather 宽度（= worker per-row book）小于行宽 ⇒
+   钉 book 后消失；超池 152K 不再 500。
+4. 排除了大 base、MTP、诱饵用例、帧/行/表项/别名等假设（均有实测记录）。
+
+**仍未达成（下一个独立工作段）**
+- 超池 152K tailA/tailB 仍只读到开头内容（`'The text is … river deltas'`）。窗口/帧/行都已由
+  scheduler 单源确定 ⇒ 只剩"窗口内 token 的写入是否真的落到这些页"，需要 slot_mapping 级审计。
+- **探针基建需先修**：本段多次探针（三元对照/成对指纹/code-token/slot）出现"0 行且 0 错误"的
+  静默失败，说明 `prepare_attn` 的注入点与执行链在某些臂上并不一致。下一段第一步应先用
+  一个必然触发的 marker 探针确认注入点，再做任何审计。
+
+## 905. Round 686：工作总结（本工作段收束点）
+
+**本工作段已落地（可复现、已提交）**
+1. **单源窗口协议（design 900/901/904）**：scheduler 每步发布 `kvmem_ring_base` + `kvmem_ring_blocks`（窗口顺序）；worker 只读这两者决定帧（`dv`/`rope=0`/`vl`）与行；装行后把 `num_blocks` 钉成行宽。
+2. **池内窗口化三绿**（窗口 45,472、seq=窗口）：just-crossing 45,554 / 88K mid 74,948 / 88K tail 74,949 全部 `ZX-4417-QJ7` ✓（一次 boot 内可复现）。
+3. **崩溃根因修复**：`illegal Triton access` = gather 宽度（= worker per-row book）小于行宽 ⇒ 钉 book 后消失；超池 152K 不再 500。
+4. 排除了大 base、MTP、诱饵用例、帧/行/表项/别名等假设（均有实测记录）。
+
+**仍未达成（下一个独立工作段）**
+- 超池 152K tailA/tailB 仍只读到开头内容（`'The text is … river deltas'`）。窗口/帧/行都已由 scheduler 单源确定 ⇒ 只剩"窗口内 token 的写入是否真的落到这些页"，需要 slot_mapping 级审计。
+- **探针基建需先修**：本段多次探针出现"0 行且 0 错误"的静默失败，说明 `prepare_attn` 的注入点与执行链在某些臂上并不一致。下一段第一步应先用一个必然触发的 marker 探针确认注入点，再做任何审计。
