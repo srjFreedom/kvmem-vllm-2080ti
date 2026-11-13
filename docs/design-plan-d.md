@@ -4922,3 +4922,22 @@ canonical 重建一条路径；重建失败时本步不安装（`slid_skip`）�
 
 **下一发**：给 `step()` 的每个提前 return 加原因计数（`req_ids` 长度、nreq、imap 等），确认 48 步后
 到底哪一条命中；修掉后超池的 delta 会持续更新，写列回到 ~1,45x，`写入页 == 读取页`，答案应完整。
+
+## 883. Round 645–648：找到"超池冻结"的真因（滑步不推 true），但推进 true 会让 worker 静默崩溃
+
+**真因**：canonical 重建路径**没有推进 `st["true"]`**（identity 分支推进了，滑步分支没有）⇒ 累加器在
+第一次滑步后冻结 ⇒ `base` 永远停在 3,136 ⇒ 超池每一步都用陈旧 delta（写列 4,152、条目 0）⇒
+模型只能复述 `KEY-MID`。这与"ring 只跑 48 步"无关（早前"记录停在 48 条"是 probe 400 条上限的假象）。
+
+**尝试推进 true 的两种写法都会让 worker 静默死亡**：
+- `st["true"] = true + n_new`（累加）⇒ EngineCore 报 `RuntimeError: cancelled`（worker 死在 shm 读），
+  132K 请求在 ~46 条记录处中断；
+- 滑步时改用 `positions[qsl[i]]`（buffer 权威值）⇒ 同样崩溃；
+- 关掉每步 store（`_commit`）⇒ 仍然崩溃（排除 store）。
+
+⇒ **大 base 下 ring 有一步是不安全的**（尚未定位；崩溃前没有 Python traceback 到达 EngineCore）。
+回退到稳定版（引擎 fork `HEAD`，含"冻结 true"），默认臂复测绿。
+
+**下一发（崩溃二分）**：把 canonical 重建的每个阶段各写一条**已 flush** 的 probe（读 canon / 建 row /
+装表 / 发布 dv-vl / 位移 positions），用最后一次 probe 定位崩溃点；必要时先给 base 设**上限**
+（例如 20 个块）验证"小 base 多圈"是否安全。
