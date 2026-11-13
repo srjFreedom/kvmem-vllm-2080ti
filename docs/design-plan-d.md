@@ -5165,3 +5165,22 @@ KVMEM_WINDOW_TOKENS=45472 KVMEM_PAGE_TOKENS=32 KVMEM_BLOCK_TOKENS=1568
 大 base、MTP、诱饵、帧/行/表项/别名等所有可测变量；剩余疑点收敛到"冻结页集下的内核行为"。
 真正符合架构的解法是**让引擎按窗口释放旧页**（真滑窗），使引擎行成为"当前窗口页的紧凑列表"、
 dense 列直接落在窗口上；这需要改块管理器（约 50 行），属于下一步的独立工作项。
+
+## 896. Round 666：真滑窗（块回收）设计定稿；本轮**不**接半成品
+
+**设计（下轮按此实现，约 50 行）**
+1. Scheduler 在 `kvmem_recycle=1` 时，每个滑步按 `Δpages = (base_new - base_old)/1568` 从
+   `FullAttentionManager.req_to_blocks[req]` 的最老端 `popleft` 掉被回收的块，并
+   `block_pool.free_blocks(...)`；同时把 `num_blocks.np[gi, req]` 减去同样数量；
+2. 引擎的 `allocate_slots` **正常分配**（不再需要设计 603 的夹紧），`append_block_ids` 会在
+   `start = num_blocks`（已减小）处写新块 ⇒ 引擎行天然成为"当前窗口页的**紧凑列表**"；
+3. 环退化成 **identity**：`row[c] = eng[c]`，dense 列直接落在窗口页上 ⇒ 不再需要取模/快照/安装；
+4. 帧仍为：`deltas=base`、`rope=base`（positions 位移）、`vl=view`、`views_active`。
+
+**本轮为何不提交**：第一版插入调度器时破坏了 `try` 块结构（语法错误），按"半成品协议不得接入
+生产路径"的纪律**整段回退**，只在文档里留下设计。默认臂与内池窗口化三绿保持。
+
+**已知风险（实现时要处理）**：块回收与 `req_to_blocks`/`num_blocks`/块表的**原子性**（必须与
+`allocate_slots` 同一 step 内完成）；`free_blocks` 的顺序（fork 用 `reversed(...)`）；
+以及回收后 `num_blocks` 变小是否影响其他按 book 计算的地方（例如 `compute_slot_mappings` 的
+`block_indices` 上界、gather 宽度）。

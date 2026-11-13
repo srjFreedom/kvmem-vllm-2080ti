@@ -214,7 +214,9 @@ def main(argv=None) -> int:
                           ("KVMEM_D_CLAMP", "clamp"),
                           ("KVMEM_RING_ALLOC", "ring"),
                           ("KVMEM_D_SLIDE", "d_slide"),
-                          ("KVMEM_RING_VIEW", "ring_view")):
+                          ("KVMEM_RING_VIEW", "ring_view"),
+                          ("KVMEM_RING_RECYCLE", "ring_recycle"),
+                          ("KVMEM_BLOCK_TOKENS", "block_tokens")):
         if _env_flag(_k601):
             cfg[_ck601] = True
     for _k601, _ck601 in (("KVMEM_PAGE_TOKENS", "page_tokens"),
