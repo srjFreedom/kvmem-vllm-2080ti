@@ -5437,3 +5437,22 @@ row   = pages[: win_pages + pages_per_block]
 1. 在 scheduler 的发布点 print 一次（`[kvmem pub] req=… n_blocks=…`）；
 2. 在 runner 读取处 print 一次（`[kvmem got] has_blocks=… has_base=…`）。
 两条都对 ⇒ 走 `SchedulerOutput` 的传递问题；只有第一条 ⇒ 属性没有挂到实际返回的对象上。
+
+## 910. Round 698–699：发布未到达 worker —— 已排除"动态属性不被序列化"，问题在对象/进程侧
+
+**两条 print 的实测**
+```
+scheduler:  [kvmem pub]  req=de67e4 n_blocks=3 base=0     ← 发布确实执行
+worker TP0: [kvmem got] has_blocks=False(0) has_base=False(0)   ← 但 worker 看不到
+```
+**已做的修复（仍保留）**
+1. `SchedulerOutput` 里把 `kvmem_ring_blocks` / `kvmem_ring_base` 声明成**真正的 dataclass 字段**
+   （原来只是动态属性，怀疑被序列化丢弃 ⇒ 已排除，字段化后现象不变）；
+2. 补 `kvmem_ring.step` 的 `blocks`/`bases` 形参（此前 `TypeError` 让环整段没跑）。
+
+**结论**：发布在 scheduler 侧执行了，worker 侧读到 None ⇒ 差异在**对象/进程边界**（worker 拿到的
+`SchedulerOutput` 不是被附加属性的那个对象，或 worker 侧 `output.py` 版本不同）。
+**下一步**：在 scheduler 的 attach 之后 print 一次 `id(scheduler_output)` 与
+`getattr(scheduler_output,"kvmem_ring_blocks",None)`，再在 worker 的 `execute_model` 入口 print
+`id(scheduler_output)`——若 id 相同但字段为 None ⇒ worker 侧模块版本/反序列化问题；id 不同 ⇒
+被复制/重建。
