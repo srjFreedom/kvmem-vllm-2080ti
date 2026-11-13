@@ -3898,3 +3898,27 @@ needle 落在窗口内时，答案必须在"纯环形、无选择"下正确，�
 
 **现状**：默认臂已恢复为原始 env 文件并实测 `ZX-4417-QJ`；滑臂代码全部开关隔离（
 `KVMEM_D_SLIDE`/`KVMEM_SLIDE_CORE` 默认 0）。
+
+## 844. Round 580：原生滑窗实验——88K 正确，超池 prompt 却"实质上停摆"
+
+**做法（一个开关）**：本 fork 的 `Attention` 从 `cache_config.sliding_window` 取窗口，且
+`Attention.get_kv_cache_spec` 在窗口非空时返回 `SlidingWindowSpec`。于是新增 `KVMEM_SLIDING_WINDOW`
+（`CacheConfig.model_post_init` 里覆盖），配合 `KVMEM_NATIVE_SW=1`（旁路适配器的行/环动作）、
+`KVMEM_D_KNIFE=0`（不 clamp、不动账本），就得到"原生滑窗"臂：窗口/掩码/spec/管理器全部由引擎负责，
+positions 与 token feed 保持 TRUE，worker 侧不做任何页搬运。
+
+**实测**
+- 引擎正常启动（`GPU KV cache size: 88,914 tokens`，group sizes / lcm 不变）。
+- 88K 电池（74,949 tokens，needle 在窗口内）：`ZX-4417-QJ7` ✓——**窗口语义在引擎侧成立**。
+- 超池 prompt 不成立：100K 尾针（99,526 > 池 90,944）11m40 仍未返回；152K 尾针（142,869）在客户端
+ 15m 超时后约 14 分钟才被引擎 release（sparse log 有 `released` + `d_final_sweep`），期间日志
+  prefill 到 73,728 tokens 后吞吐归零。即：**原生滑窗管理器没有把 prefill 期的驻留集压住**，
+  与早前轮次"no_preempt 等待/停住"是同一类症状；适配器此时被旁路，无法补位。
+- 结论：原生滑窗是"窗口语义"的正确载体，但要让它服务超池 prompt，仍必须解决"prefill 期块回收/
+  驻留有界"（即历史轮次的核心难题），否则只会从"内容错"变成"卡住"。
+
+**开关与文件**：`KVMEM_SLIDING_WINDOW`（引擎 `CacheConfig`）、`KVMEM_NATIVE_SW`（适配器旁路），
+默认关；新增 100K 尾针电池 `tools/battery/needle_100k_tail.request.json`。
+
+**现状**：默认臂已恢复（`/etc/default/kvmem-vllm` 还原为实验前文件），88K 中段针
+`ZX-4417-QJ7` ✓；服务 active/health 200。

@@ -5150,7 +5150,8 @@ class VllmSparseRuntime:
             # `_roll_window` still rotates by token/1024 (a 32x error in a page-granular
             # row) and would corrupt the view one step after the hook installed it.
             _ring1576 = (os.environ.get("KVMEM_RING_VIEW") == "1"
-                         or os.environ.get("KVMEM_D_SLIDE") == "1")
+                         or os.environ.get("KVMEM_D_SLIDE") == "1"
+                         or os.environ.get("KVMEM_NATIVE_SW") == "1")
             if getattr(self, "d_mode", False) and getattr(st, "row", ()):
                 st.view_installed = True
                 if (not _ring1576
