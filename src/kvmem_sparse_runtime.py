@@ -1125,17 +1125,13 @@ class VllmSparseRuntime:
             steps = (base - int(getattr(st, "roll_base", 0) or 0)) // pt
             if not active:
                 if len(getattr(st, "row", ()) or ()) < want:
-                    # design 605: DO NOT top the row up from the engine here. On an
-                    # over-pool request the allocation clamp has already fired in this same
-                    # step, so the engine's row is deformed (appends land at window columns)
-                    # and reading it poisoned the view ("ferryman…" loops). The columns we
-                    # are missing are exactly this chunk's own writes - pad them with a
-                    # valid page id; the chunk overwrites them in the same forward.
-                    _row = list(getattr(st, "row", ()) or ())
-                    if _row and len(_row) < int(want):
-                        out["padded"] = int(want) - len(_row)
-                        _row = _row + [int(_row[-1])] * (int(want) - len(_row))
-                        st.row = tuple(_row)
+                    # design 605b: padding with a duplicate page was WRONG - 13 columns then
+                    # point at one page and every token of the chunk writes over the same
+                    # slots (measured round 615: the padded window is exactly what broke the
+                    # slide; with base=0 the same prompt answers ZX-4417-QJ7). Top the row up
+                    # from the engine's own row instead, which is clean whenever the
+                    # allocation clamp did not fire (it is gated to over-pool requests).
+                    self.sync_row_from_engine(req, want, int(true_before))
                 row = list(getattr(st, "row", ()) or ())[:want]
                 distinct = len(set(row))
                 out["head_distinct"] = distinct
