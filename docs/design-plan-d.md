@@ -4882,3 +4882,22 @@ row[c] = eng[(base/32 + c) % nb]      # eng 行 = 真帧页列；nb = 该请求�
 （越界页号），说明**写入时刻**该列的条目仍是陈旧值（`eng` 在那一刻的 book 还不覆盖该列，
 modulo 取到了旧列）。下一发：把 `eng` 的可用宽度取成"当前 nb"而不是"最终 nb"，并让 `_width`
 同时不超过**写入列范围**；写入侧再测一次，期望 `写入页 == 读取页` 且答案完整。
+
+## 881. Round 642：快照 canonical 行后，超池读到 **记录名**（`The access code for KEY-MID is`）
+
+**修复**：staged 表在第一次安装后就是"我们的"，所以引擎真帧必须**在首装前快照**（`st["canon"]`），
+之后只用我们从不覆盖的纯区域（列 ≥ 已装宽度）扩展；窗口列一律映射
+`canon[(base/32 + c) % len(canon)]`。
+
+**实测（152K tailA，RING_ALLOC=1）**
+```
+'# KEY-MID\n\nThe access code for KEY-MID is:\n\n**KEY-MID**\n…'   （记录名读到，code 没有）
+```
+⇒ 模型已经读到 `The unique record KEY-MID has access code …` 的**前半句**，但 code 那几个 token 的内容是**陈旧的**（循环复述 KEY-MID）。
+
+**根因**：写入侧探针仍是 `slot=395,008 → 页 12,344`（越界）⇒ **写入没有落在 canonical 行指向的页上**，
+那些页的内容停留在"第一圈"的旧值；读取侧（canonical 行）因此看到旧内容。
+
+**下一发**：核对"写入列 → 表项"这一步：写入列 = (T-base)/32 应落在本次安装的宽度内（1,470），
+但表项不是 canonical 值——查两件事：①安装与 `prepare_attn` 的先后；②引擎在同一 step 是否又回写了该列
+（`apply_staged_writes` / `append_block_ids`）。收口后超池 tailA 应完整给出 `ZX-4417-QJ7`。
