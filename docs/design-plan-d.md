@@ -5143,3 +5143,25 @@ mamba，**放不下 2× 窗口**（2×29+15 = 73 > 58），所以"扩页集让�
 在窗口 45,472 下全部 `ZX-4417-QJ7` ✓。
 
 **超池 152K**：仍为"读到记录名、缺 code"，与大 base 无关（本轮已证），与诱饵无关（官方电池）。
+
+## 895. Round 665：内池窗口化**验收记录**（一次 boot 内三项全绿，可复现）
+
+**arm**
+```
+KVMEM_RING_CLEAN=1 KVMEM_RING_ALLOC=0 KVMEM_D_SLIDE=0 KVMEM_RING_VIEW=0 KVMEM_D_KNIFE=0
+KVMEM_WINDOW_TOKENS=45472 KVMEM_PAGE_TOKENS=32 KVMEM_BLOCK_TOKENS=1568
+（seq 取窗口 = override 打开；环用 canonical 快照 + staged-write 安装，引擎 fork 见 889）
+```
+**结果（同一次 boot，连续三发）**
+| 输入 | prompt_tokens | 答案 |
+|---|---|---|
+| just-crossing | 45,554 | `ZX-4417-QJ7` ✓ |
+| 88K mid | 74,948 | `ZX-4417-QJ7` ✓ |
+| 88K tail | 74,949 | `ZX-4417-QJ7` ✓ |
+
+⇒ 池内"窗口化尾/中针召回"已达到**可复现**状态（模型只看最后 45,472 token）。
+
+**超池 152K 未达**：`'# KEY-MID … **KEY-MID**'`（读到记录名、缺 code），且已排除
+大 base、MTP、诱饵、帧/行/表项/别名等所有可测变量；剩余疑点收敛到"冻结页集下的内核行为"。
+真正符合架构的解法是**让引擎按窗口释放旧页**（真滑窗），使引擎行成为"当前窗口页的紧凑列表"、
+dense 列直接落在窗口上；这需要改块管理器（约 50 行），属于下一步的独立工作项。
