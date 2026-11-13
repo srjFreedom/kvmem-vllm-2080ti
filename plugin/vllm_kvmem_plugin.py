@@ -89,6 +89,25 @@ def _config():
         return {}
 
 
+def _kvmem_print_paths():
+    """One-line evidence of WHICH vllm tree this process actually imported.
+
+    Measured cost of not knowing: 16 rounds of fork edits landed in a staging tree
+    (engines/vllm) while the venv resolves `vllm` to /home/srj/vLLM-2080Ti-Definitive.
+    """
+    try:
+        import vllm
+        import vllm.v1.worker.gpu.model_runner as _mr
+        print("[kvmem] vllm=%s runner=%s pid=%s" % (
+            getattr(vllm, "__file__", "?"), getattr(_mr, "__file__", "?"),
+            __import__("os").getpid()))
+    except Exception as exc:
+        print("[kvmem] path probe failed:", exc)
+
+
+_kvmem_print_paths()
+
+
 def _install_watchdog(log_path):
     """Dump every thread's stack on SIGUSR1 so a hang can be localised without extra tooling."""
     try:
@@ -4040,6 +4059,17 @@ def register():
 
 
 def _install(cls, module_name, probe, smoke, state):
+    # design 600: clean-room ring arm. It owns the whole protocol (book row install,
+    # RoPE offset, view lens, page store) and needs NONE of the legacy machinery, so the
+    # legacy execute_model wrapper is not installed at all - no knife, no pressure,
+    # no sched_compact, no adapter state machine.
+    if (os.environ.get("KVMEM_RING_CLEAN") == "1"
+            or os.path.exists("/tmp/kvmem_ring_clean.on")):
+        # The ring lives in the ENGINE (vllm/v1/worker/gpu/kvmem_ring.py): it is wired
+        # inside prepare_inputs, where the batch ids and the resident book are available.
+        # This plugin therefore installs NOTHING for the clean arm - no legacy wrapper,
+        # no runtime, no knife.
+        return
     original = cls.execute_model
 
     def execute_model(self, scheduler_output, *args, **kwargs):

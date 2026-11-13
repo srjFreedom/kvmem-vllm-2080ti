@@ -4273,3 +4273,30 @@ kvmem_view_lens[0]   = 0   (✗ 应为 book)
    最旧的块，保留最近 ≥ 窗口块数），要么给安装点加探针确认它是否执行。
 
 **现状**：默认臂已恢复（基线 env）；滑臂 88K 2/2 绿；152K 通道无 clamp 时仍停摆。
+
+## 856. Round 600：干净环窗口（clean-room）落地——首次找到"引擎树"与"配置通道"两个系统性坑
+
+**A. 两次"改了半天不生效"的根因（都已实测钉死）**
+1. **引擎树**：实时导入的是 `engines/vllm/vllm/`（在插件 import 时用 `print("[kvmem] vllm=...")` 打印，
+   pid 1113020/1113236/1113385/1113386 全部指向 `.../engines/vllm/vllm/__init__.py`）。我在
+   `/home/srj/vLLM-2080Ti-Definitive` 里的若干改动因此从未生效（反之 `engines/vllm` 的改动一直生效）。
+2. **EngineCore 的环境被过滤**：`KVMEM_WINDOW_TOKENS / KVMEM_SLIDE_CORE / KVMEM_VIEW_POS /
+   KVMEM_D_CLAMP` 在 worker 的 env 里**存在**，在调度器所在的 EngineCore 里**不存在** ⇒ 调度器里所有
+   `os.environ` 读取都是哑的（这也是早前"改了 clamp 没变化"的原因）。修法：这些开关改由
+   `additional_config.kvmem` 传递（worker.py 发布，scheduler 优先读配置）——实测命令行里已出现
+   `slide_core":true`。
+
+**B. 干净实现（不依赖 knife/legacy）**
+- `vllm/v1/worker/gpu/kvmem_ring.py`：自包含的环（身份期镜像引擎行 → base>0 后按页旋转 + 安装 +
+  页级 store），不变量写在文件头；`model_runner.prepare_inputs` 在 `prepare_pos_seq_lens` 之后调用
+  `kvmem_ring.step(...)`，请求 id 从 `batch_req_state.req_ids` 取（此时 `input_batch` 还没建）。
+- 实测已能跑起来并记录（56 条 `ring_clean`），`state=identity` 期 head 镜像正确
+  （rowlen 98→1225、head_distinct 与 rowlen 相等 ✓）。
+- 插件侧：`KVMEM_RING_CLEAN` 时**不安装任何 legacy 包装**（无 knife、无 runtime、无 pressure）。
+
+**C. 未完成的一环（下一发）**
+`base` 始终为 0：调度器的分页滑窗（`kvmem_slide`）没有触发。配置键已进入 EngineCore，但
+`_first_alloc`/`_over_pool`/`kvmem_clamp` 三个门里必有一个没满足；下一步在 slide 分支打印
+`plan_d/clamp/window/over_pool/first_alloc` 五元组，一次定位。
+
+**默认臂已恢复**（基线 env），88K 仍 `ZX-4417-QJ7` ✓。

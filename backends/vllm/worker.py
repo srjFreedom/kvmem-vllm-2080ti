@@ -205,6 +205,23 @@ def main(argv=None) -> int:
     # OLDEST blocks - so an over-pool prefill keeps allocating without ever touching the
     # sliding view's pages (the view lives in the newest blocks). This replaces the
     # book-rewinding clamp, which freed exactly the newest blocks.
+    # design 601: scheduler knobs must travel through vLLM's config, not the environment:
+    # the EngineCore process has a FILTERED env (measured: KVMEM_WINDOW_TOKENS /
+    # KVMEM_SLIDE_CORE / KVMEM_VIEW_POS were absent in the core while present in the
+    # workers), so every os.environ read in the scheduler silently saw nothing.
+    for _k601, _ck601 in (("KVMEM_SLIDE_CORE", "slide_core"),
+                          ("KVMEM_VIEW_POS", "view_pos"),
+                          ("KVMEM_D_CLAMP", "clamp")):
+        if _env_flag(_k601):
+            cfg[_ck601] = True
+    for _k601, _ck601 in (("KVMEM_PAGE_TOKENS", "page_tokens"),
+                          ("KVMEM_WINDOW_TOKENS", "window_tokens")):
+        _v601 = os.environ.get(_k601, "").strip()
+        if _v601:
+            try:
+                cfg[_ck601] = int(_v601)
+            except Exception:
+                pass
     if _env_flag("KVMEM_FREE_PATH"):
         cfg["free_path"] = True
         for _k591, _ck591 in (("KVMEM_FREE_LOW_WATERMARK", "free_low_watermark"),
