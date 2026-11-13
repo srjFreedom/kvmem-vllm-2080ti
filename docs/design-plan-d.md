@@ -5184,3 +5184,22 @@ dense 列直接落在窗口上；这需要改块管理器（约 50 行），属�
 `allocate_slots` 同一 step 内完成）；`free_blocks` 的顺序（fork 用 `reversed(...)`）；
 以及回收后 `num_blocks` 变小是否影响其他按 book 计算的地方（例如 `compute_slot_mappings` 的
 `block_indices` 上界、gather 宽度）。
+
+## 897. Round 667：层 A（窗口=引擎行尾部）单独立即坏——它与层 B（块回收）耦合，不能单独上
+
+**尝试**：把映射改成"窗口取引擎行最后 `win_blocks` 项"（`row[c] = eng[nb - win + c]`），
+假定 `nb`（引擎 book）= 真实页数。结果：
+| 输入 | 结果 |
+|---|---|
+| just-crossing | `ZX-4417-QJ7` ✓ |
+| **88K mid** | `ZX-4471-MID` ✗（幻觉变体） |
+| 88K tail | `ZX-4417-QJ7` ✓ |
+
+**原因（已定位）**：`num_blocks.np` 仍被环**钉成我们的安装宽度**（1,421），于是
+`nb - win = 0` ⇒ 取到的是**旧的**首窗口页，而不是当前窗口 ⇒ 88K mid 用到了错页。
+（just-crossing/tail 侥幸仍对，因为它们对首窗口的依赖不同。）
+
+**结论**：层 A 必须**与层 B（调度器按窗口回收块）一起**实现——只有回收后 `num_blocks`
+才重新变成有意义的"当前窗口页数"。单独上层 A 会引入误导性回归，已回退到 L1+L2 绿基线。
+
+**绿基线复验（回退后）**：just-crossing / 88K mid / 88K tail = `ZX-4417-QJ7` ✓✓✓。
