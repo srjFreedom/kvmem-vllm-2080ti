@@ -5203,3 +5203,24 @@ dense 列直接落在窗口上；这需要改块管理器（约 50 行），属�
 才重新变成有意义的"当前窗口页数"。单独上层 A 会引入误导性回归，已回退到 L1+L2 绿基线。
 
 **绿基线复验（回退后）**：just-crossing / 88K mid / 88K tail = `ZX-4417-QJ7` ✓✓✓。
+
+## 898. Round 668–670：A+B（块回收+行尾部）一起上的第一次实测 → 88K mid 坏，原因是"两个 base 不同源"
+
+**实测（`KVMEM_RING_RECYCLE=1`，窗口 45,472）**
+| 输入 | 结果 |
+|---|---|
+| just-crossing | `ZX-4417-QJ7` ✓ |
+| **88K mid** | `'KEY-MID'` ✗（只读到记录名） |
+| 88K tail | `ZX-4417-QJ7` ✓ |
+
+**根因（已定位）**：回收的**块数**由两侧各自计算——scheduler 用 `num_computed_tokens` 推出 base，
+ring 用它自己的累加器（`st["roll"]` 与 `st["true"]`）推 base。两个 base 不同源、会差一拍 ⇒
+回收数量与行尾错位 ⇒ 中间那条（needle 在 64K 后）读到旧页。
+
+**结论（下一版的正确协议）**：**base 必须只有一个来源**——由 scheduler 计算后写进
+`scheduler_output`（例如 `kvmem_ring_base[req]`），worker 侧的环**只读**它（不再自推），
+用它做三件事：①回收块数（与 scheduler 同值）②`num_blocks` 递减 ③行尾切片起点。
+这样两侧永远对齐，才可能同时保住 88K 三绿并让超池生效。
+
+**已回退**：三个文件（scheduler / ring / worker）全部回退到 HEAD，绿基线复验
+just-crossing / 88K mid / 88K tail = `ZX-4417-QJ7` ✓✓✓。
