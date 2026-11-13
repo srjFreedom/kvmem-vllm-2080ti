@@ -4329,3 +4329,35 @@ block table 是否就是安装行。ring 在 prepare 里就能把这几项写进
 包装，console 不可用）。
 
 **默认臂已恢复**（基线 env），88K `ZX-4417-QJ7` ✓。
+
+## 858. Round 604：把 603 的分配夹紧默认关掉（它把"本来绿的 legacy 滑臂"也打伤了）；
+   借用 kvmem/kvmem-vllm 的机制后重新定界
+
+**关键回归（已修）**：design 603 的"窗口预留夹紧"默认对所有臂生效，导致本来全绿的 legacy 滑臂
+退化成 `'QJ-7741'`/`'ZX-4417'`。改成 **opt-in（config `ring` / `KVMEM_RING_ALLOC=1`）** 后，
+legacy 滑臂立刻回到 `ZX-4417-QJ7`（just-crossing 与 88K 双绿，本轮复测）。
+
+**实测矩阵（同一 boot）**
+| 臂 | just-crossing | 88K mid | 152K tailA |
+|---|---|---|---|
+| legacy 滑臂（603 关） | `ZX-4417-QJ7` ✓ | `ZX-4417-QJ7` ✓ | 停摆在 73,728 |
+| legacy 滑臂 + 603（窗口预留） | `'Q7-41-9X'` ✗ | `not present` ✗ | **跑完 142,869（3m00s）但退化为复读** |
+| clean ring（fork 内，603 关） | `'ZXusman…'` ✗ | `'ductduct…'` ✗ | — |
+
+结论三条：
+1. **603 的夹紧把 in-pool 的帧打坏**（它在 45,454-token 的 prompt 上也会触发），所以必须**只在超池**
+   时触发（阈值要落在"88K 能过 / 152K 会停"之间，约 75K–88K，下一发用 `KVMEM_POOL_TOKENS` 定）；
+2. **603 确实解决了停摆**（152K 从"卡在 73,728"变成 3m00s 跑完）⇒ 分配侧的路子是对的，坏的是帧；
+3. **clean ring 与 legacy 不等价**：同样的 view/true/base/rowlen 读数下 legacy 全绿、clean 输出
+   `'duct'` —— 差在"视图内容"这一层（正是 kvmem/kvmem-vllm 用 **raw pre-RoPE K + 装配时按新位置重旋**
+   解决的那一层）。clean 臂暂挂起，等把 store 改成 pre-RoPE（我们已有 `kvmem_sparse_rope.
+   rotate_k_pages_fp8`）再激活。
+
+**借 kvmem/kvmem-vllm 的三件事（已确认可移植）**
+1. `WorkingSetManager`：只翻注意力组的 extent，**不动请求的逻辑计数与 recurrent 管理器**，刷新时
+   **整行替换**（本轮 603 就是它的简化版；缺的是"只在压力点触发"）；
+2. `adapters/original_rope.py`（75 行）：扩 `cos_sin_cache` 到逻辑容量、在**逻辑位置**上旋 Q/K，
+   slot 仍走稠密坐标；
+3. 选页的 **mandatory spans（system/query/policy 硬保留）+ capacity fit**，以及"归档 raw pre-RoPE K"。
+
+**默认臂已恢复**（基线 env，无实验键），服务 active、health 200。

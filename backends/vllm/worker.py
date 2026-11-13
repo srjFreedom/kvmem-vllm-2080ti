@@ -211,7 +211,8 @@ def main(argv=None) -> int:
     # workers), so every os.environ read in the scheduler silently saw nothing.
     for _k601, _ck601 in (("KVMEM_SLIDE_CORE", "slide_core"),
                           ("KVMEM_VIEW_POS", "view_pos"),
-                          ("KVMEM_D_CLAMP", "clamp")):
+                          ("KVMEM_D_CLAMP", "clamp"),
+                          ("KVMEM_RING_ALLOC", "ring")):
         if _env_flag(_k601):
             cfg[_ck601] = True
     for _k601, _ck601 in (("KVMEM_PAGE_TOKENS", "page_tokens"),
