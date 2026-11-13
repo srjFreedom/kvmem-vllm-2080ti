@@ -5321,3 +5321,24 @@ row   = pages[: win_pages + pages_per_block]
 4. 帧的三个量全部由 `base` 推出：`deltas=base`、`rope=0`（positions 保持 TRUE）、`vl=view`。
 
 已回退到绿基线（design 901 + 冻结帧）：池内三绿；超池仍是冻结窗口的 `'# KEY-MID'`。
+
+## 904. Round 684–685：**完整单源协议落地**（base + blocks 同源 + 装行钉 book + 帧由 base 推出）
+
+**实现**
+1. scheduler 每步发布 `kvmem_ring_base[req]` 与 `kvmem_ring_blocks[req]`（窗口顺序的块序列）；
+2. worker 的环**只读**这两者：`base` 决定 `dv`/`rope`/`vl`（positions 保持 TRUE、`rope=0`），
+   `blocks` 决定装行；
+3. 装行后把 `num_blocks[gi,0]` 钉成行宽（gather 宽度 == book，round 680 的崩溃根因）。
+
+**实测**
+| 输入 | 答案 |
+|---|---|
+| just-crossing | `ZX-4417-QJ7` ✓ |
+| 88K mid | `ZX-4417-QJ7` ✓ |
+| 88K tail | `ZX-4417-QJ7` ✓ |
+| 152K tailA（超池） | `'The text is a long, repetitive passage about river deltas…'` ✗（**不再崩溃**，但从"读到记录名"退成"描述开头文本"） |
+
+⇒ 协议本身**在池内三绿**，超池**崩溃已消除**。超池现在稳定地"看到开头"⇒ 帧/行在这一档仍指向
+窗口的**开头内容**（published base 已到 97,216，但页里的内容仍是早期 token 写入的）。这明确指向
+**"窗口内 token 的写入没有落到这些页"**：下一步查 `slot_mapping` 在超池档的实际值（是否被夹紧
+拒绝、或写到了别处），而不是继续调帧。
