@@ -1458,6 +1458,28 @@ def _attach_sparse(runner, log_path):
                 pass
             original_prepare(idx_mapping, query_start_loc, num_computed_tokens, positions,
                              seq_lens)
+            # design 577: the sliding view shifts the KV address, not the token feed.
+            # `positions` now hold the TRUE frame; shift this request's span down by its
+            # absolute base so writes land in the installed row. The rope offset (set by
+            # the hook) puts the true phase back, and the slot delta (= base) maps it
+            # again, so the kernels see: RoPE true, slot = view.
+            try:
+                if os.environ.get("KVMEM_D_SLIDE") == "1":
+                    _rts9 = state.get("sparse")
+                    _reqs9 = (list(getattr(getattr(runner, "input_batch", None),
+                                           "req_ids", None) or [])
+                              or list(getattr(runner, "_kvmem_req_ids", None) or []))
+                    if _rts9 is not None and _reqs9 and positions is not None:
+                        for _i9, _rq9 in enumerate(_reqs9):
+                            _sts9 = getattr(_rts9, "_state", {}).get(_rq9)
+                            _b9 = int(getattr(_sts9, "roll_base", 0) or 0) if _sts9 is not None else 0
+                            if _b9 <= 0:
+                                continue
+                            _a9 = int(query_start_loc[_i9])
+                            _e9 = int(query_start_loc[_i9 + 1])
+                            positions[_a9:_e9] -= _b9
+            except Exception:
+                pass
             try:
                 _n = getattr(prepare_pos_seq_lens, "_probes", 0)
                 _big = False
@@ -1714,7 +1736,41 @@ def _attach_sparse(runner, log_path):
                                                     - int(query_start_loc[_i631]))
                                 except Exception:
                                     _n_new576 = 1
-                            if (not _has) or _ringv576:
+                            _slide577 = os.environ.get("KVMEM_D_SLIDE") == "1"
+                            if _slide577:
+                                # design 577: the Core keeps the book in the VIEW frame with
+                                # a page-aligned slide; the worker derives the absolute base
+                                # from its own true counter and installs the rotated row.
+                                # delta = rope offset = base, so slot = position - base lands
+                                # inside the row while RoPE keeps the token's true phase.
+                                try:
+                                    _book577 = int(num_computed_tokens[_i631])
+                                except Exception:
+                                    _book577 = int(getattr(_st631, "seq_len", 0) or 0)
+                                _n577 = 1
+                                try:
+                                    _n577 = max(1, int(query_start_loc[_i631 + 1])
+                                                - int(query_start_loc[_i631]))
+                                except Exception:
+                                    _n577 = 1
+                                try:
+                                    if not (str(_rq).startswith("_warmup")
+                                            or str(_rq).startswith("_v2_mixed_warmup")):
+                                        # the request state is created by before_step, which
+                                        # runs AFTER this block - the slide needs its true
+                                        # counter from the very first step.
+                                        if _st631 is None:
+                                            _st631 = runtime.state(_rq)
+                                        runtime.d_ring_slide(_rq, _st631, int(_row),
+                                                             int(_book577), int(_n577))
+                                except Exception as _e577:
+                                    try:
+                                        with open("/tmp/kvmem_slide577_err.jsonl", "a") as _se:
+                                            _se.write("err %s" % str(_e577)[:140])
+                                            _se.write(chr(10))
+                                    except Exception:
+                                        pass
+                            elif (not _has) or _ringv576:
                                 # design 1576: activate on the chunk that CROSSES the window
                                 # (tok + n_new > win), not the one after it. The crossing
                                 # chunk would otherwise be written at true positions - outside

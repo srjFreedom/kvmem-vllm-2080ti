@@ -94,7 +94,7 @@ class _ReqState:
                  "resume_needs_retrieval",
                  "row_head",
                  "view_installed", "knife_frontier", "roll_frozen",
-                 "ring_ready",)
+                 "ring_ready", "d_slide_true",)
 
     def __init__(self):
         self.row = ()
@@ -110,6 +110,8 @@ class _ReqState:
         # set by legacy before_step code as soon as st.row is non-empty, so it cannot tell
         # whether the ring itself has installed a page-aligned row yet.
         self.ring_ready = False
+        # design 577: true token frontier for the page-aligned sliding book.
+        self.d_slide_true = 0
         self.adopt_knife_pending = False
         self.ordered_pages = ()
         self.inrequest_compaction = False
@@ -1006,6 +1008,168 @@ class VllmSparseRuntime:
                 f.write(_json.dumps(rec) + "\n")
         except Exception:
             pass
+
+    def d_ring_slide(self, req, st, row_index, book, n_new):
+        book_in = book
+        """design 577: page-aligned SLIDING view book (Core-side rewind persists).
+
+        Contract:
+          * the Core keeps `num_computed_tokens` in the VIEW frame: book = true - base,
+            base page aligned, and it never passes the window;
+          * the worker recovers `base` from its own true counter (`true - book`), so no
+            new cross-process field is needed and both ranks derive the same value;
+          * the row is rotated by (base - roll_base)/page_tokens whole pages and
+            installed; positions are already the view frame, so `_install` must not
+            write positions;
+          * the fork gets delta = base (slot = view position) and rope offset = base
+            (RoPE = true phase); view_lens = book (the fork adds this step's q).
+
+        The arm this replaces (KVMEM_RING_VIEW) kept the book in TRUE coordinates and
+        relied on a transient clamp; the engine re-appended block ids after each rewind
+        and the table row stopped being a position map (measured: slice_distinct
+        906/1421), so the view could not be built from it.
+        """
+        out = {"kind": "d_ring_slide", "req": str(req)[-6:],
+               "row_index": int(row_index), "state": "init"}
+        try:
+            if (str(req).startswith("_warmup")
+                    or str(req).startswith("_v2_mixed_warmup")):
+                out["state"] = "warmup_skip"
+                self._ring1576(req, out)
+                return out
+            pt = max(1, int(self.page_tokens))
+            win = int(self.budget_tokens) + int(self.gen_reserve)
+            true_before = int(getattr(st, "d_slide_true", 0) or 0)
+            true_after = true_before + int(n_new)
+            # design 577: the worker computes the SAME page-aligned slide the Core does
+            # (the Core's book never reaches the worker: the executor keeps its own
+            # monotonic counter), so both sides are deterministic from (true, win, pt).
+            if true_after > win:
+                # CEIL: view length stays <= window (floor let a decode position land
+                # one page past the installed row; measured book 45,476 vs win 45,472).
+                base = ((true_after - win + pt - 1) // pt) * pt
+            else:
+                base = 0
+            book = true_before - base
+            out.update(page_tokens=pt, win=win, book=book, book_in=int(book_in) if book_in is not None else -1,
+                       true_before=true_before, true_after=true_after, base=base,
+                       n_new=int(n_new))
+            if base < 0 or (base % pt) != 0:
+                # the Core and the worker disagree about the frame: fail closed, the
+                # next step would write at a wrong address.
+                out["state"] = "bad_base"
+                self._ring1576(req, out)
+                return out
+            active = bool(getattr(st, "ring_ready", False))
+            if not active and true_after <= win:
+                # Below the window the request must run with IDENTITY wiring. The rope
+                # offset and the view tables are process-global: leaving a previous
+                # request's base in the scalar made every pre-slide write land at
+                # true+base (measured round 578: a plain marker 300 tokens from the end
+                # was not readable in the ring arm).
+                out["state"] = "identity"
+                try:
+                    runner = self.view.runner
+                    with __import__("torch").no_grad():
+                        dv = getattr(runner, "kvmem_slot_deltas", None)
+                        vlt = getattr(runner, "kvmem_view_lens", None)
+                        if dv is not None:
+                            dv[int(row_index)] = 0
+                        if vlt is not None:
+                            vlt[int(row_index)] = 0
+                    ro = getattr(runner, "kvmem_rope_offset", None)
+                    if ro is not None:
+                        ro.fill_(0)
+                    so = getattr(runner, "kvmem_slot_offset", None)
+                    if so is not None:
+                        so.fill_(0)
+                    runner.kvmem_view_active = True
+                except Exception as exc:
+                    out["identity_error"] = str(exc)[:80]
+                # Mirror the engine's row WHILE it is still pristine: the Core's
+                # allocation clamp fires on the crossing step and re-appends block ids
+                # after the rewind, so the row read at the first slide is no longer the
+                # prompt head in token order (the old first-install read it there and got
+                # an ordered-but-wrong page map).
+                try:
+                    self.sync_row_from_engine(req, max(1, int(true_after) // pt),
+                                              int(true_before))
+                    out["rowlen"] = len(getattr(st, "row", ()) or ())
+                except Exception as exc:
+                    out["sync_error"] = str(exc)[:80]
+                st.d_slide_true = true_after
+                self._ring1576(req, out)
+                return out
+            want = max(1, win // pt)
+            steps = (base - int(getattr(st, "roll_base", 0) or 0)) // pt
+            if not active:
+                if len(getattr(st, "row", ()) or ()) < want:
+                    self.sync_row_from_engine(req, want, int(true_before))
+                row = list(getattr(st, "row", ()) or ())[:want]
+                distinct = len(set(row))
+                out["head_distinct"] = distinct
+                if len(row) < want or distinct < int(want * 0.9):
+                    out["state"] = "bad_head"
+                    self._ring1576(req, out)
+                    return out
+                if steps:
+                    out["store"] = self._ring_commit_pages(req, 0, steps, row)
+                    row = row[steps:] + row[:steps]
+                st.row = tuple(row)
+                st.roll_base = int(base)
+            else:
+                row = list(getattr(st, "row", ()) or ())
+                if steps < 0 or steps >= len(row):
+                    out["state"] = "rot_bad"
+                    self._ring1576(req, out)
+                    return out
+                if steps:
+                    out["store"] = self._ring_commit_pages(
+                        req, int(getattr(st, "roll_base", 0) or 0), steps, row)
+                    row = row[steps:] + row[:steps]
+                    st.row = tuple(row)
+                    st.roll_base = int(st.roll_base) + int(steps) * pt
+            out["rowlen"] = len(row)
+            out["row_head"] = [int(x) for x in row[:4]]
+            out["roll_base_after"] = int(st.roll_base)
+            try:
+                self._install(int(row_index), row, int(book), [])
+                out["installed"] = True
+            except Exception as exc:
+                out["install_error"] = str(exc)[:80]
+            st.seq_len = int(book)
+            st.tokens = int(true_after)
+            st.view_installed = True
+            st.ring_ready = True
+            st.d_slide_true = int(true_after)
+            try:
+                runner = self.view.runner
+                # design 577: do NOT rewrite the engine book - the token FEED slices
+                # the prompt by num_computed, so a rewound book feeds the wrong chunk
+                # (measured round 578). The offset is applied to `positions` after
+                # prepare_pos_seq_lens instead (plugin, post block).
+                with __import__("torch").no_grad():
+                    dv = getattr(runner, "kvmem_slot_deltas", None)
+                    vlt = getattr(runner, "kvmem_view_lens", None)
+                    if dv is not None:
+                        dv[int(row_index)] = int(base)
+                    if vlt is not None:
+                        vlt[int(row_index)] = int(book)
+                ro = getattr(runner, "kvmem_rope_offset", None)
+                if ro is not None:
+                    ro.fill_(int(base))
+                so = getattr(runner, "kvmem_slot_offset", None)
+                if so is not None:
+                    so.fill_(0)
+                runner.kvmem_view_active = True
+            except Exception as exc:
+                out["table_error"] = str(exc)[:80]
+            out["state"] = "slid"
+        except Exception as exc:
+            out["state"] = "error"
+            out["error"] = str(exc)[:200]
+        self._ring1576(req, out)
+        return out
 
     def _apply_selection_d(self, req, st):
         """design 753: build the view from the request's OWN blocks.
@@ -4822,7 +4986,8 @@ class VllmSparseRuntime:
             # the PREPARE hook, which runs BEFORE this call; resetting them here wiped the
             # publication in the same step (measured: delta 0 and vl 0 at every step after
             # activation, so writes went to true columns and the view never updated).
-            _ring_owns = (os.environ.get("KVMEM_RING_VIEW") == "1"
+            _ring_owns = ((os.environ.get("KVMEM_RING_VIEW") == "1"
+                           or os.environ.get("KVMEM_D_SLIDE") == "1")
                           and bool(getattr(st, "ring_ready", False)))
             if not _ring_owns:
                 self._d_reset_row(row_index)
@@ -4962,7 +5127,8 @@ class VllmSparseRuntime:
             # design 1576: the page-aligned ring owns the roll when KVMEM_RING_VIEW=1.
             # `_roll_window` still rotates by token/1024 (a 32x error in a page-granular
             # row) and would corrupt the view one step after the hook installed it.
-            _ring1576 = os.environ.get("KVMEM_RING_VIEW") == "1"
+            _ring1576 = (os.environ.get("KVMEM_RING_VIEW") == "1"
+                         or os.environ.get("KVMEM_D_SLIDE") == "1")
             if getattr(self, "d_mode", False) and getattr(st, "row", ()):
                 st.view_installed = True
                 if (not _ring1576

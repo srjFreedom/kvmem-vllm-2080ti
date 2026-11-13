@@ -216,6 +216,44 @@ def main():
             ok &= int(view.kv[int(row[col]), v % PT]) == want
     check(ok, "the sacrificed slot now serves the restored block's tokens")
 
+    # ---- slide arm: the Core keeps the book in the VIEW frame (page-aligned) ----
+    # Same fake engine, but the book is no longer the true frontier: the Core computes
+    # base = page_align(true - win) and sets book = true - base, so positions are view
+    # frame, the writes land at view positions without any hole, and the first install
+    # is a rotation of the engine's head row (never a slice past it).
+    rt2, view2, runner2, orch2, st2 = build()
+    st2.row = tuple(HEAD)
+    st2.ring_ready = False
+    st2.d_slide_true = 0
+    true_tok = 0
+    slid = 0
+    while true_tok < 160000:
+        n_new = min(chunk, 160000 - true_tok)
+        true_after = true_tok + n_new
+        base = ((true_after - WIN + PT - 1) // PT) * PT if true_after > WIN else 0
+        book = true_tok - base
+        out = rt2.d_ring_slide("r", st2, 0, book, n_new)
+        if true_after > WIN:
+            sl = int(out.get("base", -1))
+            check(sl == base, f"slide derives the Core base at frontier {true_after} ({sl} == {base})")
+            check(int(runner2.kvmem_slot_deltas[0]) == base, "slide publishes delta == base")
+            check(int(runner2.kvmem_rope_offset) == base, "slide publishes rope offset == base")
+            check(int(runner2.kvmem_view_lens[0]) == book, "slide publishes view_lens == book")
+            check(int(runner2.kvmem_view_lens[0]) + n_new == true_after - base,
+                  "fork view length == frontier - base")
+            check(st2.roll_base == base, f"row rolled to the absolute base ({st2.roll_base})")
+            # the engine writes this step's tokens at view positions
+            write_tokens(view2.kv, list(st2.row), base, true_tok, n_new)
+            want = list(range(base, true_after))
+            got = read_view(view2.kv, list(st2.row), base, true_after - base)
+            check(got == want,
+                  f"slide view at frontier {true_after} returns tokens {base}..{true_after - 1}")
+            slid += 1
+        else:
+            check(out.get("state") == "identity", "below the window the slide arm is identity")
+        true_tok = true_after
+    check(slid >= 20, f"slide arm ran the whole 160K prompt ({slid} slid steps)")
+
     # ---- negative control: the replaced arm never reaches the view ----
     kv2 = torch.full((PAGES, PT), -1, dtype=torch.int64)
     for page in range(1, PAGES):

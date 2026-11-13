@@ -3824,3 +3824,42 @@ needle 落在窗口内时，答案必须在"纯环形、无选择"下正确，�
 
 **现状**：默认臂已恢复（`KVMEM_RING_VIEW=0`），88K 中段针实测 `ZX-4417-QJ7`；环臂的所有改动都被
 开关隔离，生产路径无回归。环臂实验的失败记录（崩溃、退化、slice 重复）保留在 /tmp 与本节。
+
+## 842. Round 578：滑动视图臂（design 577）的六个协议事实 + 仍剩读路径
+
+**本轮施工（全部开关默认关，生产路径零改动）**
+- 新臂 `KVMEM_D_SLIDE=1`：视图从"真坐标 + 临时 clamp"改成**页对齐滑动的视图帧**：
+  worker 自算 `base = ceil((true_after - win)/pt)*pt`、`book = true_before - base`；
+  行按 `(base - roll_base)/pt` 整页旋转并安装；发布 `delta = rope = base`、`view_lens = book`；
+  `positions` 在 `prepare_pos_seq_lens` 之后整体减 `base`（token feed 不动）。
+- Core 侧另有一个 `KVMEM_SLIDE_CORE=1` 的分配回卷（默认关，见事实 3）。
+- `tests/ring_window_test.py` 新增 slide 场景：160K 逐 token 视图恒等 + 每步 base/δ/rope/vl 断言 +
+  首装从"未污染头部行"旋转 + 不再切片。离线 PASS（旧环臂场景与负对照保留）。
+
+**六个协议事实（都有实测支撑）**
+1. **Core 与 worker 的 window 不是同一个数**（CLI 53,664 vs 适配器 45,472）⇒ 新增
+   `KVMEM_WINDOW_TOKENS`，滑动两侧必须同一数值。
+2. **引擎的账本不会传回 worker**：executor 自己单调累加 `num_computed`，所以 Core 回卷到不了
+   worker ⇒ 滑动必须由 worker 用同一规则自算（`true` 计数 + win + pt，确定性一致）。
+3. **token feed 按 `num_computed` 切片**：把账本改成视图帧会喂错 chunk（重启后实测同一 88K
+   读到的不是 needle 段）⇒ Core 分配回卷保持临时 clamp、默认关；偏移只作用于 `positions`。
+4. **rope offset / 视图表是进程全局**：上一个请求的 base 残留会让"窗口以下"的写入落到
+   true+base（实测：距尾 300 token 的普通 marker 也读不到）⇒ identity 阶段必须显式发布 0。
+5. **Core 的 clamp 在跨窗那一步污染引擎行**（回卷后重新 append 块 id）⇒ 窗口以下每步镜像一次
+   引擎行，首装用这份"未污染头部"旋转（本轮已修；旧实现恰好在跨窗步读行）。
+6. **base 必须 ceil**：floor 会让 decode 的 book 到达 45,476 > win 45,472，最后一个 token 写到
+   行外（列 1,421）。
+
+**在线读数（滑臂）**：probe 几何全对——base 3,680→29,504、`row_head` 311→1,118（正好是真页
+196+base/32）、`head_distinct=1421`、每步 store 115/128 页、`book/lens` 发布一致；但输出仍退化
+（`'ZX where where…'`、`'The exact code is the exact code…'`）：**问题句（尾部）读得到、needle 的 KV
+读不到**。几何正确 ⇒ 剩余缺陷在"读路径的帧/相位"，第一嫌疑是还有第二处位置写入者
+（`mrope_positions`/`position_deltas` 之类）没跟着减 base。
+
+**下轮唯一取证**：在 `compute_slot_mappings` 与 `prepare_inputs` 的 mrope 段各放一发，打印
+`positions[:4]`、`slot_positions[:4]`、`kvmem_step_true_positions[:4]`、`mrope_positions[:4]`、
+`position_deltas[:4]` 与第一个 slot 对应的页 id（应 = 已装行的对应项）；若 mrope 未随动，把它一起
+减 base 后重跑 88K 中段/尾段两发。
+
+**现状**：默认臂已恢复（`KVMEM_D_SLIDE=0`），88K 中段针 `ZX-4417-QJ7` ✓；新臂与 Core 回卷全部
+开关隔离，未接入生产。
