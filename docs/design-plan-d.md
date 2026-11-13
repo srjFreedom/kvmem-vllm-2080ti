@@ -4571,3 +4571,27 @@ base 160 -> col 1415, page 1616, fp 650b4c/dc19e3
    一次性落盘对照；
 2. MTP 草稿路径（profile 写死 `SPECULATIVE_TOKENS=4`，`/etc/default` 覆盖无效）——需要改 profile
    才能测 spec0，按文档 §"阶段 A 可先 spec0 绕过"的方式另开一次 boot 验证。
+
+## 867. Round 620：**病变锁定 = seq_len 覆盖**（NOOVERRIDE 一开即答对）
+
+**决定性 ablation（clean ring，window=45,472，just-crossing 45,554）**
+| 配置 | 答案 |
+|---|---|
+| ring + seq_len 覆盖（vl+ql = 稠密窗口长度） | `'ZXusman…'` ✗ |
+| **ring + `KVMEM_D_NOOVERRIDE=1`（stock 因果轴）** | **`ZX-4417-QJ7`** ✓ |
+
+解释：内核的页索引来自 `slot_positions`（稠密 ✓），因果掩码只需要"query 自己的位置"——
+stock 的 seq_len（真值，比窗口长）不会引入额外可见的 key（掩码按 query 的 slot 截断），
+而我们的覆盖把 seq_len 改成稠密窗口长度后反而扰动了 paged-KV 的每请求长度视图 ⇒ 乱码。
+结论：**在"真相位 + 稠密 slot + 旋转行"这套几何下，因果轴必须保持 stock**，不要覆盖 seq_len。
+
+**当前实测矩阵（ring 几何 + NOOVERRIDE）**
+| 输入 | 长度 | 答案 |
+|---|---|---|
+| just-crossing | 45,554（3 次旋转） | `ZX-4417-QJ7` ✓ |
+| 88K mid | 74,948（~921 次旋转，池内） | 乱码 ✗ |
+| 152K tailA | 142,869（超池，窗口预留分配） | 跑完但乱码 ✗ |
+
+⇒ 45K 已通，**失败随旋转次数/长度增长**：下一步做"roll 次数 ablation"——同一 prompt 用
+window=74,000（约 30 次旋转）与 window=60,000（约 467 次）对照，判断是否与旋转次数相关
+（若是，重点查 head 的逐次旋转累积误差 / 页回收与 store 的交互）。
