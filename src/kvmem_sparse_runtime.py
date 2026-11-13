@@ -649,6 +649,12 @@ class VllmSparseRuntime:
         """Plan D: tables for a freshly (re)used engine row start at zero - the
         step accounting then reproduces num_computed exactly until a knife
         publishes a real view base."""
+        # design 589: the sliding arm publishes these tables itself every step and
+        # verifies them at the forward; the knife's reset zeroed them between the
+        # override and prepare_attn (measured round 589: same tensor ids, values 96 ->
+        # 0 within one step, so the write address fell back to the TRUE column).
+        if os.environ.get("KVMEM_D_SLIDE") == "1":
+            return
         try:
             runner = getattr(self.view, "runner", None)
             if runner is None or not getattr(runner, "kvmem_view_active", False):
@@ -1688,6 +1694,9 @@ class VllmSparseRuntime:
             try:
                 if __import__("os").environ.get("KVMEM_D_NOACT") == "1":
                     raise ValueError("activation off")
+                if os.environ.get("KVMEM_D_SLIDE") == "1":
+                    # the sliding arm owns view_lens / rope_offset / slot_deltas
+                    raise ValueError("slide arm owns the tables")
                 _rn = self.view.runner
                 _ri791 = int(getattr(st, "row_index", -1) or -1)
                 if _ri791 < 0:

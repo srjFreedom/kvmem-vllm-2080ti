@@ -4177,3 +4177,36 @@ kvmem_view_lens[0]   = 0   (✗ 应为 book)
 
 **本轮实测**：滑臂 88K 中段 `'ZX where where…'`；刚好跨窗 `'4417'`/`'KEY-MID-42'`/`'Based-d--'`
 （每次不同，但都提前 EOS）；默认臂 88K `ZX-4417-QJ7` ✓。
+
+## 853. Round 589–590：环窗口**首轮全绿**（88K 中段 + 刚好跨窗都答对）；刀（knife）是表破坏者；
+   超池仍卡在"块池耗尽"（attention+mamba > 58 块）
+
+**A. 决定性消融：knife 关掉后滑臂立刻正确**
+| 配置 | 刚好跨窗 prompt (45.5K) | 88K 中段 needle |
+|---|---|---|
+| `D_SLIDE=1, D_KNIFE=1`（原基线） | `'ZXagesmanman…'` ✗ | `'ZX where where…'` ✗ |
+| `D_SLIDE=1, D_KNIFE=0` | **`ZX-4417-QJ7` ✓** | **`ZX-4417-QJ7` ✓** |
+
+- 同帧 `id()` 取证（round 589）：override 处 `id(vl)=A, 值 45,461`、`id(dv)=B, 值 96`；到
+  `prepare_attn` **同一对 id** 的值变成 `0/0` ⇒ 表是被**原地清零**的，不是被替换。
+- 清零者 = knife 侧：`_d_reset_row`（每个 step 的 before_step）与 design-791 的 `_activate`。
+  两者都已按 `KVMEM_D_SLIDE=1` 关闭（design 589）。但**只关这两处还不够**：`D_KNIFE=1` 时答案仍错
+  （说明 knife 还有别的路径在改帧）；`D_KNIFE=0` 时全绿。
+
+**B. 分配 clamp 与 knife 解耦（design 589/590，引擎侧）**
+- `scheduler.kvmem_clamp = kvmem_knife or KVMEM_D_CLAMP=1`：clamp 只负责"把 allocate_slots 限制在窗口
+  内"，与 knife 的适配器机制分离。
+- design 590：clamp **只在超池需求时触发**（`num_computed + num_new > KVMEM_POOL_TOKENS`）；否则一个
+  *装得下*池的 prompt 被 clamp 会改变帧（实测 45.5K prompt：clamp 开 → `'KEY-MID'`，clamp 关 →
+  `ZX-4417-QJ7`）。
+
+**C. 超池（152K tailA）仍卡：块池耗尽，不是帧**
+- `KVMEM_D_KNIFE=0, D_SLIDE=1, D_CLAMP=1, POOL_TOKENS=90,944`：prefill 到 **73,728 tokens（51%）**
+  后吞吐归零（与历史"卡在 73K"一致）。
+- 账算得上：块池 58 块；73,728 tokens = 47 个 attention 块，加上 mamba 每请求约 15 块 → 62 > 58 ⇒
+  **卡在块池，而不是窗口/帧**。所以 clamp 的触发阈值应该用"attention 可用块"（≈43 块 ≈ 67K tokens），
+  而不是整池 90,944。
+
+**本轮实测结论**：环窗口的读写帧在 `D_KNIFE=0` 下已能端到端答对 88K 与刚好跨窗两类 prompt；
+剩下两件事：(1) 找出 `D_KNIFE=1` 下仍在改帧的 knife 路径（或干脆让滑臂走 vanilla 配置）；
+(2) 超池用"attention 可用块"作为 clamp 阈值，验证 152K tailA/tailB。
