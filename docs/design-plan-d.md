@@ -4901,3 +4901,24 @@ modulo 取到了旧列）。下一发：把 `eng` 的可用宽度取成"当前 n
 **下一发**：核对"写入列 → 表项"这一步：写入列 = (T-base)/32 应落在本次安装的宽度内（1,470），
 但表项不是 canonical 值——查两件事：①安装与 `prepare_attn` 的先后；②引擎在同一 step 是否又回写了该列
 （`apply_staged_writes` / `append_block_ids`）。收口后超池 tailA 应完整给出 `ZX-4417-QJ7`。
+
+## 882. Round 643–644：超池的"写列 = 4,152"直接指向 **ring 在第 48 个滑步后不再发布 delta**
+
+**探针（152K tailA，RING_ALLOC=1）**
+```
+W {'T':136000, 'col':4152, 'entry':0, 'slot':395008, 'seq0':46016}
+ring 记录: identity 148 + slid_rebuild 48；最后一个 slid_rebuild = base 3,136
+```
+- 写入的 `slot_pos = col*32 = 132,864` ⇒ 使用的 delta = 136,000−132,864 = **3,136** = 最后一次发布的 base
+  ⇒ **base 停在 3,136 再没更新**；
+- 表的列 4,152 处条目 = **0**（越界陈旧列）⇒ 写入落到页 0。
+
+**原因**：`hook entered, enabled=True` 有打印、`hook failed` 没有；但 `slid_rebuild` 记录只到 base=3,136
+⇒ `kvmem_ring.step()` 在之后**提前 return**（最可能是 `len(req_ids) != nreq`：`batch_req_state.req_ids`
+在某些 step 为空），于是 delta/行都冻结 → 超池的写读全部错位 → 模型只能复述记录名。
+
+**已做**：删掉旧的块级旋转路径（它把 30 条块号写进页级表，31 列之后全是陈旧值），现在只有
+canonical 重建一条路径；重建失败时本步不安装（`slid_skip`）。
+
+**下一发**：给 `step()` 的每个提前 return 加原因计数（`req_ids` 长度、nreq、imap 等），确认 48 步后
+到底哪一条命中；修掉后超池的 delta 会持续更新，写列回到 ~1,45x，`写入页 == 读取页`，答案应完整。
