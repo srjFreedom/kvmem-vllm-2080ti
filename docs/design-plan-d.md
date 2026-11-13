@@ -5019,3 +5019,21 @@ last: {'base': 97216, 'want': 1457, 'got': 1457, 'rowlen': 1470}
    needle 页从 store 还原进窗口——这正是文档最初对 152K 中段针的设计，且我们已有
    `_ring_commit_pages` / `_apply_selection_d` 的现成接口。
 3. **park 超池**：保留内池窗口化三绿 + 本次的 staged-write 修复，等后续专门立项。
+
+## 888. Round 655–656：**回退到綠基线**（引擎 fork `6b05f2b`）——后续深化改动引入回归
+
+**绿基线复现**（`RING_CLEAN=1 RING_ALLOC=0 WINDOW=45472 BLOCK=1568`，引擎 ring 文件 =
+`6b05f2b`"map the window row statelessly from the engine row"）：
+| 输入 | 答案 |
+|---|---|
+| 88K mid | **`ZX-4417-QJ7`** ✓ |
+| 88K tail | **`ZX-4417-QJ7`** ✓ |
+
+**本轮教训（重要）**：在 `6b05f2b` 之后我连续加了四层深化改动（canonical 快照、modulus 固定、
+staged-write 安装、shift/rope 组合调整），**每一层都在同一轮里叠加、没有逐步复测绿基线**，
+结果 88K 从绿变红（`'ZX where settles…'` / `'duct…'`）而无法定位是哪一层。已回退到 `6b05f2b`。
+各层的**诊断价值**保留在文档里（尤其"slot 映射读到陈旧副本 → 必须用引擎自己的 stage_write +
+apply_staged_writes 安装"这条是真实发现，值得在基线上**单独**再引入并复测）。
+
+**下一发（纪律）**：从 `6b05f2b` 出发，**每次只引入一层**，并在每次之后复测 88K mid+tail：
+①仅 staged-write 安装 → 复测；②仅 canonical 快照 → 复测；③再谈超池。
