@@ -5386,3 +5386,20 @@ row   = pages[: win_pages + pages_per_block]
 2. 若确实没被调用，把审计改挂到**环自己的 step**（已知会跑 ✓）或 `execute_model` 入口。
 
 **其余状态不变**：池内窗口化三绿（单源协议）；超池不崩但只读到开头内容。
+
+## 907. Round 688–691：**探针静默失败的根因找到了**——`model_runner.py` 顶层没有 `import os`
+
+**根因**：`engines/vllm/vllm/v1/worker/gpu/model_runner.py` 模块顶部**没有 `import os`**。
+我这一段的多个探针都用 `os.getpid()`（或在 try 里调用它），每次都会抛 `NameError`，被裸
+`except` 吞掉 ⇒ **"0 行且 0 错误"的静默失败**（本段反复出现的怪现象）全部由此而来。
+证据：把 marker 改成 `print(..., flush=True)` 后，traceback 直接指向那行 print，报 `NameError: os`。
+
+**已修**：模块顶部补上 `import os`。此后 `prepare_inputs` 的审计探针**首次真正运行**（200 行）。
+
+**探针跑通后看到的新事实（待下一步用）**
+- `prepare_inputs` 里读到的 `kvmem_slot_deltas` 为 **None**、`num_blocks[gi]` 为 **1** ⇒ 该审计
+  读到的 runner/组索引**不是环所在的那一个**（环的 `step` 里 `dv/vl` 是有的）⇒ 下一步先把审计
+  挂到**环自己的 step 里**（那里 `dv[rs]/vl[rs]/nb/row` 全是活的）。
+- 超池 152K 仍只读到开头内容（`'The text is … river deltas'`）。
+
+**本段确定性的收获**：探针基建修好了（`import os`），以后任何审计都会真的执行，不再有"假阴性"。
