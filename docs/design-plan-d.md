@@ -4300,3 +4300,32 @@ kvmem_view_lens[0]   = 0   (✗ 应为 book)
 `plan_d/clamp/window/over_pool/first_alloc` 五元组，一次定位。
 
 **默认臂已恢复**（基线 env），88K 仍 `ZX-4417-QJ7` ✓。
+
+## 857. Round 602–603：干净环窗口**机械上打通**（书→滑窗→镜像→旋转→安装→store 全链路），
+   输出仍不对；把诊断收敛到"前向帧"一个点
+
+**本轮完成（全部有 probe 证据）**
+1. **无条件分页滑窗**（scheduler）：去掉 `clamp/slide/over_pool` 三重门，改为 `plan_d + ring` 即滑；
+   首次 `base>0` 时打印：`[kvmem slide] win=45472 page=32 tb=45056 ta=45554 book=44960` ✓。
+2. **worker 的账本必须跟调度器**：`gather_batch_req_state` 里原先把 host mirror 设成
+   `num_logical`（服务长度），导致 positions 永远是 true、base 恒 0。改为 **ring 开启时 mirror =
+   调度器的 `num_computed_tokens`（已滑动的书）**；采样器的"是否还在 prefill"用
+   `num_logical_tokens`，不受影响。
+3. **ring 拿书**：`scheduler_output.scheduled_cached_reqs.num_computed_tokens`（per-request 列表）。
+4. **页池大小**：`_npages` 不能用 `num_blocks.np[gi,0]`（那是"将被子覆盖的 per-request 书"），
+   改用适配器探针 `_paged_attn_tensors` 里 KV 张量的第 0 维（实测 2,842 页）。
+5. **去掉二次位移**：mirror 跟书之后 positions 已是视图帧，再减 base 会双移（实测 `'Based-d--'`）。
+
+**当前 probe 读数（干净环，just-crossing 45,554 tokens）**
+```
+view=45460..45462  true=45556..45558  base=96  state=slid  rowlen=1421  npages=2842
+```
+即：书滑了、base 页对齐、镜像+旋转+安装都是满宽 1,421 页、身份期→滑窗期切换正确。
+
+**仍未通过**：答案仍是片段（`'Based-d--'`/`'ZX4Q8'`/`'KEY-7421'` 之类，随启动变化）。剩下唯一
+未取证的点是**前向时内核真正拿到的东西**：`positions`（应=view）、`seq_lens`（应=book+n）、
+`kvmem_view_lens`/`kvmem_slot_deltas`（应=book/0）、`kvmem_rope_offset`（应=base）、以及 gather 后的
+block table 是否就是安装行。ring 在 prepare 里就能把这几项写进 probe，无需 console（干净臂没有 legacy
+包装，console 不可用）。
+
+**默认臂已恢复**（基线 env），88K `ZX-4417-QJ7` ✓。
