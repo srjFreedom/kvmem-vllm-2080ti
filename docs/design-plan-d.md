@@ -4547,3 +4547,27 @@ true 位置，比较指纹（要带 rank 维度，避免本轮的双 rank 交错
 | 60,000 | 0（identity 44 条） | `ZX-4417-QJ7` ✓ |
 | 45,505 | 64 | `'ZXagesman…'` ✗ |
 | 45,472 | 96/160 | `'ZXusman…'` ✗ |
+
+## 866. Round 618：更正 617 的"9 处不吻合"（测量假象）+ 页内容按**真位置**验证为稳定
+
+**更正（重要，避免误导后续轮次）**：617 的"绝对帧不变式 9 处不吻合"是**测量假象**。第一次安装之后，
+staged block table 里放的就是**我们自己的旋转行**，所以 `eng` 已不再是纯引擎真帧行，
+`row[c] == eng[c+ab]` 这个式子本来就无法成立。该结论作废。
+
+**本轮按"真位置"做的内容验证（正确的方法）**：对固定的真位置 45,440 求"它所在的页"并指纹：
+```
+base 96  -> col 1417, page 1616, fp 67dfd1/650b4c/dc19e3   （首步瞬态 + 两个 TP rank）
+base 128 -> col 1416, page 1616, fp 650b4c/dc19e3
+base 160 -> col 1415, page 1616, fp 650b4c/dc19e3
+```
+- 同一真位置在滑步中**列号按 base 递减、页号不变、指纹按 rank 稳定** ⇒ **写入与页内容是正确的**；
+- 早前看到的"同页指纹变化"是两个 rank 交错 + 首步写入前的瞬态，不是改写。
+
+**A/B 仍然成立**：window 60,000（base≡0）→ `ZX-4417-QJ7` ✓；window 45,472（base>0）→ `'ZXusman…'` ✗。
+
+**剩余假设（下一发按序验证）**
+1. 内核/元数据构建链里仍有地方用 `positions`（真值）去索引页，而不是 `slot_positions`（稠密）——
+   办法：在 `build(attn_metadata)` 前把实际传入的 `seq_lens / slot_positions / block_tables` 三条
+   一次性落盘对照；
+2. MTP 草稿路径（profile 写死 `SPECULATIVE_TOKENS=4`，`/etc/default` 覆盖无效）——需要改 profile
+   才能测 spec0，按文档 §"阶段 A 可先 spec0 绕过"的方式另开一次 boot 验证。
