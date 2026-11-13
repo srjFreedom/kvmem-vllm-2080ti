@@ -3946,3 +3946,30 @@ positions 与 token feed 保持 TRUE，worker 侧不做任何页搬运。
 
 **现状**：默认臂已恢复（`/etc/default/kvmem-vllm` 还原，`FORCE_EAGER=0`、`D_KNIFE=1`、`PLAN_D=1`），
 88K 中段针 `ZX-4417-QJ7` ✓；滑臂与原生滑窗开关全部默认关。
+
+## 846. Round 582：滑臂的 RoPE 偏移被老机器擦掉（已定位）；原生滑窗的开关终于生效，但混合池塌成 18K
+
+**A. 滑臂：`kvmem_rope_offset` 被 classic 发布块覆盖（已修）**
+- 同帧取证（`compute_slot_mappings` 断点）：最后一个 chunk `positions=[45248,45249]`（视图帧 ✓）、
+  `num_computed=49,152, n=217, seq_lens=45,465`（=book+n ✓）、但 `kvmem_rope_offset=0`、
+  `kvmem_view_lens[0]=0`。
+- 根因：`execute_model` 里的 classic 发布块（`scheduled_position_offset` → `_buf.fill_(_off)` →
+  `self.kvmem_rope_offset = _buf`）在本臂 `_off=0`，**在 hook 发布之后**把 rope 偏移擦成 0。
+  于是 K 以"视图相位"落盘而上游页是"真相位"，slot 又按 `positions-δ` 偏了 base ⇒ 片段化输出
+  （`'ZX-'`/`'ZX from'`）。
+- 修：该发布块在 `KVMEM_D_SLIDE=1` 下跳过（抛内部标记，走既有 except 路径）。
+- 仍存在：同一 prompt 的**逐请求激活不稳定**（probe 有 `slid` 记录，但另一些请求整场 `identity`、
+  `ring_ready=False`），需要下一发定位（hook 的 `live` 覆盖了哪些 step）。
+
+**B. 原生滑窗：开关终于生效（`__post_init__` 而非 `model_post_init`），但池塌了**
+- `CacheConfig` 是 `@config`（pydantic dataclass），`model_post_init` 不被调用 ⇒ 上一轮
+  `KVMEM_SLIDING_WINDOW` 完全没生效（spec 仍是 `FullAttentionSpec`，88K 的"正确"只是稠密路径）。
+- 改成 `__post_init__` 后：spec 变为滑窗、attention 组块大小 **64**，但 `GPU KV cache size` 从
+  **90,944 掉到 18,036 tokens**、group sizes `[262144,262144,262144,64]` —— 混合 LCM/每块字节的
+  记账被 64-token 滑窗块拖垮，窗口 45,472 直接装不下 ⇒ 不可用（上一轮的 100K/152K 卡住正是这个
+  池塌的结果，而不是"管理器不回收"）。
+- 结论：原生滑窗要可用，必须让滑窗块的块大小与混合模型的 LCM 对齐（例如 1,568），否则池容量
+  按 lcm 记账会崩掉；这是引擎侧一处明确的施工点。
+
+**现状**：默认臂恢复（实验开关 0 条），88K 中段针 `ZX-4417-QJ7` ✓；本轮改动（rope 发布守卫）在
+`KVMEM_D_SLIDE` 下才生效。

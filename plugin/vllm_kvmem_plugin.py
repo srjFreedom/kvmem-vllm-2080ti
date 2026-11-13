@@ -4266,6 +4266,14 @@ def _install(cls, module_name, probe, smoke, state):
                     # is a 0-dim device tensor so a CUDA graph replays the live value; 0 (no
                     # compaction yet) makes the subtraction a no-op.
                     try:
+                        # design 577: the sliding arm owns the RoPE/slot offset (it needs
+                        # rope = base). The classic publication below fills the shared
+                        # scalar with the scheduler books' offset (0 here), which silently
+                        # erased it AFTER the hook had published it - measured round 582:
+                        # rope=0, positions view, delta=base -> RoPE phases view while the
+                        # stored pages carry true phases, and the slot jumped by base.
+                        if os.environ.get("KVMEM_D_SLIDE") == "1":
+                            raise RuntimeError("x-pub slide arm")
                         _st = _rt.state(_req)
                         # V2's CPU num_computed_tokens_np mirrors the LOGICAL sampler
                         # frontier, not resident KV. After compaction subtracting that
