@@ -4253,3 +4253,23 @@ kvmem_view_lens[0]   = 0   (✗ 应为 book)
 `'The access code for KEY-MID is ZX-4417.'`（漏 `-QJ7`）、`ZX-4417-QJ7` ✓、`ZX-4417-Q`（截断）。
 即默认臂在**答案尾部不稳定**，按"答案含 ZX-4417-QJ7"的验收口径它并不合格。滑臂（`D_KNIFE=0`）本轮
 两次均为完整 `ZX-4417-QJ7`，可作为下一阶段的主臂。
+
+## 855. Round 591：88K 电池 2/2 全绿（复验）；超池回收(free_path)已接线但**仍未生效**
+
+**复验（滑臂 `D_SLIDE=1, D_KNIFE=0, D_CLAMP=0`）**
+- `needle_88k`（74,948 tokens）→ `ZX-4417-QJ7` ✓
+- `needle_88k_tail`（74,949 tokens）→ `ZX-4417-QJ7` ✓
+
+**超池回收的接线（本轮新增，全部藏在 env 后面）**
+1. `backends/vllm/worker.py`：`KVMEM_FREE_PATH/FREE_LOW_WATERMARK/FREE_SINK_BLOCKS/FREE_RECENT_BLOCKS/
+   FREE_PER_STEP` → `additional_config.kvmem`（`free_path` 等键），实测已进入配置（probe `config_source`
+   的 keys 含 `free_path`）。
+2. `plugin`：free_path 的 schedule 钩子改为同时扫描 `waiting`（此前只看 `running`，而卡住的请求在
+   `waiting` 里）；Core 侧没有 runner，`_config()` 为空 → 增加从 `self.vllm_config.additional_config`
+   读取的回退。
+3. 结果：`freed_blocks` 仍为 **0**，152K tailA 依旧停在 73,728 tokens（51%）⇒ **钩子本身没有在
+   EngineCore 里装起来**（模块级 patch 的安装点未覆盖 Core 进程，或安装时读不到配置直接返回）。
+   下一步：要么在 Core 的 scheduler 上直接实现回收（fork 内 20 行：`allocate_slots` 失败时释放该请求
+   最旧的块，保留最近 ≥ 窗口块数），要么给安装点加探针确认它是否执行。
+
+**现状**：默认臂已恢复（基线 env）；滑臂 88K 2/2 绿；152K 通道无 clamp 时仍停摆。

@@ -2151,10 +2151,26 @@ def _attach_free_path(log_path):
         out = original(self, *args, **kwargs)
         try:
             cfg = _config()
+            if not cfg:
+                # The EngineCore has no model runner, so `_config()` (which reads the
+                # runner's vllm_config) is empty here and the free path never armed
+                # (measured: an over-pool prefill stalled with freed=0). The scheduler
+                # itself carries the same additional_config.
+                try:
+                    _ac591 = getattr(getattr(self, "vllm_config", None),
+                                     "additional_config", None) or {}
+                    cfg = _ac591.get("kvmem") if isinstance(_ac591, dict) else None
+                except Exception:
+                    cfg = None
+            cfg = cfg or {}
             if not cfg.get("free_path", False):
                 return out
             mgr = getattr(self, "kv_cache_manager", None)
-            running = list(getattr(self, "running", []) or [])
+            # design 591: a request that could not be admitted sits in `waiting`, not in
+            # `running`, so a running-only scan never reclaims exactly when it matters
+            # (measured: an over-pool prefill stalled at 73,728 tokens with freed=0).
+            running = (list(getattr(self, "running", []) or [])
+                       + list(getattr(self, "waiting", []) or []))
             if mgr is None or not running:
                 return out
             pool = mgr.block_pool

@@ -200,6 +200,24 @@ def main(argv=None) -> int:
             cfg[_cfgk] = True
     if os.environ.get("KVMEM_REPLAY_WINDOW", "").strip():
         cfg["replay_window"] = int(os.environ["KVMEM_REPLAY_WINDOW"])
+    # design 591: over-pool reclaim. Under pool pressure the plugin's schedule hook
+    # releases fully-written blocks OUTSIDE [sink_blocks, len-recent_blocks) - i.e. the
+    # OLDEST blocks - so an over-pool prefill keeps allocating without ever touching the
+    # sliding view's pages (the view lives in the newest blocks). This replaces the
+    # book-rewinding clamp, which freed exactly the newest blocks.
+    if _env_flag("KVMEM_FREE_PATH"):
+        cfg["free_path"] = True
+        for _k591, _ck591 in (("KVMEM_FREE_LOW_WATERMARK", "free_low_watermark"),
+                              ("KVMEM_FREE_SINK_BLOCKS", "sink_blocks"),
+                              ("KVMEM_FREE_RECENT_BLOCKS", "recent_blocks"),
+                              ("KVMEM_FREE_PER_STEP", "free_per_step")):
+            _v591 = os.environ.get(_k591, "").strip()
+            if _v591:
+                try:
+                    cfg[_ck591] = (float(_v591) if "watermark" in _ck591
+                                   else int(_v591))
+                except Exception:
+                    pass
     # The API-server process (which defaults an unset max_tokens) is a child of this
     # launcher, so the environment DOES reach it: publish R for the serving-layer clamp
     # (`get_max_tokens` in vllm/entrypoints/serve/utils/api_utils.py).
