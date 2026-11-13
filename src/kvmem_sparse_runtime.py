@@ -1039,6 +1039,13 @@ class VllmSparseRuntime:
                 return out
             pt = max(1, int(self.page_tokens))
             win = int(self.budget_tokens) + int(self.gen_reserve)
+            # one window number on both sides of the slide (the Core reads the same env)
+            try:
+                _win_env = int(os.environ.get("KVMEM_WINDOW_TOKENS", "0") or 0)
+            except Exception:
+                _win_env = 0
+            if _win_env > 0:
+                win = _win_env
             true_before = int(getattr(st, "d_slide_true", 0) or 0)
             true_after = true_before + int(n_new)
             # design 577: the worker computes the SAME page-aligned slide the Core does
@@ -1137,6 +1144,21 @@ class VllmSparseRuntime:
                 out["installed"] = True
             except Exception as exc:
                 out["install_error"] = str(exc)[:80]
+            # design 577: shift THIS request's query positions into the view frame.
+            # The engine wrote true positions in prepare_pos_seq_lens; the row/slot frame
+            # is view, so the write addresses must come down by the base. The rope offset
+            # (published below) puts the true phase back for RoPE.
+            try:
+                _pos = self.view.positions()
+                _slots = list(self.view.query_position_slots(req)) or []
+                if _slots and int(base) > 0:
+                    _a = int(_slots[0])
+                    _e = int(_slots[-1]) + 1
+                    _pos[_a:_e] -= int(base)
+                    out["pos_shift"] = int(base)
+                    out["pos_head"] = [int(x) for x in _pos[_a:_a + 2].tolist()]
+            except Exception as exc:
+                out["pos_shift_error"] = str(exc)[:80]
             st.seq_len = int(book)
             st.tokens = int(true_after)
             st.view_installed = True

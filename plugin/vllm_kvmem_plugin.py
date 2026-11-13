@@ -1458,28 +1458,6 @@ def _attach_sparse(runner, log_path):
                 pass
             original_prepare(idx_mapping, query_start_loc, num_computed_tokens, positions,
                              seq_lens)
-            # design 577: the sliding view shifts the KV address, not the token feed.
-            # `positions` now hold the TRUE frame; shift this request's span down by its
-            # absolute base so writes land in the installed row. The rope offset (set by
-            # the hook) puts the true phase back, and the slot delta (= base) maps it
-            # again, so the kernels see: RoPE true, slot = view.
-            try:
-                if os.environ.get("KVMEM_D_SLIDE") == "1":
-                    _rts9 = state.get("sparse")
-                    _reqs9 = (list(getattr(getattr(runner, "input_batch", None),
-                                           "req_ids", None) or [])
-                              or list(getattr(runner, "_kvmem_req_ids", None) or []))
-                    if _rts9 is not None and _reqs9 and positions is not None:
-                        for _i9, _rq9 in enumerate(_reqs9):
-                            _sts9 = getattr(_rts9, "_state", {}).get(_rq9)
-                            _b9 = int(getattr(_sts9, "roll_base", 0) or 0) if _sts9 is not None else 0
-                            if _b9 <= 0:
-                                continue
-                            _a9 = int(query_start_loc[_i9])
-                            _e9 = int(query_start_loc[_i9 + 1])
-                            positions[_a9:_e9] -= _b9
-            except Exception:
-                pass
             try:
                 _n = getattr(prepare_pos_seq_lens, "_probes", 0)
                 _big = False

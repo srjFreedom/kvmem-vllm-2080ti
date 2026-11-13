@@ -3863,3 +3863,38 @@ needle 落在窗口内时，答案必须在"纯环形、无选择"下正确，�
 
 **现状**：默认臂已恢复（`KVMEM_D_SLIDE=0`），88K 中段针 `ZX-4417-QJ7` ✓；新臂与 Core 回卷全部
 开关隔离，未接入生产。
+
+## 843. Round 579：位置帧已落地（实测），但环窗口内容仍只"读到片段"；另记一条 env 残留事故
+
+**已落地并实测**
+- 上一轮放在 plugin `prepare_pos_seq_lens` 之后的"positions 减 base"块**从未执行**（在其行号上的断点
+  一次也没命中，try 体被跳过）。改为在 `d_ring_slide` 内直接改 `self.view.positions()` 的本请求
+  query span（span 由 `view.query_position_slots(req)` 给出）：probe 记录 `pos_shift=3680`、
+  `pos_head=[41376,41377]`，即 positions 真的进了视图帧。
+- `KVMEM_WINDOW_TOKENS` 现在**两侧都生效**（scheduler + runtime），滑动与分配共用同一个窗口数。
+- 小窗口参数实验（win=8,192，50K prompt）：行缩到 256 页、base 0→41,184、每 chunk 旋转+commit，
+  `head_distinct=1421`（首装行仍忠实），几何链条完整走通。
+
+**在线读数（滑臂，win=8,192 / 45,472 两种）**
+- 88K 中段 `'ZX where settles…'`、50K 尾段 `'ZX at'`、20K marker（win 8K）`'4'`（正好是 marker 首位数字
+  却截断）。即：**紧邻 query 的内容读得到片段，窗口内更早的页不连贯**。
+- 几何已逐项验证（base、`row_head`=真页 id、`head_distinct`、`delta`、`view_lens`、positions 视图帧、
+  store 提交），所以剩余缺陷在"内容/读路径"，不在页表算术。
+
+**env 残留事故（代价一次误判，已修复）**
+- `arm_boot.sh` 只增改不删：上一轮实验留下的 `KVMEM_WINDOW_TOKENS=8192` 让 *默认臂* 的 clamp 窗口
+  变成 8,192（适配器仍是 45,472），默认臂于是从 `ZX-4417-QJ7` 退化成"复述问题"。
+- 恢复 `/etc/default/kvmem-vllm` 原始文件后默认臂回到 `The access code for KEY-MID is **ZX-4417-QJ**`
+  （被 max_tokens 截断，语义正确）。教训：**每次判决实验前核对整个 env 文件，而不是只核对本次开关**。
+
+**下一步两个候选（需裁决/择一）**
+1. 读时内容审计：在提交时刻把目标页的 device 字节与 store 副本比对（现有 `KVMEM_TRACE_PAGES`
+   机制），或对 needle 页做一次"设备 vs 期望 token 位置"的指纹，确定是"页内容错"还是"attention 读错列"。
+2. 架构替代：本 fork 自带 `SlidingWindowSpec` + `SlidingWindowManager`。把 full-attention 层按
+   **原生滑窗**服务（窗口 = B+R），窗口/环形由引擎负责，适配器只保留"选择 + 还原"——这与用户
+   2026-11-02 的"接受 vLLM 原生简化形式"口径一致，且能删掉 worker 侧几乎全部环/页搬运代码。
+   需要改的是 qwen3_5 的层配置/spec 推导（把 full attention 换成 sliding window），工作量集中在
+   一处、失败语义清晰。
+
+**现状**：默认臂已恢复为原始 env 文件并实测 `ZX-4417-QJ`；滑臂代码全部开关隔离（
+`KVMEM_D_SLIDE`/`KVMEM_SLIDE_CORE` 默认 0）。
