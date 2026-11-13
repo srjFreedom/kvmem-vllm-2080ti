@@ -5403,3 +5403,21 @@ row   = pages[: win_pages + pages_per_block]
 - 超池 152K 仍只读到开头内容（`'The text is … river deltas'`）。
 
 **本段确定性的收获**：探针基建修好了（`import os`），以后任何审计都会真的执行，不再有"假阴性"。
+
+## 908. Round 692–694：修好两个**接线级** bug（探针 + 发布门控），池内三绿保持
+
+**bug 1（探针）**：`model_runner.py` 顶层缺 `import os` ⇒ 所有用 `os.getpid()` 的探针抛
+`NameError` 被裸 `except` 吞掉 ⇒ **"0 行且 0 错误"** 的假阴性贯穿本段。已补 `import os`。
+
+**bug 2（发布门控）**：design-900/901 的"窗口块序列/窗口 base"发布被 gated 在
+`bool(getattr(self, "kvmem_ring", True))` 上，而 **clean 臂根本不设这个 config key**（它由
+`KVMEM_RING_CLEAN` env 启动）⇒ **发布从未真正执行**，环一直回落到自己的（冻结）base。
+已改为只 gated 在 `kvmem_plan_d and window > 0` 上。
+
+**回归**：池内三绿在修复后保持 ✓（just-crossing / 88K mid / 88K tail = `ZX-4417-QJ7`）。
+**超池**：152K tailA 仍为开头内容（`'The text is a river delta…'`），但本轮之前"published 路径
+是否被执行"这个前提终于可能成立（此前被 bug 2 判死）；下一步需要一次**干净日志**的单发确认
+（`run-logs/kvmem_ring_clean.jsonl` 跨 boot 累积，无法用它判断本次）。
+
+**方法论教训（写进纪律）**：①探针必须 print 到 stderr 或用一个自检 marker 先证明"探针会跑"；
+②任何新协议都要先确认"接线真的通"（本轮两次都是"代码对、接线断"）。
