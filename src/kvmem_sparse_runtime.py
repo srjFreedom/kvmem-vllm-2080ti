@@ -93,7 +93,8 @@ class _ReqState:
                  "rebuild_armed",
                  "resume_needs_retrieval",
                  "row_head",
-                 "view_installed", "knife_frontier", "roll_frozen",)
+                 "view_installed", "knife_frontier", "roll_frozen",
+                 "ring_ready",)
 
     def __init__(self):
         self.row = ()
@@ -105,6 +106,10 @@ class _ReqState:
         # state (measured: the same 88K prompt answered correctly on the
         # first run after boot and degenerated on the second).
         self.view_installed = False
+        # design 1576: the ring window's own "first install done" flag. `view_installed` is
+        # set by legacy before_step code as soon as st.row is non-empty, so it cannot tell
+        # whether the ring itself has installed a page-aligned row yet.
+        self.ring_ready = False
         self.adopt_knife_pending = False
         self.ordered_pages = ()
         self.inrequest_compaction = False
@@ -755,6 +760,239 @@ class VllmSparseRuntime:
             except Exception:
                 pass
 
+    # --- Plan D ring window (design 1576) ---------------------------------------------
+    def _ring_commit_pages(self, req, old_base, steps, row):
+        """Store the pages a ring roll is about to recycle, keyed by their ABSOLUTE page.
+
+        The store key of a page is the absolute logical page it holds: page `p` covers
+        tokens [p*page_tokens, (p+1)*page_tokens). Row position i holds the page for the
+        token at `old_base + i*page_tokens`, so its key is `old_base//page_tokens + i`.
+        That value is invariant across rolls - which is what makes a restore query by the
+        block's own page (`b*block_pages + j`) exact.
+
+        The previous commit loop multiplied the row value by `block_pages` before indexing
+        the KV tensor (row values ARE page ids), so the copy read a page ~49x out of range
+        and the bare `except: pass` swallowed it - the store could never have held what the
+        restore asked for (the §839 "all lookups miss" reading).
+        """
+        out = {"stored": 0, "skipped": 0, "error": None}
+        orch = None
+        try:
+            orch = self._orch.get(req)
+        except Exception:
+            orch = None
+        if orch is None:
+            out["error"] = "no_orch"
+            return out
+        try:
+            paged = self.view.paged_kv()
+        except Exception as exc:
+            out["error"] = "no_paged:%s" % str(exc)[:60]
+            return out
+        try:
+            npages = int(self.view.num_blocks())
+        except Exception:
+            npages = 0
+        pt = max(1, int(self.page_tokens))
+        basepg = max(0, int(old_base) // pt)
+        try:
+            known = orch.store.pages
+        except Exception:
+            known = {}
+        for i in range(min(int(steps), len(row))):
+            try:
+                key = int(basepg) + i
+                slot = int(row[i])
+                if key in known:
+                    out["skipped"] += 1
+                    continue
+                if slot <= 0 or (npages and slot >= npages):
+                    out["skipped"] += 1
+                    continue
+                orch.store.put(key, [t[slot].cpu().clone() for t in paged])
+                out["stored"] += 1
+                if out["stored"] >= 256:
+                    break
+            except Exception as exc:
+                out["error"] = str(exc)[:100]
+                break
+        return out
+
+    def d_ring_window(self, req, st, row_index, tok, n_new):
+        """A page-aligned look-back window carried by a rotating block-table row.
+
+        The contract (one line per invariant, all of them verified by
+        `tests/ring_window_test.py`):
+
+          * view column `c` holds the engine page of ABSOLUTE page `base//pt + c`;
+          * `base` is PAGE ALIGNED: base = ceil((frontier - win) / pt) * pt,
+            so a roll moves the row by a whole number of pages and no page ever
+            mixes two windows;
+          * the view length is `frontier - base` (<= win), not `win`: a decode
+            step grows it by one token instead of overwriting the same slot;
+          * this step's tokens are written at view positions `position - base`:
+            the fork's per-request slot delta is EXACTLY `base`;
+          * RoPE keeps the TRUE token positions, i.e. the fork's rope offset is
+            0 (the K bytes of resident pages carry their true-position phase).
+
+        The arm this replaces rotated by `token/1024` instead of `token/32`,
+        shifted positions twice (install_pos + rope offset) and published
+        `delta = base` with `rope = base`, so every chunk after the window
+        filled was written OUTSIDE the installed row and the model kept reading
+        the prompt head (measured round 576: a needle 1,651 tokens from the end
+        still answered with a filler phrase from the opening).
+
+        Returns a probe dict; never raises.
+        """
+        out = {"kind": "d_ring_window", "req": str(req)[-6:],
+               "row_index": int(row_index), "state": "init"}
+        try:
+            pt = max(1, int(self.page_tokens))
+            win = int(self.budget_tokens) + int(self.gen_reserve)
+            frontier = int(tok) + int(n_new)
+            out.update(page_tokens=pt, win=win, tok=int(tok), n_new=int(n_new),
+                       frontier=frontier)
+            if win <= 0 or frontier <= win or row_index is None or int(row_index) < 0:
+                out["state"] = "identity"
+                self._ring1576(req, out)
+                return out
+            base = ((frontier - win + pt - 1) // pt) * pt
+            vl = frontier - base
+            out.update(base=base, vl=vl)
+            want = max(1, win // pt)
+            first = not bool(getattr(st, "ring_ready", False))
+            old = 0 if first else int(getattr(st, "roll_base", 0) or 0)
+            if base < old:
+                # the window never moves backwards; re-anchor (a rebuilt/fresh book)
+                old = 0
+                first = True
+            steps = (base - old) // pt
+            out.update(roll_base=old, steps=steps, first=bool(first))
+            if steps < 0:
+                out["state"] = "neg_steps"
+                self._ring1576(req, out)
+                return out
+            if first:
+                # FIRST ACTIVATION: the engine's staged row is indexed by TRUE position
+                # (nothing has moved the addresses yet), so the window is simply the slice
+                # [base/page_tokens : base/page_tokens + want] of that row. Rotating the
+                # prompt-head prefix instead would leave the chunk that crossed the window
+                # outside the row - a 4,096-token hole in the middle of the view (measured
+                # round 576: base 7,776, 243 pages skipped, needle still out of reach).
+                eng = []
+                try:
+                    table = self.view.block_table_rows()[0]
+                    eng = [int(x) for x in table[int(row_index)].tolist()]
+                except Exception as exc:
+                    out["sync_error"] = str(exc)[:80]
+                if len(eng) < steps + want:
+                    try:
+                        self.sync_row_from_engine(req, -(-int(frontier) // pt), int(tok))
+                        table = self.view.block_table_rows()[0]
+                        eng = [int(x) for x in table[int(row_index)].tolist()]
+                    except Exception:
+                        pass
+                out["eng_rowlen"] = len(eng)
+                if len(eng) < steps + want:
+                    out["state"] = "no_row"
+                    self._ring1576(req, out)
+                    return out
+                npages = max(1, int(self.view.num_blocks()))
+                head = [v for v in eng[:steps] if 0 < v < npages]
+                out["store"] = self._ring_commit_pages(req, 0, min(steps, len(eng)), eng)
+                row = [v for v in eng[steps:steps + want] if 0 < v < npages]
+                if len(row) < want:
+                    out["state"] = "short_slice"
+                    self._ring1576(req, out)
+                    return out
+                st.row = tuple(row)
+                st.roll_base = int(base)
+            else:
+                row = list(getattr(st, "row", ()) or ())
+                if len(row) > want:
+                    row = row[:want]
+                if not row:
+                    out["state"] = "no_row"
+                    self._ring1576(req, out)
+                    return out
+                if steps >= len(row):
+                    # cannot reconstruct: more than the whole window slid past without a roll
+                    out["state"] = "rot_overflow"
+                    self._ring1576(req, out)
+                    return out
+                if steps:
+                    out["store"] = self._ring_commit_pages(req, old, steps, row)
+                    row = row[steps:] + row[:steps]
+                    st.row = tuple(row)
+                    st.roll_base = int(old) + int(steps) * pt
+            out["row_head"] = [int(x) for x in row[:4]]
+            out["row_tail"] = [int(x) for x in row[-4:]]
+            out["rowlen"] = len(row)
+            try:
+                out["eng_seq_len"] = int(self.view.seq_lens()[int(row_index)])
+            except Exception:
+                pass
+            out["roll_base_after"] = int(getattr(st, "roll_base", 0) or 0)
+            st.ring_ready = True
+            # Install the row ONLY: positions stay TRUE (install_pos would clobber them
+            # with view coordinates and RoPE would then read a double-shifted phase).
+            try:
+                self._install(int(row_index), row, int(vl), [])
+                out["installed"] = True
+            except Exception as exc:
+                out["install_error"] = str(exc)[:80]
+            st.seq_len = int(vl)
+            st.tokens = int(frontier)
+            st.view_installed = True
+            try:
+                runner = self.view.runner
+                with __import__("torch").no_grad():
+                    dv = getattr(runner, "kvmem_slot_deltas", None)
+                    vlt = getattr(runner, "kvmem_view_lens", None)
+                    if dv is not None:
+                        dv[int(row_index)] = int(base)
+                    if vlt is not None:
+                        # the fork adds this step's query length back: (tok - base) + n_new
+                        vlt[int(row_index)] = int(tok) - int(base)
+                ro = getattr(runner, "kvmem_rope_offset", None)
+                if ro is not None:
+                    ro.fill_(0)
+                so = getattr(runner, "kvmem_slot_offset", None)
+                if so is not None:
+                    so.fill_(0)
+                runner.kvmem_view_active = True
+                out["delta"] = int(base)
+                out["vl_table"] = int(tok) - int(base)
+            except Exception as exc:
+                out["table_error"] = str(exc)[:80]
+            out["state"] = "rolled"
+        except Exception as exc:
+            out["state"] = "error"
+            out["error"] = str(exc)[:200]
+        self._ring1576(req, out)
+        return out
+
+    def _ring1576(self, req, rec):
+        """Long-lived probe for the ring window (KVMEM_RING_PROBE=1, cap 40/pid)."""
+        if os.environ.get("KVMEM_RING_PROBE", "") not in ("1", "true", "yes", "on"):
+            return
+        try:
+            import json as _json
+            _pid = os.getpid()
+            _seen = getattr(self, "_rp1576", None)
+            if _seen is None:
+                _seen = self._rp1576 = {}
+            if int(_seen.get(_pid, 0)) >= 40:
+                return
+            _seen[_pid] = int(_seen.get(_pid, 0)) + 1
+            rec = dict(rec)
+            rec["kind"] = "d_ring576"
+            rec["pid"] = _pid
+            with open("/tmp/kvmem_ring576.jsonl", "a") as f:
+                f.write(_json.dumps(rec) + "\n")
+        except Exception:
+            pass
+
     def _apply_selection_d(self, req, st):
         """design 753: build the view from the request's OWN blocks.
 
@@ -867,7 +1105,7 @@ class VllmSparseRuntime:
             pass
         if _inp823 and orch is not None and need:
             try:
-                _bt823 = int(self.page_tokens) * 32
+                _bt823 = int(self.page_tokens) * q
                 _base823 = int(getattr(st, "roll_base", 0) or 0)
                 if _base823 <= 0:
                     _base823 = max(0, int(getattr(st, "tokens", 0) or 0)
@@ -876,33 +1114,36 @@ class VllmSparseRuntime:
                 _slots823 = [s_ for s_ in range(nb) if s_ not in keep]
                 _rb823 = []
                 _moved823 = 0
+                _skipped823 = 0
+                _np823 = int(self.view.num_blocks())
                 for _b823 in need:
                     if not _slots823:
                         break
                     _s823 = _slots823.pop(0)
                     _pairs823 = []
                     for _j823 in range(q):
-                        # design 838: the store keys are (window base page + row index),
-                        # not the bare block*block_pages+j - measured: every lookup
-                        # missed while the pages were in fact stored.
-                        _src823 = (_base823 // max(1, int(self.page_tokens))) \
-                            + _b823 * q + _j823
+                        # design 1576: a page key is the ABSOLUTE logical page the page
+                        # holds (token position // page_tokens). A block spans `q` pages,
+                        # so block b page j is simply b*q + j - the window base must NOT
+                        # be added here: the store writes every page under that invariant
+                        # (_ring_commit_pages), which is why the base-offset form of
+                        # design 838 only appeared to hit.
+                        _src823 = _b823 * q + _j823
                         if not orch.store.has(_src823):
+                            _skipped823 += 1
                             continue
+                        # destination = the page the view row already points at for the
+                        # sacrificed slot: that is exactly what attention reads, so the
+                        # bytes must land there. Values outside the page pool mean the
+                        # row is stale - fail closed instead of writing out of bounds.
                         _dst823 = int(row[_s823 * q + _j823])
-                        # design 836: with KVMEM_SKIP_KV_CHECK the block ids can exceed
-                        # the pool (measured 4,263 vs 2,778 pages), so the write slot is
-                        # the id wrapped into the page count.
-                        try:
-                            _np836 = int(self.view.num_blocks())
-                            if _np836 > 0 and _dst823 >= _np836:
-                                _dst823 = _dst823 % _np836
-                        except Exception:
-                            pass
-                        if 0 <= _dst823 < 1 << 20:
-                            _pairs823.append((_src823, _dst823))
+                        if _dst823 <= 0 or _dst823 >= _np823:
+                            _skipped823 += 1
+                            continue
+                        _pairs823.append((_src823, _dst823))
                     # design 839: duplicate destination slots make index_copy_ assert on
-                    # the device, so keep one write per slot.
+                    # the device, so keep one write per slot (a duplicate also means the
+                    # row is not a faithful page map - it is logged, not papered over).
                     _seen839 = set()
                     _uniq839 = []
                     for _pr in _pairs823:
@@ -925,7 +1166,14 @@ class VllmSparseRuntime:
                                 _f826.write(chr(10))
                         except Exception:
                             pass
-                if _rb823:
+                # design 1576: no rebake in this frame. The resident K pages were written
+                # with the token's TRUE position phase (the fork keeps positions true and
+                # the slot delta only moves the address), so a restored page already has
+                # the phase attention expects. Rotating it again was written for the old
+                # compacted-phase arm and corrupts the bytes (KVMEM_D_REBAKE=1 restores
+                # that behaviour for comparison).
+                _rebake823 = __import__("os").environ.get("KVMEM_D_REBAKE") == "1"
+                if _rb823 and _rebake823:
                     try:
                         from kvmem_sparse_rope import rotate_k_pages_fp8, rotary_inv_freq
                         _cfg823 = self.view.runner.model_config.hf_config
@@ -959,9 +1207,9 @@ class VllmSparseRuntime:
                                                    rot823, _ksl823)
                             _rbcount += 1
                         with open("/tmp/kvmem_inplace.jsonl", "a") as _ip:
-                            _ip.write("moved=%s rebaked=%s base=%s blkbase=%s need=%s nb=%s" % (
+                            _ip.write("moved=%s rebaked=%s base=%s blkbase=%s need=%s nb=%s skipped=%s" % (
                                 _moved823, _rbcount, _base823, _blkbase823,
-                                len(need), nb))
+                                len(need), nb, _skipped823))
                             _ip.write(chr(10))
                         restored += _moved823
                         rebaked = _rbcount
@@ -972,6 +1220,13 @@ class VllmSparseRuntime:
                                 _ip2.write(chr(10))
                         except Exception:
                             pass
+                else:
+                    restored += _moved823
+                    with open("/tmp/kvmem_inplace.jsonl", "a") as _ip3:
+                        _ip3.write("moved=%s rebaked=0 base=%s blkbase=%s need=%s nb=%s skipped=%s npages=%s" % (
+                            _moved823, _base823, _blkbase823, len(need), nb,
+                            _skipped823, _np823))
+                        _ip3.write(chr(10))
             except Exception as _e823b:
                 try:
                     with open("/tmp/kvmem_inplace.jsonl", "a") as _ip3:
@@ -4549,7 +4804,14 @@ class VllmSparseRuntime:
             # Bind the ROW even before a view exists: the first reselect must know which block
             # table row is the request's own (it compacts inside the request's own pages).
             st.row_index = int(row_index)
-            self._d_reset_row(row_index)
+            # design 1576: the ring publishes view_lens/slot_deltas for its row every step in
+            # the PREPARE hook, which runs BEFORE this call; resetting them here wiped the
+            # publication in the same step (measured: delta 0 and vl 0 at every step after
+            # activation, so writes went to true columns and the view never updated).
+            _ring_owns = (os.environ.get("KVMEM_RING_VIEW") == "1"
+                          and bool(getattr(st, "ring_ready", False)))
+            if not _ring_owns:
+                self._d_reset_row(row_index)
         # Slot-mapping history: remember THIS step's query-token range so the LAGGED commit
         # (which runs at the start of the NEXT step, while the device slot mapping still holds
         # this step's values) can ask the kernel where it wrote each page.
@@ -4683,9 +4945,15 @@ class VllmSparseRuntime:
         # the publish method that carried it never runs for a D request (measured:
         # adopt logged row=1666 while publish logged nothing).
         try:
+            # design 1576: the page-aligned ring owns the roll when KVMEM_RING_VIEW=1.
+            # `_roll_window` still rotates by token/1024 (a 32x error in a page-granular
+            # row) and would corrupt the view one step after the hook installed it.
+            _ring1576 = os.environ.get("KVMEM_RING_VIEW") == "1"
             if getattr(self, "d_mode", False) and getattr(st, "row", ()):
                 st.view_installed = True
-                if int(getattr(st, "tokens", 0) or 0) > int(self.budget_tokens) + int(self.gen_reserve):
+                if (not _ring1576
+                        and int(getattr(st, "tokens", 0) or 0)
+                        > int(self.budget_tokens) + int(self.gen_reserve)):
                     self._roll_window(req, st, row_index)
         except Exception:
             pass

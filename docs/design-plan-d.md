@@ -3752,3 +3752,46 @@ groups=[3]  tables=[(1, 8232)]  shapes n=16 (2842,2,32,512) blocks=2842
 **结论**：搬运目标不能取自这个镜像行，必须取**引擎实际分配到的页**（`num_blocks` 前缀 + 校验 < 池）。
 **下段工作**：改用 `(basepage + i) -> 引擎 id` 的落盘/取回闭环（即 §837/§838 的方向），
 并在目标侧从引擎真实分配里选空槽，而不是从镜像行猜。
+
+## 840. Round 576：环形窗口的四处机制缺陷（数据面已修，在线仍未过针）
+
+§839 的"dst 不能取自镜像行"建立在"镜像行可信"上。本轮先用**尾部针**验证环形窗口本身：
+同一批 142.8K 电池把 needle 分别放到距尾 6,857 / 1,651 token，另有 88K 电池距尾 670 token —
+needle 落在窗口内时，答案必须在"纯环形、无选择"下正确，否则后面所有 restore 都建在沙上。
+
+**实测（probe `d_ring576`；两 rank，每 pid 40 条；全部带数值）**
+- 旧臂首滚发生在前沿越过窗口**之后**（`tok=49,152, n_new=4,096`），跨窗那个 chunk 以
+  `delta=0` 写在 TRUE 列（行只有 1,421 页）⇒ 窗口中部一个 4,096-token 的洞。
+- 旧臂滚行按 `token/1024` 计步（页粒度行里差 32×），且 `rope_offset=base` 与 TRUE positions
+  叠加 ⇒ `slot = pos + base - delta` 又回到 TRUE 列：**视图从不更新**，模型读的一直是开头
+  （这解释了 88K 中段针 True、尾针全错）。
+- `before_step` 的 `_d_reset_row` 在 prepare 之后把刚发布的 `view_lens/slot_deltas` 清零：
+  forward 入口实测 `dv=0, vl=0`（`prepare_attn` 包装取证）。
+- 镜像行宽取自 `view.seq_lens()`，视图覆盖生效后可能是小值（实测 128 页），首滚滚在 128 页上。
+- 引擎账本与视图不同宽：attention book 实测 1,715 页（35 块）vs 视图 1,421 页（29 块）——
+  gather 多拷 294 项，读路径不使用，属无害；本轮行值全部 < 2,842，**§835-839 的"行值超池 /
+  全局 id"只在旧臂下成立，作废**。
+
+**本轮交付（离线绿）**
+- `VllmSparseRuntime.d_ring_window`：页对齐 base（`ceil((frontier-win)/pt)*pt`）、按整页滚、
+  `delta=base`、RoPE offset 0、`view_lens = frontier-base`；首次安装直接取**引擎行在 base 处的
+  切片**（不再"滚头部前缀"，消除跨窗洞）。
+- `_ring_commit_pages`：store 键 = 绝对逻辑页 `token//32`，槽位 = 行值本身（旧代码把行值乘了
+  `block_pages`，复制的页号 ~49× 越界、被裸 except 吞掉）。
+- `_apply_selection_d` in-place：`src = b*q+j`、`dst = 已安装行指向的引擎页`（校验 < 池，不取模）；
+  REBAKE 默认关——这个帧里 K 字节存的是 TRUE 相位，再旋一次会毁字节（`KVMEM_D_REBAKE=1` 可复现旧路）。
+- `before_step` 不再在环臂下重置行/再滚；hook 由环臂整条生命周期持有（激活条件改为**跨窗那个
+  chunk**：`tok + n_new > win`）。
+- `tests/ring_window_test.py`：160K 逐 token 视图恒等（含中途 chunk/decode）、store 键、in-place
+  恢复、旧臂负对照；全套离线无新增失败（14 项为既有失败）。
+
+**在线读数（每轮重启后单发）**
+- 旧臂：88K 中段针 True（needle 在窗口头部，属"读开头"）；88K 尾针退化。
+- 新臂（含重置守卫）：probe 全部 `rolled`、`delta=base`、`vl_table=tok-base`、行/切片正确，
+  但 88K 尾针仍 `'Based.::…'`、152K 尾针仍复读/`The_` ⇒ **发布正确而 forward 侧未生效**。
+- **下一发单测（唯一）**：在 `prepare_attn` 入口同帧打印 `dv/vl` 的最终值、`input_block_tables`
+  首项、以及第一步 `slot_mappings` 头 8 项——钉死"谁在 prepare 之后又写了 dv/vl（或 slot 不走
+  delta）"。本轮 10:44 的 hot-reload 实例上读到 `dv=0/vl=0`，但该实例被 console 重载污染
+  （环形日志此后不再增长），不能作为新臂结论；必须在干净重启上取这一发。
+
+预算：本轮 7 boots，超支停止。生产臂已恢复（`KVMEM_RING_VIEW` 关闭，`PLAN_D=1` 不变）。

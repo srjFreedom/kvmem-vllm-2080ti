@@ -1702,61 +1702,46 @@ def _attach_sparse(runner, log_path):
                                 _tok631 = int(getattr(_st631, "tokens", 0) or 0)
                             _win631 = int(getattr(runtime, "budget_tokens", 0) or 0) \
                                 + int(getattr(runtime, "gen_reserve", 0) or 0)
-                            if not _has:
-                                if (os.environ.get("KVMEM_RING_VIEW") == "1"
-                                        and _tok631 > _win631 > 0):
-                                    # design 801: the plain ring DOES compress once the
-                                    # prompt outgrows the row, so the tables must carry
-                                    # the window - zeroing them made the engine read the
-                                    # stock causal length (137,873) over a row that only
-                                    # holds 45,472 tokens of live blocks (measured:
-                                    # fluent-looking but degenerate output).
-                                    _base801 = _tok631 - _win631
-                                    # design 802: the ROTATION lives in the elif below,
-                                    # which is unreachable while view_installed is False,
-                                    # so rotate here as well - otherwise attention reads
-                                    # the oldest pages of the row.
+                            # design 1576: the ring window owns the request for its whole
+                            # life, not just until the first install - the old gate was
+                            # `not _has`, so from the second step on the (wrong) inline
+                            # roll in the classic branch took over.
+                            _ringv576 = os.environ.get("KVMEM_RING_VIEW") == "1"
+                            _n_new576 = 1
+                            if _ringv576:
+                                try:
+                                    _n_new576 = max(1, int(query_start_loc[_i631 + 1])
+                                                    - int(query_start_loc[_i631]))
+                                except Exception:
+                                    _n_new576 = 1
+                            if (not _has) or _ringv576:
+                                # design 1576: activate on the chunk that CROSSES the window
+                                # (tok + n_new > win), not the one after it. The crossing
+                                # chunk would otherwise be written at true positions - outside
+                                # the installed row - leaving a whole 4,096-token hole in the
+                                # middle of the view (measured: delta still 0 at seq_len 49,152).
+                                if (_ringv576
+                                        and _tok631 + _n_new576 > _win631 > 0):
+                                    # design 1576: the ring window lives in the runtime
+                                    # (page-aligned base, roll by whole pages, delta =
+                                    # base, RoPE offset 0). The inline form this
+                                    # replaces rolled by token/1024 instead of token/32
+                                    # and double-shifted positions, so every chunk after
+                                    # the window filled was written outside the installed
+                                    # row (measured round 576: a needle 1,651 tokens from
+                                    # the end answered with a filler phrase from the
+                                    # opening while the runtime had already published a
+                                    # 45,472-token view).
                                     try:
-                                        _pt802 = int(getattr(runtime, "page_tokens", 32) or 32)
-                                        _bt802 = _pt802 * 32
-                                        _old802 = int(getattr(_st631, "roll_base", 0) or 0)
-                                        _k802 = max(0, (_base801 - _old802) // max(1, _bt802))
-                                        _row802 = list(getattr(_st631, "row", ()) or ())
-                                        if _k802 > 0 and _row802 and _k802 < len(_row802):
-                                            _rot802 = _row802[_k802:] + _row802[:_k802]
-                                            _st631.row = tuple(_rot802)
-                                            _st631.roll_base = _base801
-                                            _qs802 = list(range(
-                                                int(view.query_start_loc[0]),
-                                                int(view.query_start_loc[1])))
-                                            runtime._install(int(_row), _rot802,
-                                                             _win631, _qs802)
-                                        with open("/tmp/kvmem_ring802.jsonl", "a") as _rr:
-                                            _rr.write("k=%s base=%s rowlen=%s" % (
-                                                _k802, _base801, len(_row802)))
-                                            _rr.write(chr(10))
-                                    except Exception as _e802:
+                                        runtime.d_ring_window(_rq, _st631, int(_row),
+                                                              int(_tok631), int(_n_new576))
+                                    except Exception as _e1576:
                                         try:
-                                            with open("/tmp/kvmem_ring802.jsonl", "a") as _rr2:
-                                                _rr2.write("err %s" % str(_e802)[:110])
-                                                _rr2.write(chr(10))
+                                            with open("/tmp/kvmem_ring576_err.jsonl", "a") as _re:
+                                                _re.write("err %s" % str(_e1576)[:140])
+                                                _re.write(chr(10))
                                         except Exception:
                                             pass
-                                    with _t631.no_grad():
-                                        _dv[int(_row)] = _base801
-                                        _vl[int(_row)] = _win631 - 1
-                                    try:
-                                        _rn801 = getattr(view, "runner", None)
-                                        _ro801 = getattr(_rn801, "kvmem_rope_offset", None)
-                                        if _ro801 is not None:
-                                            _ro801.fill_(_base801)
-                                        _so801 = getattr(_rn801, "kvmem_slot_offset", None)
-                                        if _so801 is not None:
-                                            _so801.fill_(0)
-                                        if _rn801 is not None:
-                                            _rn801.kvmem_view_active = True
-                                    except Exception:
-                                        pass
                                 else:
                                     with _t631.no_grad():
                                         _dv[int(_row)] = 0
