@@ -5054,3 +5054,16 @@ apply_staged_writes 安装"这条是真实发现，值得在基线上**单独**�
 `has access code ZX-4417-QJ7` 这一段取到的页内容是旧的。下一发（仍守一次一层）：
 对这几个 token 做"写入时刻 (base, col, page) vs 读取时刻 (base, col, page)"的三元对照，
 并用页指纹确认是"页被另一圈同名 token 覆盖"还是"写读不同页"。
+
+## 890. Round 659：**MTP 被排除**（`speculative_config=None` 下超池结果不变）
+
+用 `/etc/default` 显式覆盖 `SPECULATIVE_METHOD=none SPECULATIVE_TOKENS=0` 启动，日志确认
+**`speculative_config=None`**（MTP 真正关闭），152K tailA 结果与带 MTP 时**逐字相同**：
+```
+'# KEY-MID\n\nThe access code for KEY-MID is:\n\n**KEY-MID**\n…'
+```
+⇒ 剩余缺口**与 MTP 草稿无关**（文档最初的 invariant#3 假设可以划掉），也说明验收可以用 spec0 跑。
+
+**当前唯一的缺口**：needle 句里 `KEY-MID` 之后的 `has access code ZX-4417-QJ7` 取到旧内容。
+下一步只剩一条路：对这几个 token 做写入侧/读取侧的**(base, col, page)**三元对照 + 页指纹，
+确认是"页被另一圈同名 token 覆盖"还是"写读落在不同页"。
