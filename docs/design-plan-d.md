@@ -4739,3 +4739,22 @@ slot          = block_numbers * kv_block_size + (local_positions % kv_block_size
 读到 needle 首两字后跑飞 ⇒ needle 之后那些 token 的页内容错位（列/页对齐在"窗口回收 + 引擎
 块集被冻结"的组合下还有一处偏差）。下一发用两个落盘值对照：①该 token 的 **slot→页**
 （prepare_attn 侧）、②环行为该列给出的**块号→页**，直接看差在哪一页。
+
+## 874. Round 631：修掉 `bad_roll`（滑过一圈改为循环旋转）；152K 环在滑但内容仍错位
+
+**修复**：滑窗超过一整圈时原代码直接 `bad_roll` 拒绝（池内 88K 从不超一圈所以没暴露），
+超池时窗口页集本就是**固定循环使用**的，改为**循环旋转**（`steps %= len(head)`），并记录 `wrapped`。
+
+**152K 实测（arm: ring + RING_ALLOC=1 + WINDOW=45472 + BLOCK=1568）**
+```
+slid 670 条，base=97,216，view=45,715，rowlen=1,468，head_distinct=1,468，wrapped=0
+答案: 'ZX the season…'（读到 needle 首两字后跑飞）
+```
+⇒ 环**在整个 142,931 token 上都在正确滑动**（base 一路到 97,216、行内无重复）；问题只剩
+"needle 之后那些 token 的页内容"——即**写路径与行给出的块**在超池时仍有一处偏差
+（池内 88K 走同一条代码却正确，差异只在"引擎块集被冻结 + 页被循环复用"）。
+
+**同批对照**：100K tail 本次**无响应**（需查引擎日志确认是停摆还是夹紧未触发）。
+
+**下一发**：对超池请求同时落盘 ①`prepare_attn` 里该 token 的 `slot→物理页`、②环行为该列给出的
+`块号→物理页`，并打印两者与"该 token 真实位置"的对应关系，直接看差在哪一页。
