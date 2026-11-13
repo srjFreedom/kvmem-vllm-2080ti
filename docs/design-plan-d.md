@@ -4038,3 +4038,23 @@ KV 没有被正确读到/写入**；而大丢头（3,868 tokens，含系统提�
 1. 默认臂跑同一个刚好跨窗 prompt（应在 45,472 头内，needle 在尾部 → 正确），作为对照基线；
 2. 滑臂上对 needle 所在的两页做"写时 vs 读时"设备指纹（复用 `KVMEM_TRACE_PAGES` 或 console 读
    `paged[0][page]` 的 bytes/sha）：若两页指纹不同，就锁定"跨窗 chunk 的写地址错一页"。
+
+### 848b. 同轮追加：滑臂的"base=0 消融"判定病灶在**首次旋转**，不在窗口/丢头语义
+
+同一臂、同一代码、同一条 45,525-token prompt，只改窗口：
+
+| 窗口 | base | 状态序列 | 输出 |
+|---|---|---|---|
+| 45,600（> prompt） | 恒 0 | 44 × `identity` | **`ZX-4417-QJ7` ✓** |
+| 45,472（真窗口） | 末 chunk 起 64 | 22 × `identity` + `slid` | `'… Based on the provided text, the access code is "4444…"'`（流畅但编造） |
+
+结论：**病灶是"第一次 base>0"的那一步（旋转 + 位移 + δ），不是丢头 53 个 token 的语义，也不是
+窗口本身**。丢 53 个 token 时语言能力完全正常（无复读），只是 needle 的码丢了。
+
+**当前最具体的假设（下一发直接验证）**：首次跨窗时 `sync_row_from_engine(want = true_after//32)`
+会按 `true_after` 取 1,421 页，但引擎此刻只写了 `true_before//32 = 1,407` 页；多取的 14 页是**上一个
+请求留下的陈旧页**。旋转 `row'[c] = head[c+2]` 后，列 1,405 = `head[1,407]`（陈旧）对应 true
+45,024..45,055 —— 这一页不会被本 chunk 写入（本 chunk 从 true 45,056 起），于是视图里留下**一页陈旧
+KV**；若陈旧页范围更大（取决于上一请求的残留），正好覆盖 needle 前文。
+验证：在 `_ring1576` 记录里加 `row_tail`（安装行最后 20 个页 id）与 `eng_written`，检查首次滑步是否
+出现重复/越界页 id，并把镜像宽度限制为 `true_before//32`（而不是 `true_after//32`）。
