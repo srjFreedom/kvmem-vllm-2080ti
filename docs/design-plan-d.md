@@ -4980,3 +4980,22 @@ K 指纹是否一致（此前的指纹探针被 400 条上限与两 rank 交错�
 **下一发（收口）**：先让读侧探针在 `slid_skip` 也落盘（拿到 base/col/pg），再把"写入列的取模"
 显式化：让写列也走 `(base/32 + col) % nc`，即**写入与读取使用同一个取模函数**（当前 kernel 的
 `slot_pos // 32` 是纯线性列，不取模；所以必须由我们把行宽度限制成 `nc` 并让 base/32 也落到同一环上）。
+
+## 886. Round 652：安装本身**完全正确**（174/174 回读一致），但 slot 映射取到的表项不是它
+
+**回读证据**（每个安装步之后读 `tbl[0,1359]`）
+```
+install rows 174, mismatched 0
+last: {'base': 97216, 'want': 1457, 'got': 1457, 'rowlen': 1470}
+```
+⇒ 我们写进 `tbl`（`_table()`，注意力组 staged 表）的行是**对的**，列 1,359 = 页 1,457 ✓。
+
+**但写入侧探针给出的表项是 9,551**（越界页号）⇒ **`compute_slot_mappings` 读的不是这张表**
+（或读的是它的一个**陈旧副本**）。两个候选：
+1. 内核用的是 `gather_block_tables` 产出的 `input_block_tables`，而 gather 宽度取自 `num_blocks`
+   的设备镜像；若该镜像在某步仍是引擎侧的大值，gather 会拷入我们行之外的列（但 1,359 在行内 ✗）；
+2. `compute_slot_mappings` 的 `block_table_ptrs` 指向**另一个** staged 缓冲（例如 host/`.np` 侧）。
+
+**下一发**：在 `prepare_attn` 里把 ①`input_block_tables[gi][0,1359]`（gather 后）、
+②`block_tables[gi][0,1359]`（staged）与 ③环的 `_row[1359]` 三者同时落盘对照；三者一致后
+超池的写入就会落到页 1,457，内容层即可收口。
