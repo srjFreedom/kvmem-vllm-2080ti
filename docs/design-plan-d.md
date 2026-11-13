@@ -4814,3 +4814,30 @@ slid 670 条，base=97,216，view=45,715，rowlen=1,468，head_distinct=1,468，
 **下一发（收口用）**：把窗口设成 `prompt-1568`（恰好 1 块旋转），对"旋转区内的 token"和
 "旋转前写入的 token"各自记录 **写入时的物理页** 与 **读取时的物理页**——不变量是两者必须相等；
 不等的那一侧就是旋转实现的错误点（行/偏移/base 三者之一）。
+
+## 878. Round 637–638：单位**由源码与运行时同时钉死**（页列 + 页号）
+
+**运行时事实（`/tmp/kvmem_units.jsonl`）**
+```
+paged_shapes = [2842, 2, 32, 512]   # 2,842 个物理页，每页 32 token
+table_shape  = [1, 8232]            # 表列 = 页列（8,232 = 262,144/32）
+kv_bs = 1568   kernel_bs = 32       # 注意力组(gi=3)
+```
+**内核公式（block_table.py:360）**
+```
+block_indices = slot_pos // kernel_block_size      # = slot_pos // 32   → 页列
+block_offsets = slot_pos %  kernel_block_size      # = slot_pos % 32    → 页内偏移
+block_numbers = block_table[row, block_indices]    # 表项 = 物理页号
+slot          = block_numbers * kernel_block_size + block_offsets      # = page*32 + off
+```
+**引擎写入（append_block_ids）**：`bpk = blocks_per_kv_block = 49`，把每个 kv-block 展开成 49 个
+页号写入表列 ⇒ **表 = 页列 + 页号** ✓，`num_blocks` 计数也是**页数**（本轮测得 1,470 = 30 块×49 ✓）。
+
+⇒ **结论：我们环的"页列 + 页号"实现方向本来就是对的**；错的是"旋转/宽度"这一层。
+两条不变量（下一轮直接按这两条重写，删掉历史累加）：
+1. `row[c] == engine_row[c + base/32]`（引擎行是真帧，页列平移即窗口）；
+2. `width ≤ num_blocks - base/32`（我们的安装**绝不能**写到引擎已分配页之外——本轮探针里
+   row[1,826]=2,071、写入 slot 解出的页 10,067 都属于"越界读到陈旧列"）。
+
+**池内 vs 超池**：池内可用不变量 1 直接重建（精确）；超池时引擎行只有窗口那么多页（被夹紧冻结），
+此时才需要**循环旋转**（同一组页循环复用），两者分开实现即可。
