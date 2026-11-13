@@ -1144,6 +1144,18 @@ class VllmSparseRuntime:
             out["rowlen"] = len(row)
             out["row_head"] = [int(x) for x in row[:4]]
             out["roll_base_after"] = int(st.roll_base)
+            # design 585: the FIRST slide is the lesion (base-zero ablation). Compare the
+            # installed row's tail against the engine's own row at the same VIEW column:
+            # the invariant is row[c] == engine[c + steps] (engine row is the true frame).
+            try:
+                _eng585 = self.view.block_table_rows()[0][int(row_index)].tolist()
+                _c585 = len(row) - 4
+                out["row_tail"] = [int(x) for x in row[_c585:]]
+                out["eng_tail"] = [int(x) for x in _eng585[_c585 + int(steps):_c585 + int(steps) + 4]]
+                out["tail_match"] = bool(out["row_tail"] == out["eng_tail"])
+                out["eng_len"] = len(_eng585)
+            except Exception as exc:
+                out["tail_error"] = str(exc)[:80]
             try:
                 self._install(int(row_index), row, int(book), [])
                 out["installed"] = True
