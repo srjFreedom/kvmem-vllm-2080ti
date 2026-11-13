@@ -4246,3 +4246,10 @@ kvmem_view_lens[0]   = 0   (✗ 应为 book)
   回收点可以挂在 `allocate_slots` 返回 None 之前（或在 no_preempt 等待分支里先尝试回收再等）。
   这与 goal 后半段（超池选择/换出）是同一套机制：store 已在 `_ring_commit_pages`，
   还原已在 `_apply_selection_d`（单测覆盖）。
+
+### 854b. 默认臂的 88K 并非"干净绿"（诚实记一笔）
+
+恢复默认臂（基线 env、`D_KNIFE=1`）后三次 88K 中段运行：
+`'The access code for KEY-MID is ZX-4417.'`（漏 `-QJ7`）、`ZX-4417-QJ7` ✓、`ZX-4417-Q`（截断）。
+即默认臂在**答案尾部不稳定**，按"答案含 ZX-4417-QJ7"的验收口径它并不合格。滑臂（`D_KNIFE=0`）本轮
+两次均为完整 `ZX-4417-QJ7`，可作为下一阶段的主臂。
