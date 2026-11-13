@@ -1232,6 +1232,16 @@ class VllmSparseRuntime:
                             "true_after": int(true_after)}
                     if 0 <= _col586 < len(_row586):
                         _pg586 = int(_row586[_col586])
+                        # Is the staged (read-path) table the one we installed? A mismatch
+                        # means the engine re-appended over our row AFTER the install, and the
+                        # attention reads a different page than the one we wrote.
+                        try:
+                            _staged586 = int(self.view.block_table_rows()[0][
+                                int(row_index)][_col586])
+                            _aud["staged"] = _staged586
+                            _aud["staged_match"] = bool(_staged586 == _pg586)
+                        except Exception as _e586c:
+                            _aud["staged_err"] = str(_e586c)[:40]
                         try:
                             import hashlib as _h
                             _paged586 = self.view.paged_kv()

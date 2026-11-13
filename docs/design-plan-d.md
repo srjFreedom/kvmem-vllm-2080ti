@@ -4117,3 +4117,31 @@ KV**；若陈旧页范围更大（取决于上一请求的残留），正好覆�
 2. **"health 200" 不代表本次 boot 生效**：服务曾撞 start-limit，`systemctl restart` 静默失败，
    旧实例继续服务 ⇒ 我一度把旧实例的结果当成新配置的结果（也是"同配置跨启动不确定"的一部分）。
    判定方法：`log` 文件 mtime + worker pid + probe 记录里的 pid 三者一致才算新实例。
+
+## 851. Round 587：页内容与安装行都被验证一致；但**视图中部**的 needle 同样读不到 ⇒ 缺陷在读语义，不在表/内容
+
+**A. 审计结论（本轮把上一轮的"内容在变"证伪）**
+- 审计按**绝对页**取列：`col=(abs*pt-base)//pt`。上一轮我把 *页 id* 当成 *绝对页* 传入（1,421 实际是
+  页 id），且审计在 `prepare` 阶段（**写入之前**）取样，于是同一页在 step1/step2 之间"变了"——
+  那是 **prepare-vs-write 的时序**，不是第二个写者。
+- 改成正确的绝对页后：`page=392`（`staged=392, staged_match=True`）在 60+ 步里**指纹恒定**
+  （rank A `6b4acd5bf082`、rank B `6bc3002d32a0`），且 `staged == installed`。即：
+  **安装行有效、读路径表 = 我们装的行、目标页内容稳定**。
+- 另外确认 `_install` 只写注意力组的表（`block_table_rows()` 过滤 FullAttentionSpec），不会误写
+  mamba 组。
+
+**B. 新事实：88K 中段 needle 在滑臂上同样读不到**
+- 88K 电池（74,949 tokens，needle 在 true 37,441 → **视图中部**，远离尾部/回收区）在滑臂上输出
+  `'Nothing is about codes, keys, or codes, or codes…'`：模型明确说"没有相关信息"，然后复读。
+- 对照：同 prompt 默认臂 `ZX-4417-QJ7` ✓；滑臂在 base=0（窗口 45,600）时也 `ZX-4417-QJ7` ✓。
+- ⇒ 缺陷不是"尾部页被回收"，而是**只要 base>0，视图内容就读不到**（中部、尾部都一样）。
+
+**C. 由此收窄的读语义可疑点（下一步逐个排除）**
+1. 内核拿到的 `seq_lens`/`positions` 组合：positions=true、seq_lens=view、slot 列=view 帧。RoPE 用
+   true（读写一致），但内核的**因果索引**用 seq_len；若某处仍按 *true* 长度取 block table 列
+   （1,421..2,342 是未安装的陈旧列），注意力尾部就会读到陈旧页并把 needle 淹掉。
+2. 需要直接验证内核侧元数据：在 `prepare_attn` 里读 `block_tables.input_block_tables[attn_group]`
+   的尾部条目与 `seq_lens`，确认 gather 后的行宽度、内容与 `installed row` 完全一致。
+
+**实测记录**：滑臂 88K 中段 `'Nothing is about codes, keys, or codes…'`（1m24s）；刚好跨窗 prompt
+`'ZXagesmanman…'`；默认臂 88K `ZX-4417-QJ7` ✓。
