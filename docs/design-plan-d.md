@@ -4210,3 +4210,17 @@ kvmem_view_lens[0]   = 0   (✗ 应为 book)
 **本轮实测结论**：环窗口的读写帧在 `D_KNIFE=0` 下已能端到端答对 88K 与刚好跨窗两类 prompt；
 剩下两件事：(1) 找出 `D_KNIFE=1` 下仍在改帧的 knife 路径（或干脆让滑臂走 vanilla 配置）；
 (2) 超池用"attention 可用块"作为 clamp 阈值，验证 152K tailA/tailB。
+
+### 853b. 同轮追加：152K 尾针**通道打通**（3m03s 跑完，142,869 tokens），答案退化为复读
+
+`KVMEM_D_KNIFE=0, D_SLIDE=1, D_CLAMP=1, POOL_TOKENS=66,000`（= attention 可用块 ≈43 块，扣掉 mamba）：
+- 152K tailA **不再卡住**：142,869 tokens，3m03s 完成 ✓（此前两轮都在 73,728 tokens 停摆）。
+- 答案：`'The answer is:\n\nThe answer is:\n\n…'`（流畅但复读、无 needle 码）⇒ 通道通了、帧在超池段坏。
+- 推断（与 clamp 语义一致）：clamp 把 `num_computed` 临时**回退**到"窗口长度"，`allocate_slots` 于是把
+  **最新的块**（`[clamped, true)`）判为多余并释放 → 恰好是"最近 token"所在的页（needle 就在最后 6,857
+  token 内）→ 页被回收重写 ⇒ 复读。也就是说：**clamp 与"视图页所有权"天然冲突**，clamp 省下的块正是
+  我们要保住的内容。
+
+**因此超池阶段的正确做法不再是 clamp**，而是：让引擎按真实增长分配，worker 用 store（已有 `_ring_commit_pages`
+与 `_apply_selection_d`）把被回收的页换出/必要时还原——即转入"选择/换出"阶段，这与 goal 的后半段
+（超池选择）本来就是同一件事。
