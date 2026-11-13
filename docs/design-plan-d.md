@@ -4687,3 +4687,30 @@ bt0=201  bt_last=0  bt_w=8,232  nb=1,470
 - 窗口 = 29 块 = `ceil(window/1568)`；旋转步长 = `Δbase / 1568`（base 需按块对齐，而不是 32 对齐）；
 - `num_blocks`（引擎 book）= 页数语义，需按块换算；`slot_positions` 的除法要跟随；
 - 这样 `seq ≤ 窗口`（override）才可能与 `slot`/页表一致，超池才有解。
+
+## 872. Round 625：内核公式读定（块表语义），块粒度 ring 落地
+
+**`_compute_slot_mappings_kernel`（fork 源码）**
+```
+block_indices = local_positions // kernel_block_size          # 表列 = 位置 // 32
+block_numbers = block_table[req, block_indices]               # 表项 = kv-block id(1,568 token)
+slot          = block_numbers * kv_block_size + (local_positions % kv_block_size)
+```
+⇒ 结论三条：
+1. 表**按 32-token 列索引**，但**表项是 1,568-token 块号**（不是页号）；先前"页号当块号/块号当页号"
+   两种误读都不成立——真正要求是：**每列给出该列 true 位置所属的块号**。
+2. 块内偏移来自 `local_positions % 1568` ⇒ **窗口 base 必须按 1,568 对齐**，否则块内偏移错位。
+3. 因此 ring 可以按块记账（每块重复 49 列）或用引擎行按列平移（`base/32` 列）——两者等价，
+   前提同上。
+
+**本轮实现**：ring 改成**块粒度**（`bs=1568`、`win_blocks=ceil(window/bs)=29`、base 按块对齐、
+旋转按块、store 按块→页展开）。实测：
+| 输入 | 结果 |
+|---|---|
+| just-crossing（override ON） | **`'ZX'`**（前缀正确、随后停止；此前是 `'ZXusman…'`） |
+| 88K（override ON） | `'duct…'` ✗ |
+| 152K（无分配夹紧） | 无响应（停摆，符合预期） |
+
+⇒ 块粒度让"前缀正确"出现（说明行/相位这一层已经对上），剩下的差异集中在内核**因果轴**与
+窗口 seq 的交互上（override 打开后 88K 仍退化）。下一发：抓首个 decode step 的 logits/top-k
+（稠密 vs 窗口两种 arm 同一请求），判断模型到底读到了窗口内容还是被 seq 截断成"空上下文"。
