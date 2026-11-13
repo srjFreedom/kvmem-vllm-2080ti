@@ -4775,3 +4775,21 @@ slid 670 条，base=97,216，view=45,715，rowlen=1,468，head_distinct=1,468，
 
 **已确认能力（不回退）**：just-crossing / 88K mid / 88K tail 在 `seq=窗口`（override ON）下
 全部 `ZX-4417-QJ7` ✓——窗口真正生效。
+
+## 876. Round 634–635：**重要更正——round 629 的"88K 窗口化全绿"不可复现**
+
+用*同一个* arm（`RING_CLEAN=1 RING_ALLOC=0 WINDOW=45472 BLOCK=1568`）和*同一个* ring 文件
+（引擎 fork `04c62c6`）重测，88K mid 得到 `'ZX where settles settles…'` ✗，不再是 `ZX-4417-QJ7`。
+⇒ round 629 的绿**不是稳定配置**（可能是边界条件侥幸），**不能当作窗口化验收**。
+
+本轮同时验证/证伪的假设：
+- **"表列 = 32-token 页列"** 与 **"表列 = 1,568 块列"** 两种安装都能让 just-crossing 通过，
+  但 88K 在块列安装下变 `'ZX where'`；页列安装下曾通过一次（629）但不可复现；
+- 探针证据（同一 token 的两侧地址）：写入 `slot=305,666`（block 194）/ 读取 `blk=237` ——
+  两侧都落在**引擎 book 之外的列**，说明"行与内核索引单位"仍未对齐到唯一解释；
+- `st["true"]` 累加器 vs 从 `positions` 取值：后者让 88K 变差（`'ZX where settles…'`），
+  已回退到累加器（现行代码 = 引擎 fork `04c62c6` + `model_runner` 的 metadata/needle 探针）。
+
+**下一步（先解决可复现性，再谈修）**：同一 arm 连跑 3 次 88K，若三次不同 ⇒ 存在**未初始化状态**
+（最可能是 ring 的 `state` 跨请求残留或 `dv/vl` 表在首步前未清零）；若三次一致 ⇒ 再回到
+"表单位"的唯一解释上做对照（同 token 的写入/读取地址必须相等）。
