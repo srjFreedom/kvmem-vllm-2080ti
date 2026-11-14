@@ -3140,6 +3140,25 @@ def register():
                                     or "/tmp/kvmem_sparse.jsonl",
                                     {"kind": "resume_shared_hit", "req": rid,
                                      "blocks": int(found[1])})
+                    # STATE GATE (upstream rule): a hit may only be reclaimed when the
+                    # checkpoint can also restore the recurrent (GDN) state. Restoring pages
+                    # without it leaves the first tokens running on somebody else's state -
+                    # measured: a resumed 47K request emitted a junk token then recovered
+                    # ("ductZX-4417-QJ7"), while the cold run was clean. Fail closed: no
+                    # StateImage => recompute this prompt.
+                    if found is not None:
+                        _cfg_r = _sched_cfg(scheduler) or {}
+                        _d_lane = bool(_cfg_r.get("plan_d"))
+                        try:
+                            _entry_r = found[0]
+                            _has_state = getattr(_entry_r, "mamba_state", None) is not None
+                        except Exception:
+                            _has_state = False
+                        if not _has_state and not _d_lane:
+                            _append(_cfg_r.get("log") or "/tmp/kvmem_sparse.jsonl",
+                                    {"kind": "resume_refused_no_state", "req": rid,
+                                     "blocks": int(found[1]) if found else 0})
+                            found = None
                     if scheduler._rlg <= 10:
                         _append(_sched_cfg(scheduler).get("log")
                                 or "/tmp/kvmem_sparse.jsonl",

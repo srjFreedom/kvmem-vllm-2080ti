@@ -6394,3 +6394,29 @@ capture 路径改变了工作集（`clip_session_checkpoint_chunk` 会在检查�
 **新缺陷**：`duct` 不在 prompt 里（该 prompt 中 `duct` 出现 0 次）⇒ 不是"读到 prompt 开头"，
 而是**被恢复的上下文有一部分不对**（模型先吐一个退化 token 再恢复），只出现在**命中前缀的请求**上。
 下一步：核对"命中长度 ↔ 恢复页数 ↔ 引擎行"三者是否严格对齐（这是 resume 内容正确性的唯一判据）。
+
+## 960. Round 816（按官方设计对齐）：状态闸门 + 入口不裁确认；`duct` 前缀另有来源
+
+**按上游 `docs/prompt-sessions.md` 的三条规格对照**
+1. 恢复必须能还原 **GDN 循环状态**（"GDN and draft context restoration"）；我们代码里
+   `_d_state_archive` **只写不读**，resume 的伪造 entry 又把 `mamba_state = None` ⇒ 恢复出的上下文缺状态。
+   **本轮已加 fail-closed 闸门**：命中 entry 若无 `mamba_state` 且非 d_mode，则拒绝命中
+   （日志 `resume_refused_no_state`），宁可重算；
+2. **入口不得改写 prompt**：`src/kvmem_entry_policy.py:303` 在
+   `inrequest_compaction ∧ KVMEM_ENTRY_RESIDENT_PREFILL` 时直接 `return None`（不改写）——
+   当前配置两者都开，所以入口确实没裁；
+3. 判据 = **cold 与 restored 的 greedy token ID 完全一致**。
+
+**本轮实测（47K，无 session 字段）**
+| 请求 | 耗时 | 答案 |
+|---|---|---|
+| r1（47K） | 75s | `ZX-4417-QJ7` ✓ |
+| r2（同前缀 + 追加提问） | 81s（**未命中**） | **`ductZX-4417-QJ7`** ✗ |
+
+**关键推断**：r2 未命中（81s > 75s）却仍有 `duct` 前缀 ⇒ **不是 resume 造成的**，
+而是"追加提问后压缩选片不同"导致上下文首部落在词中间（`duct` 像是 "pro-duction" 的尾段），
+模型顺着残缺词继续。r1 干净、r2 不干净，唯一差异就是**选片**。
+
+**下一步（对齐官方后仍有的一块）**：让"工作集里第一个 token"永远从稳定的语义边界开始——
+即选片时把 sink 对齐到块边界**且**保证首块内容与原始 prompt 首块一致（不能选到别处页）。
+这与上游"restoring the already compressed frame … exactly reproduces cold outputs"是同一判据。
