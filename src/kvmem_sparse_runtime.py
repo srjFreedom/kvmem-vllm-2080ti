@@ -2980,6 +2980,25 @@ class VllmSparseRuntime:
                       "reason": "checkpoint requires full resident prefix",
                       "frontier": covered, "visible": capacity * self.page_tokens})
             return None
+        # PARK FINGERPRINT: mean|layer0| of the first pages, keyed by the chain tail. Compared
+        # with the resume-side fingerprint it tells a wrong page mapping from wrong bytes.
+        try:
+            import json as _jp
+            _tail = (hashes[-1].hex() if hashes and isinstance(hashes[-1], (bytes, bytearray))
+                     else str(hashes[-1]) if hashes else "")
+            _fps = []
+            for _i in range(min(4, len(pages))):
+                _pg = int(pages[_i])
+                try:
+                    _fp = float(orch.store.get(_pg)[0].float().abs().mean())
+                except Exception:
+                    _fp = -1.0
+                _fps.append([_i, _pg, round(_fp, 4)])
+            with open("/tmp/kvmem_park_fp.jsonl", "a") as _fp_f:
+                _fp_f.write(_jp.dumps({"pid": __import__("os").getpid(), "tail": _tail[:24],
+                                       "covered": int(covered), "fp": _fps}) + "\n")
+        except Exception:
+            pass
         import hashlib as _hl
         _digest = _hl.sha256(b"".join(
             int(t).to_bytes(4, "little", signed=False) for t in ids)).hexdigest()
@@ -3664,6 +3683,29 @@ class VllmSparseRuntime:
             self.log({"kind": "resume_no_room", "req": req, "pages": len(pages),
                       "row": len(row_values), "visible": int(visible_tokens)})
             return False
+        # DISCRIMINATOR: keep the skip book, drop the page restore. Same bad output => the book
+        # arithmetic is wrong; clean output => the restored bytes are wrong.
+        import os as _os_nr
+        if str(_os_nr.environ.get("KVMEM_RESUME_NORESTORE", "0")).strip().lower() in (
+                "1", "true", "yes", "on"):
+            self.log({"kind": "resume_norestore", "req": str(req)[-6:],
+                      "pages": int(len(pages))})
+            return True
+        try:
+            import json as _jr
+            _rfp = []
+            for _i in range(min(4, len(pages))):
+                try:
+                    _src = float(orch.store.get(int(pages[_i]))[0].float().abs().mean())
+                except Exception:
+                    _src = -1.0
+                _rfp.append([int(_i), int(pages[_i]), int(row_values[_i]), round(_src, 4)])
+            with open("/tmp/kvmem_resume_fp.jsonl", "a") as _rf:
+                _rf.write(_jr.dumps({"pid": __import__("os").getpid(),
+                                     "req": str(req)[-6:],
+                                     "hit": int(hit_tokens), "fp": _rfp}) + "\n")
+        except Exception:
+            pass
         try:
             orch.restore_pages_batch([(int(pg), int(row_values[i]))
                                       for i, pg in enumerate(pages)])
