@@ -5497,3 +5497,15 @@ worker TP0: [kvmem got] has_blocks=False(0) has_base=False(0)   ← 但 worker �
 **超池**：published 路径下 152K 在 base≈48,608（true≈94K，≈池大小）仍 illegal Triton access。
 
 **已回退**：两个文件回到已提交的绿状态（`d6d2182` 内容），池内三绿复验通过 ✓。
+
+## 913. Round 708–709：绿基线再次确认；published 行的正确性作为**唯一下一步**
+
+**本轮结果**：在"通道已证明可用"的前提下做了一次新旧行对比（probe 打在 published 分支），
+但该分支本轮未被触发（cmp 0 行），池内三绿在绿基线上复验通过 ✓。
+
+**当前稳定状态（已提交，`restore the green window state`）**
+- 池内三绿：just-crossing / 88K mid / 88K tail = `ZX-4417-QJ7` ✓（窗口化、seq=窗口、绿路径 = canon/off 映射）
+- `/tmp` 文件通道**已验证可用**（`base`/`blocks` 内容正确、环侧 `pub_blocks=30`）
+- 唯一未决：**published 行与绿路径不等价**（消费 published 块后 88K mid/tail 变红）
+  ⇒ 下一步只做一件事：在 published 分支里打印新旧两行的前 4/末 4 项与首个差异下标，
+  定位"块→页"展开的错位项，修完先回归池内三绿，再谈超池 94K 越界。
