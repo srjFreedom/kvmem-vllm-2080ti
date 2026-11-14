@@ -5610,3 +5610,19 @@ worker TP0: [kvmem got] has_blocks=False(0) has_base=False(0)   ← 但 worker �
 
 **顺带修复**：`model_runner.py` 的 `import os` 在回退时又被抹掉，导致探针 `NameError` 被吞；
 已恢复（这也是本轮唯一"探针不生效"的原因）。
+
+## 919. Round 725–726：两个新观测（注意力组 slot 也含越界哑值；blocking 未能定位算子）
+
+**观测 1**：改成读**注意力组**（按 `_kvmem_gi` 索引）后，`slot` 值域是
+`10,368 … 794,623`（pos 4,096…8,191）。上限 794,623 = 24,832×32−1 > 池 2,842 页
+⇒ **表里存在越界的"哑值"**（未使用的 padding 列被填成 `8,192 + col` 之类的连续假页号）。
+这解释了为什么"越界断言"一直报警：它把**未被使用的列**也算进去了。
+⇒ 后续任何 slot 审计必须先筛出**真正使用的 token 区间**，否则结论不可信。
+
+**观测 2**：加 `CUDA_LAUNCH_BLOCKING=1` 复现同一 152K，栈仍只到
+`qwen3_5.py:591 → language_model.model(...)`，没有更深的算子帧；错误仍是
+`CUDA error: an illegal memory access`。⇒ 该次异常不是可直接归因的同步 kernel 错误。
+
+**结论（供下一段）**：接下来不要再沿"slot 越界"推理；改为**直接核对内核看到的行**：
+在 `prepare_attn` 返回前把 `block_tables[gi][0, :1470]` 回读出来，与环装的 `_row` 逐项比对
+（落一条 `/tmp/kvmem_row_readback.jsonl`）。若一致，则问题不在行；若不一致，就是装行路径。
