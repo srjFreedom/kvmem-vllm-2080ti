@@ -6675,3 +6675,28 @@ connector 的形态重写：**一个 restore 入口 + 显式页所有权 + 发�
 
 **下一步（唯一缺口）**：让 `restore_state` 接受这个快照（很可能是行索引/投机门禁不匹配——
 历史记录里 park 的门是 `num_spec_tokens == 0`）。状态一旦恢复，warm 应与 cold **逐 token 相同**。
+
+## 972. Round 827：**显式前缀协议达成目标**（含 GDN 状态恢复）
+
+**最后三个修正**
+1. `_apply_prefix_fill` 先 `_ensure(req)`：填充发生在 `before_step`（新请求的首次触达），
+   此前 `_state` 里还没有该请求 ⇒ `state=False`（`no row index`）；
+2. 用 `before_step` 传入的 `row_index` 给 `st.row_index` 赋值（`_restore_state_snapshot` 的第一道门）；
+3. 给 `_restore_state_snapshot` 的每条拒绝分支加诊断（`state_restore_refused {why}`），
+   这样"返回 False"不再是黑盒。
+
+**验收（`GPU_UTIL=0.85`、无 session 字段、同一实例）**
+| 用例 | cold | warm | 输出一致 | 状态 |
+|---|---|---|---|---|
+| 30K needle A | 30s `ZX-4417-QJ7` | **5s `ZX-4417-QJ7`** | ✓ | `state=True` |
+| 30K needle A 第三次 | — | **5s `ZX-4417-QJ7`** | ✓ | ✓ |
+| 30K 改动前缀（同一 prompt 改 1 字符） | — | **miss → 30s**，答案正确 | ✓ | — |
+| 30K needle B（`QQ-8882-ZZ9`，另一份文档） | 30s `QQ-8882-ZZ9` | **5s `QQ-8882-ZZ9`** | ✓ | `state=True` |
+| 47K（>B，压缩） | 75s ✓ | 76s ✓，**不发布、不命中** | ✓ | — |
+
+**目标四条对应**
+① 只在"完整执行过的封存前缀"上发布：`PrefixCache.publish` 拒绝压缩来源/无状态/页不全；
+   47K 压缩场景实测无发布；
+② 恢复包含 GDN 状态：`prefix_fill_applied state=True`；
+③ 命中前精确 token 前缀比较：按记录 digest 复算，改动 1 字符即 miss；
+④ 第二次请求与冷跑一致且更快：30s → 5s（6 倍），重复与换文档均一致。

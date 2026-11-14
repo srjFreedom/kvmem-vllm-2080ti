@@ -413,15 +413,27 @@ def _capture_state_snapshot(runner, runtime, req, frontier=None):
 
 def _restore_state_snapshot(runner, runtime, req, snapshot):
     """Put the parked recurrent state back into the request's own state slots."""
-    if not snapshot:
+    def _why(reason, **kw):
+        try:
+            _append("/tmp/kvmem_sparse.jsonl",
+                    {"kind": "state_restore_refused", "req": str(req)[-6:],
+                     "why": reason, **kw})
+        except Exception:
+            pass
         return False
+
+    if not snapshot:
+        return _why("empty snapshot")
     groups = _state_groups(runner)
     st = runtime._state.get(req)
     row = getattr(st, "row_index", None) if st is not None else None
-    if not groups or row is None:
-        return False
+    if not groups:
+        return _why("no state groups")
+    if row is None:
+        return _why("no row index", state=st is not None)
     if set(int(k) for k in snapshot) != set(groups):
-        return False
+        return _why("group set differs", snap=sorted(int(k) for k in snapshot),
+                    have=sorted(int(k) for k in groups))
     frontier = (int(st.resume[1]) if getattr(st, "resume", None) is not None
                 else int(getattr(st, "tokens", 0) or 0))
     for group, (_src_slot, saved) in snapshot.items():
@@ -430,7 +442,7 @@ def _restore_state_snapshot(runner, runtime, req, snapshot):
             return False
         dst = _state_slot(runner, row, group, frontier)
         if dst is None or dst < 0:
-            return False
+            return _why("no state slot", group=int(group), dst=dst, frontier=int(frontier))
         try:
             for tensor, value in zip(tensors, saved):
                 tensor[dst].copy_(value.to(tensor.device, non_blocking=False))

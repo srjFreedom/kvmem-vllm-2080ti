@@ -5431,7 +5431,7 @@ class VllmSparseRuntime:
         return orch
 
     # --- hook 1 ------------------------------------------------------------------------
-    def _apply_prefix_fill(self, req):
+    def _apply_prefix_fill(self, req, row_index=None):
         """Copy a hit record's cached KV into the pages EngineCore just adopted for this request.
 
         Order matters: pages are installed and filled BEFORE the first forward, otherwise the
@@ -5444,6 +5444,12 @@ class VllmSparseRuntime:
         path = "/tmp/kvmem_prefix_fill/%s.json" % str(req)
         if not _os.path.exists(path):
             return False
+        # The fill runs before the runtime's per-request state exists (before_step is the first
+        # touch of a new request), and both the state restore and the row pin need it.
+        try:
+            self._ensure(req)
+        except Exception:
+            pass
         try:
             import json as _j
             with open(path) as fh:
@@ -5493,6 +5499,15 @@ class VllmSparseRuntime:
             # warm "The access code for the unique record is").
             state_ok = False
             try:
+                if row_index is not None:
+                    st_fill = self._state.get(req)
+                    if st_fill is not None:
+                        st_fill.row_index = int(row_index)
+                        self.log({"kind": "prefix_row_pinned", "req": str(req)[-6:],
+                                  "row_index": int(row_index)})
+            except Exception:
+                pass
+            try:
                 self.log({"kind": "prefix_state_probe", "req": str(req)[-6:],
                           "record_state": bool(getattr(record, "state", None) is not None),
                           "restorer": bool(self.restore_state is not None)})
@@ -5517,7 +5532,7 @@ class VllmSparseRuntime:
     def before_step(self, req, n_query_tokens=1, row_index=None, position_slots=None,
                     rows_only=False):
         try:
-            self._apply_prefix_fill(req)
+            self._apply_prefix_fill(req, row_index)
         except Exception:
             pass
         try:
