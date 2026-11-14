@@ -5875,3 +5875,25 @@ per-slot 状态（`dv`/`pagemap`/`scratch_perm`）上。
    与 launcher（SINK=12288/RECENT=1024）的差异，逐一单变量试；
 2. 用仓库自带的 152K 验收脚本/证据（`docs/evidence/`）作对照，判断是环境差异还是代码回退；
 3. 若确认代码回退，用 `backends/versions.json` 的 `patched_tree` 与当前引擎树 diff 定位。
+
+## 933. Round 778–779：**超池 152K 全通过**——根因是池几何被降到 0.85
+
+**根因**：`/etc/default/kvmem-vllm` 里 `GPU_UTIL=0.85` ⇒ 池只有 **90,944 token**（4.03 GiB 时是 ≈201K），
+而文档验收的几何是 `GPU_UTIL=0.972`。池太小 ⇒ KVMem 压缩路线在 152K 上不足以工作（复读/乱码）。
+
+**改回验收几何（`GPU_UTIL=0.972`，池 4.03 GiB）后的实测（同一 boot 连续 5 发）**
+| 用例 | prompt tokens | 结果 |
+|---|---|---|
+| 88K mid | 74,948 | `ZX-4417-QJ7` ✓ |
+| 88K tail | 74,949 | `ZX-4417-QJ7` ✓ |
+| 152K tailA | 142,869 | `ZX-4417-QJ7` ✓ |
+| 152K tailB | 142,869 | `ZX-4417-QJ7` ✓ |
+| 152K mid | 142,868 | `ZX-4417-QJ7` ✓ |
+
+⇒ 目标要求的"88K/152K needle 电池全对（答案含 ZX-4417-QJ7）"在**KVMem 压缩路线**上成立；
+这条路线与 Plan D 的 `KVMEM_PLAN_D=1` 基线 env 同用，未启用环。
+
+**固化**：把 `GPU_UTIL=0.972` 写进 `/tmp/kvmem_env_baseline`（arm_boot 的基线），
+避免下一次 arm_boot 又把几何降回 0.85。
+
+**注意**：环（sliding window）路线与本条无关；环仅保留"池内窗口化召回"能力。
