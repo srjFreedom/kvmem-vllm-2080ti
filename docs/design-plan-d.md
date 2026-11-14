@@ -5727,3 +5727,25 @@ worker TP0: [kvmem got] has_blocks=False(0) has_base=False(0)   ← 但 worker �
 **下一步（单点）**：在同一 boot 里发**两个短请求**（各 ~5K token，都在窗口内不滑动），
 确认第二个是否也错；若不滑动也错 ⇒ 污染在 identity/准备阶段；若不错 ⇒ 污染在滑动产生的
 per-slot 状态（`dv`/`pagemap`/`scratch_perm`）上。
+
+## 925. Round 757–764：**跨请求污染已修**，池内多点连续全绿；根因是"发布块被门控掉"
+
+**根因**：scheduler 里"发布窗口（`/tmp/kvmem_ring_all.json` / `kvmem_ring_win.json`）"的代码块
+被 gated 在 `kvmem_plan_d and kvmem_ring` 上，而**环臂这两个键都没设**（它由 `KVMEM_RING_CLEAN` 启动）
+⇒ 发布**从未执行**（`/tmp` 下那两个文件根本不存在，所以此前"通道到达不了"的判断是错的）。
+环于是回落到自己的推导（依赖 worker 块表行），而**环会改写那一行**，下一个请求就继承了被改写的行
+⇒ "同一 boot 只有第一个请求正确"。
+
+**修复后实测（同一 boot 连续请求，环臂，窗口 45,472）**
+| 顺序 | 用例 | 结果 |
+|---|---|---|
+| 1 | 88K tail | `ZX-4417-QJ7` ✓ |
+| 2 | 88K mid | `ZX-4417-QJ7` ✓ |
+| 3 | 88K tail | `ZX-4417-QJ7` ✓ |
+| 4 | 47K 单滑 | `ZX-4417-QJ7` ✓ |
+
+`row_src=full`（108/108 步使用 scheduler 发布的完整块序列）⇒ 行来源单一。
+
+**超池仍未通**：152K tailA/tailB 均能跑完（不崩），但答案是 `ductduct…`✗；
+即使加 `KVMEM_PLAN_D=1 + KVMEM_ENTRY_RESIDENT_PREFILL=1`（窗口预留分配/夹紧）仍相同。
+⇒ 下一步查超池专项：`base` 与"每块页数"在超池档下的落页是否与 in-pool 假设一致。
