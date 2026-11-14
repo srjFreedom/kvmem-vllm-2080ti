@@ -2334,6 +2334,13 @@ class VllmSparseRuntime:
                     # was keyed by content, not by id).
                     _hp437 = list(_pool437.keys())
                 _hit437 = False
+                # RID-DOMAIN BRIDGE MUST RESPECT THE GATE (upstream "exact prefix"): guessing
+                # "the only survivor in the pool is what this request continues" grafts a foreign
+                # store onto a request that was never proven to share its prefix. Measured: with
+                # every other adoption path closed the warm run was STILL dirty because of this
+                # single-survivor guess.
+                if not self._reuse_allowed():
+                    _hp437 = []
                 for _kk437 in reversed(list(_hp437 or ())):
                     _gv437 = _pool437.get(str(_kk437))
                     if _gv437 is not None:
@@ -3816,6 +3823,13 @@ class VllmSparseRuntime:
         prefix that was never proven (measured: "ductZX-4417-QJ7" on a warm run).
         """
         import os as _os
+        # DEFAULT OFF. The legacy reuse tree has at least five independent adoption paths
+        # (scheduler resume, runtime adopt, self-derive, forged entry, single-survivor bridge);
+        # closing them one by one still left a dirty warm run, so reuse only arms when the
+        # explicit prefix protocol opts in.
+        if str(_os.environ.get("KVMEM_PREFIX_REUSE", "0")).strip().lower() not in (
+                "1", "true", "yes", "on"):
+            return False
         if str(_os.environ.get("KVMEM_SESSION_REUSE", "1")).strip().lower() in (
                 "0", "false", "no", "off"):
             return False
@@ -3965,6 +3979,17 @@ class VllmSparseRuntime:
                                     "hit": hit390,
                                     "blocks": n390,
                                     "forged": True})
+                                # FOUR CONDITIONS BEFORE ANY FORGED ADOPTION (upstream): the
+                                # forged entry already claims the prefix, so the state/rekey
+                                # proof has to happen HERE - refusing later in _ensure leaves
+                                # st.resume set and the engine skips a prefix nobody restored.
+                                if not (self._reuse_allowed()
+                                        and self._adopt_rekey(req, e390, int(hit390))):
+                                    self.log({"kind": "adopt_refused",
+                                              "req": str(req)[-6:],
+                                              "hit": int(hit390),
+                                              "reason": "forged entry failed proof"})
+                                    return None
                                 return e390, hit390, vis436
                             pending = (hit390, vis436)
                             self._sd_fallback = (str(req),

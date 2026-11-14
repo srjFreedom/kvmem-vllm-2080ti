@@ -3307,6 +3307,17 @@ def register():
                                  "req": str(rid)[-6:],
                                  "would_hit": int(hit)})
                         continue
+                    # TWO-SIDED CONSISTENCY (upstream): the skip is only legal for a checkpoint
+                    # the rank can actually restore, and the published evidence for that is
+                    # `has_state`. Restore-type checkpoints (has_state=False) exist for the replay
+                    # mode only - skipping on them hands the attention pool pages nobody restored
+                    # (measured: "ductZX-4417-QJ7" and a 90s warm run vs a 76s clean cold one).
+                    if not bool(getattr(meta, "has_state", False)):
+                        _append(_sched_cfg(scheduler).get("probe_log")
+                                or "/tmp/kvmem_sparse.jsonl",
+                                {"kind": "d_skip_refused", "req": str(rid)[-6:],
+                                 "would_hit": int(hit), "reason": "checkpoint has no state"})
+                        continue
                     request.num_computed_tokens = visible
                     request.num_logical_tokens = hit
                     request.num_kvmem_offset = hit - visible

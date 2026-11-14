@@ -6529,3 +6529,27 @@ capture 路径改变了工作集（`clip_session_checkpoint_chunk` 会在检查�
 **正确的下一步（上游做法）**：跳过与恢复必须是**一个协议**——
 EngineCore 在决定 skip 前向 rank 预检（"这个 checkpoint 能不能按 exact prefix 恢复：状态在、页映射完整、digest 相等"），
 预检通过才省 prefill；否则整条请求按冷跑处理。当前实现缺的正是这个预检握手。
+
+## 966. Round 821：默认安全（复用需显式开启）；legacy 复用树至少 5 条路径
+
+**本轮逐条堵住的 adoption 路径（每条都实测过一次"仍脏"，说明还有下一条）**
+1. 调度器侧跳过（`num_computed_tokens = visible`）——加了 `has_state` 要求；
+2. `_adopt_session` 的 self-derive 伪造 entry（`d_resume_forged`，`mamba_state=None`）；
+3. `_ensure` 的外层 adoption（`_adopt_rekey` 四条件）；
+4. 单幸存者桥接 `d_keepalive_graft`（"池里只剩一个存档就当它续接"的猜测）；
+5. 仍有一条未定位 ⇒ 说明这套 legacy 复用树在**结构上**无法保证"跳过 prefill"与"恢复页"一致。
+
+**因此改为安全默认**：`_reuse_allowed()` 只有在显式 `KVMEM_PREFIX_REUSE=1` 时才为真，其余情况
+所有复用入口一律拒绝。
+
+**实测（默认配置，47K，无 session）**
+| | 耗时 | 答案 |
+|---|---|---|
+| cold#1 | 75s | `ZX-4417-QJ7` ✓ |
+| warm#2 | **76s** | **`ZX-4417-QJ7` ✓（与冷跑一致）** |
+
+⇒ 默认路径现在**语义正确、结果稳定**；代价是暂时没有前缀命中加速。
+
+**下一步（按官方，新代码而非继续打补丁）**：实现显式前缀协议的最小闭环——
+EngineCore 在决定跳过前必须拿到 rank 的"可恢复"结论（状态在 + 页映射完整 + digest 相等），
+三者作为**一次握手**返回；握手失败即整条请求冷跑。legacy 的 5 条路径在新协议就绪后整体删除。
