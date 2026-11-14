@@ -6023,3 +6023,23 @@ if getattr(self, "d_mode", False):
 **因此剩余缺口不在 needle 页本身**，而在窗口内**其他页**：下一步用"窗口级抽样指纹"
 （decode 首步与稳定后各记 32 个随机列的页号+整页 fp，比较集合是否只发生预期变化）来判断是否存在跨页覆盖。
 这一步要用整页 fp 抽样而不是全量 1,421 页（全量在 CPU 上不可接受）。
+
+## 942. Round 791–792：超池的五种几何全部退化为同一"复读环"
+
+**测过的组合（152K tailA，池 90,944 < prompt 142,869）**
+| 行来源 | `vl` | 位置几何 | 答案 |
+|---|---|---|---|
+| 发布完整块行 | 关 | 真值 + dv=base | `槟renom…`（乱码） |
+| canon | 关 | 真值 + dv=base | `ductduct…` |
+| canon | 开 | 真值 + dv=base | `ductduct…` |
+| canon | 开 | **下移 + rope=base + dv=0** | `ductduct…` |
+
+**新事实（很有价值）**：`'duct'` **并不出现在 152K prompt 里**（全文 0 次）；prompt 开头是
+"Chapter notes on river deltas…"。所以 `ductduct…` 不是"读到开头"的复读，而是**模型在无效上下文下的
+退化循环**——说明超池档的 KV 对模型是**无用信息**（不是"窗口错位"）。
+对照：默认臂在小池下给的是 `'The ferryman keeps a ledger…'`（=prompt 开头，真复读）。
+
+⇒ 两种情况要分开：默认臂=读开头；环臂=KV 无效。环臂里"写读页号一致"已证，
+说明落页对，但**内容对模型无效**——下一步必须核对"内核实际写入的 slot"与我们预期的列是否一致：
+在 `prepare_attn` 里把审计 token（position=T）对应的 `slot_mappings[gi]` 值打出来，
+与 `row[(T-base)//32]` 对比。若 slot 与我们预期列不同 ⇒ 引擎没用我们的行；相同 ⇒ 行有效但内容错。
