@@ -5957,3 +5957,27 @@ per-slot 状态（`dv`/`pagemap`/`scratch_perm`）上。
 说明触发点早于 prompt 结束，可能与"分块 prefill + 重建重排队"的交互有关。
 下一步应在该 8f4a… 请求上抓取 rebuild 之后的事件链（是否重排、是否再次触发），
 并检查 139,264 与水位/池容量的关系（139,264 = 88.8 × 1,568，非整数倍）。
+
+## 938. Round 787：**代码自述**——"压力压缩 + 重建"的协议在本版本里明确未设计
+
+在 `src/kvmem_sparse_runtime.py`（`finish_prompt_for_reconstruction` 上方）读到原文注释：
+
+> "FAIL-CLOSED under the pressure flag (2026-11-02, goal round 3, measured): the prompt-end
+> rebuild calls _reselect(rebuild=True), whose `selected` page ids are POST-COMPACTION view
+> coordinates; select_tokens then validates them against the ORIGINAL prompt frame and raises
+> 'reconstruction page lies outside the original prompt' (engine death, v12). ... **Aligning
+> rebuild with a pressure-compacted request is a separate, not-yet-designed protocol.**"
+
+⇒ 本版本对"**压力压缩同时又要重建**"是**显式 fail-closed**的：`prefill_pressure` 开时
+prompt-end 重建被禁用，改走 worker 通道；而超池（池 < prompt）恰恰必须依赖这条路径。
+
+**与实测完全吻合**
+- 超池（池 < prompt，0.85/0.88/0.885/0.95）⇒ 读到开头文本或**挂起**；
+- 池内（0.972）⇒ 88K/152K/250K 全部 `ZX-4417-QJ7` ✓；
+- `_rebuild_select` 从未出现在事件里（只有 `pressure_rebuild_queued`）。
+
+**结论**：超池正确性不是"调参/调公式"能解决的，它卡在一个**未实现协议**上（适配器的
+pressure+rebuild 对齐）。这是目标当前阶段的真实阻塞点。
+
+**建议**：把"压力压缩 + 重建对齐"作为独立设计项（需要定义：重建时的选页坐标系、与
+pressure epoch 的所有权、以及 prompt-end 之后的单趟保证），而不是继续在本会话里试错。
