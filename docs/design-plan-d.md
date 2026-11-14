@@ -5908,3 +5908,19 @@ per-slot 状态（`dv`/`pagemap`/`scratch_perm`）上。
 - 88K mid / 88K tail / 152K mid / 152K tailA / 152K tailB / **250K** 全 `ZX-4417-QJ7`；
 - 关键前提：`GPU_UTIL=0.972`（池 201K）。`0.85`（池 90,944）会让超池路线整体失效——这是本轮定位到的
   "回归"真相（不是代码回退）。
+
+## 935. Round 782：**修正目标判断**——250K 仍属池内，真正的超池（小池）仍未通
+
+**实测池容量**：`GPU_UTIL=0.972` ⇒ `[kvmem] device KV pool = 263,424 tokens (8232 pages × 32)`，
+`GPU KV cache size: 257,544 tokens`。因此 250K（244,868）**仍在池内**，不能算超池验收。
+（模型位置表上限 262,144 < 池 263,424 ⇒ 单请求在 0.972 几何下**不可能**超过物理池。）
+
+**真正的超池场景 = 小池**：`GPU_UTIL=0.85` ⇒ 池 **90,944**（2,842 页）。此时 152K（142,869）确实超池，
+但实测答案是 prompt 开头文本（`'The ferryman keeps a ledger…'`）⇒ 压缩臂**没有生效**：
+日志里只有 `sched_compact install-gate = True`，没有 `pressure_gate` 事件。
+
+**结论**
+- 0.972 几何下：88K / 152K / 250K 全部 `ZX-4417-QJ7` ✓（但都是池内，属"长上下文"而非超池）；
+- 0.85 几何（真超池）：压缩臂未触发 ⇒ 仍只读到开头，**超池正确性未达成**。
+- 下一步：定位压缩臂为何在小池下不触发（检查 launcher/适配器里 pressure 的 eanble 前置条件，
+  例如 `KVMEM_ENTRY_RESIDENT_PREFILL` 与 budget/水位的关系、或 sched_compact 的 install-gate 之后还有运行时闸门）。
