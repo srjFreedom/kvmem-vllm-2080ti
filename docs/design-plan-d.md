@@ -5509,3 +5509,37 @@ worker TP0: [kvmem got] has_blocks=False(0) has_base=False(0)   ← 但 worker �
 - 唯一未决：**published 行与绿路径不等价**（消费 published 块后 88K mid/tail 变红）
   ⇒ 下一步只做一件事：在 published 分支里打印新旧两行的前 4/末 4 项与首个差异下标，
   定位"块→页"展开的错位项，修完先回归池内三绿，再谈超池 94K 越界。
+
+## 914. Plan D 现状总表（Round 66 整理，供后续查阅）
+
+### 一、已经成立（可复现、已提交）
+
+| 能力 | 证据 | 状态 |
+|---|---|---|
+| 池内窗口化召回（窗口 45,472、`seq=窗口`） | just-crossing 45,554 / 88K mid 74,948 / 88K tail 74,949 全部 `ZX-4417-QJ7`，一次 boot 连发复现 | ✓ |
+| 默认臂（不启用任何实验开关） | 88K mid `ZX-4417-QJ7` | ✓ |
+| 单源窗口协议（base + blocks 由 scheduler 发布） | `[kvmem pub]` 与环侧 `pub_blocks=30` 均已实测 | ✓（通道层） |
+| 跨进程通道 | `/tmp/kvmem_ring_win.json`（`base=97,216`、`blocks=30`），环侧成功读取 | ✓ |
+| 崩溃修复 | gather 宽度 = worker 行宽 ⇒ 钉 `num_blocks` 后 illegal Triton access 消失 | ✓ |
+| 探针基建 | `model_runner.py` 补 `import os`，探针不再静默失败 | ✓ |
+
+### 二、未成立（下一步按此顺序）
+
+1. **published 行与绿路径不等价**：消费 scheduler 发布的 blocks 后，88K mid/tail 变红
+   （`pub_blocks=None` 的老路径才绿）。需要一个"新旧两行逐项对比"的探针来定位错位项。
+2. **超池 152K**：published 路径下在 base≈48,608（true≈94K ≈ 池 90,944）处 illegal Triton access；
+   即使不崩，也只读到开头内容。
+3. **152K 中段针**（needle 在窗口外）：需要 store + 选择/还原（mandatory-span）才能覆盖。
+
+### 三、钉住的参照点
+
+- 引擎 fork 绿基线提交：`restore the green window state`（四文件 = `d6d2182` 内容）
+- 适配器文档：本文件（§858–§914 为 Plan D 环形窗口阶段）
+- 复现命令：`sudo scripts/arm_boot.sh "KVMEM_RING_CLEAN=1 KVMEM_RING_ALLOC=0 KVMEM_D_SLIDE=0 KVMEM_RING_VIEW=0 KVMEM_D_KNIFE=0 KVMEM_WINDOW_TOKENS=45472 KVMEM_PAGE_TOKENS=32 KVMEM_BLOCK_TOKENS=1568"`
+
+### 四、纪律（本段血泪教训）
+
+1. 探针必须 print 到 stderr 或先证明"探针会跑"（本轮 `import os` 缺失导致一长串假阴性）；
+2. 新协议先验证"接线真的通"，再谈正确性；
+3. 每轮只改一层，改完立刻复测池内三绿；
+4. 任何"绿"必须能一次 boot 内复现，不能拿跨 boot 的累积日志当证据。
