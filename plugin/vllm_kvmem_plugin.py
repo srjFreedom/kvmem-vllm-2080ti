@@ -3037,6 +3037,85 @@ def register():
             except Exception:
                 return False
 
+        def _prefix_cache_decision(scheduler):
+            """New protocol: decide the skip from the published metadata record alone.
+
+            Records are written by the worker only after it proved (not compacted, state present,
+            logical pages complete) that the prefix can be carried over, so a record's existence
+            IS the permission. The scheduler still re-derives the identity: block chain + digest.
+            """
+            import os as _os_pc
+            if str(_os_pc.environ.get("KVMEM_PREFIX_CACHE", "0")).strip().lower() not in (
+                    "1", "true", "yes", "on"):
+                return False
+            root = "/tmp/kvmem_prefix_cache"
+            if not os.path.isdir(root):
+                return False
+            cache_cfg = getattr(scheduler, "cache_config", None)
+            block_size = int(getattr(cache_cfg, "block_size", 0) or 0)
+            if block_size <= 0:
+                return False
+            waiting = list(getattr(scheduler, "waiting", None) or [])
+            if len(waiting) and getattr(_prefix_cache_decision, "_n", 0) < 3:
+                _prefix_cache_decision._n = getattr(_prefix_cache_decision, "_n", 0) + 1
+                try:
+                    _files = os.listdir(root)
+                except Exception:
+                    _files = []
+                _append("/tmp/kvmem_sparse.jsonl",
+                        {"kind": "prefix_decide_probe", "block_size": block_size,
+                         "waiting": len(waiting), "records": len(_files),
+                         "prompt": len(list(getattr(waiting[0], "prompt_token_ids", ()) or ()))})
+            for request in waiting:
+                rid = getattr(request, "request_id", None)
+                if rid is None or int(getattr(request, "num_computed_tokens", 0) or 0) > 0:
+                    continue
+                ids = list(getattr(request, "prompt_token_ids", None) or ())
+                if len(ids) < block_size:
+                    continue
+                try:
+                    from kvmem_prefix_cache import block_hash_chain, _digest_token_ids
+                except Exception:
+                    return False
+                # EXACT TOKEN PREFIX COMPARISON (upstream): the record stores the digest of the
+                # tokens it covers, so the decision needs no block-size agreement at all - a
+                # candidate is accepted only when recomputing the digest over this prompt's first
+                # `covered` tokens reproduces it exactly.
+                record = None
+                best = 0
+                try:
+                    names = sorted(os.listdir(root))
+                except Exception:
+                    names = []
+                for name in names:
+                    if not name.endswith(".json"):
+                        continue
+                    try:
+                        with open(os.path.join(root, name)) as fh:
+                            meta = json.load(fh)
+                    except Exception:
+                        continue
+                    covered = int(meta.get("covered", 0) or 0)
+                    if covered <= 0 or covered > len(ids) or covered <= best:
+                        continue
+                    if int(meta.get("page_tokens", 0) or 0) <= 0:
+                        continue
+                    if _digest_token_ids(ids, covered) != str(meta.get("digest", "")):
+                        continue
+                    record = meta
+                    best = covered
+                if record is None:
+                    continue
+                covered = int(record["covered"])
+                request.num_computed_tokens = covered
+                request.num_logical_tokens = covered
+                request.num_kvmem_offset = 0
+                request.kvmem_session_resume = False
+                _append(_sched_cfg(scheduler).get("probe_log") or "/tmp/kvmem_sparse.jsonl",
+                        {"kind": "prefix_hit", "req": str(rid)[-6:], "covered": covered,
+                         "pages": int(record.get("pages", 0) or 0)})
+            return True
+
         def _maybe_resume(scheduler):
             """Point a fresh request at a parked session: only the two books move, nothing else.
 
@@ -3046,6 +3125,8 @@ def register():
             engine allocate exactly the pages the worker will fill from RAM, and setting the served
             book to the hit length makes it schedule ONLY the genuinely new tokens.
             """
+            if _prefix_cache_decision(scheduler):
+                return
             _en = _resume_decided_is_enabled(scheduler)
             if not getattr(_maybe_resume, "_probed", False):
                 _maybe_resume._probed = True

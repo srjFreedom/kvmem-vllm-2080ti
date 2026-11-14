@@ -6596,3 +6596,29 @@ restore 之前先零化 native 页、再按 view 顺序布置），冲突页要�
 **结论**：继续给这棵树打补丁不收敛。要达成目标 ④（第二次请求既正确又更快），必须按上游
 connector 的形态重写：**一个 restore 入口 + 显式页所有权 + 发布即合格（含状态）**。
 本轮把服务置于安全默认（`KVMEM_PREFIX_REUSE=0`）：所有请求冷跑，结果稳定正确。
+
+## 969. Round 824：新协议闭环跑通一半——**命中 6 倍提速，缺"装页+拷贝"**
+
+**已实现（跨进程只传元数据，不传张量）**
+1. **发布**（worker，`after_step` 一次性触发 → `publish_prefix_record`）：
+   - prompt 未压缩 ⇒ 整段 prompt（block 对齐）就是封存前缀；
+   - 页来源改为**本请求自己的 row 前缀**（之前取 store 的溢出集，被"pages are not the row prefix"拒掉）；
+   - 逐页把设备 KV 拷到进程内 `PrefixCache`（逻辑页索引），并写 `/tmp/kvmem_prefix_cache/<tail>.json`
+     （`covered / page_tokens / digest / pages`）；
+   - 合格性由 `PrefixCache.publish` 判定：压缩来源、无状态、页不全 ⇒ 拒绝。
+2. **决策**（EngineCore，`_prefix_cache_decision`）：**只按 digest 精确比较**（不再依赖 block_size 一致），
+   命中就设 `num_computed_tokens = covered`。
+3. 预热/探针日志：`prefix_published`、`prefix_frontier`、`prefix_decide_probe`、`prefix_hit`。
+
+**实测（30K，无 session 字段）**
+| | 耗时 | 答案 |
+|---|---|---|
+| cold | 30s | `ZX-4417-QJ7` ✓ |
+| warm（命中 28,878 / 902 页） | **5s** | **空**（`''`） |
+
+⇒ 命中与提速都成立（**6 倍**），但输出为空：**前缀页没有被装进本请求的 row、KV 也没拷进去**。
+引擎在"整段 prompt 已算完"的账本下不会为本请求分配前缀页，于是 attention 读的是空页。
+
+**下一步（Milestone B，唯一缺口）**：命中时先给本请求**装页**——从块池取 `covered/page_tokens` 个物理页，
+用 `adopt_attention_blocks` 装成该请求的 row，再把这些页的编号写进通道文件；worker 在 `before_step`
+里按序把 `PrefixCache` 里的逻辑页 i 拷到 dest[i]。顺序必须是**装页 → 拷贝 → 允许 forward**。

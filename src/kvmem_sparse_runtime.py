@@ -3301,6 +3301,52 @@ class VllmSparseRuntime:
             hashes = self._session_hashes(req, ids)
             pages = orch.usable_pages(target)
             expected = int(target) // max(1, int(self.page_tokens))
+            # EXPLICIT PREFIX PUBLICATION (new protocol, docs/design-prefix-cache.md):
+            # a small metadata record in /tmp is the only cross-process artefact - the scheduler
+            # needs it to skip prefill, and the worker re-validates before any restore. Publishing
+            # requires: not compacted in prefill, recurrent state present, logical pages complete.
+            try:
+                import os as _o_pc
+                if str(_o_pc.environ.get("KVMEM_PREFIX_CACHE", "0")).strip().lower() in (
+                        "1", "true", "yes", "on"):
+                    from kvmem_prefix_cache import PrefixCache, PrefixCacheError
+                    _pc = getattr(self, "_prefix_cache", None)
+                    if _pc is None:
+                        _pc = self._prefix_cache = PrefixCache(capacity=8)
+                    _pgs = {}
+                    for _i, _pg in enumerate(list(pages)[:expected]):
+                        if not orch.store.has(int(_pg)):
+                            break
+                        _pgs[int(_i)] = [int(_pg)]
+                    try:
+                        _rec = _pc.publish(
+                            token_ids=list(ids)[:int(target)],
+                            block_size=int(self.kv_block_size),
+                            page_tokens=int(self.page_tokens),
+                            pages=_pgs,
+                            state=state,
+                            request_id=str(req),
+                            compacted_in_prefill=bool(getattr(
+                                self._state.get(req), "compacted_in_prefill", False)))
+                        _o_pc.makedirs("/tmp/kvmem_prefix_cache", exist_ok=True)
+                        import json as _j_pc
+                        with open("/tmp/kvmem_prefix_cache/%s.json"
+                                  % _rec.chain[-1].hex(), "w") as _f_pc:
+                            _j_pc.dump({"tail": _rec.chain[-1].hex(),
+                                        "covered": int(_rec.covered),
+                                        "page_tokens": int(_rec.page_tokens),
+                                        "block_size": int(self.kv_block_size),
+                                        "digest": _rec.digest,
+                                        "pages": int(len(_pgs)),
+                                        "request": str(req)[-8:]}, _f_pc)
+                        self.log({"kind": "prefix_published", "req": str(req)[-6:],
+                                  "covered": int(_rec.covered), "pages": int(len(_pgs))})
+                    except PrefixCacheError as _pce:
+                        self.log({"kind": "prefix_publish_refused",
+                                  "req": str(req)[-6:], "reason": str(_pce)[:120]})
+            except Exception as exc:
+                self.log({"kind": "prefix_publish_error", "req": str(req)[-6:],
+                          "error": f"{type(exc).__name__}: {exc}"})
             # SEALED-PREFIX PAGE IDENTITY (upstream "sealed boundary"): the checkpoint may only
             # describe pages this request owns IN ORDER for its first N tokens. A compacted view
             # keeps a SELECTED page set, so its list differs from the request's own row prefix -
@@ -3465,8 +3511,121 @@ class VllmSparseRuntime:
                           "err": str(_dcx)[:200]})
             return False
 
+    def publish_prefix_record(self, req):
+        """Publish the explicit prefix record (new protocol). Never touches the legacy tree."""
+        import os as _o
+        if str(_o.environ.get("KVMEM_PREFIX_CACHE", "0")).strip().lower() not in (
+                "1", "true", "yes", "on"):
+            return False
+        try:
+            from kvmem_prefix_cache import PrefixCache, PrefixCacheError
+            ids = self._prompt_ids.get(req)
+            prompt = int(self._prompt_len.get(req, 0) or 0)
+            if not ids or len(list(ids)) < prompt or prompt <= 0:
+                self.log({"kind": "prefix_publish_refused", "req": str(req)[-6:],
+                          "reason": "prompt ledger incomplete"})
+                return False
+            orch = self._orch.get(req)
+            if orch is None:
+                self.log({"kind": "prefix_publish_refused", "req": str(req)[-6:],
+                          "reason": "no orchestrator"})
+                return False
+            from kvmem_session_store import session_checkpoint_frontier
+            covered = session_checkpoint_frontier(prompt, int(self.kv_block_size),
+                                                 int(self.budget_tokens),
+                                                 int(self.select_block_tokens))
+            if covered <= 0:
+                # A prompt that fits the resident budget never reaches the pressure frontier,
+                # yet it IS the simplest sealed prefix there is: the whole prompt, block aligned.
+                covered = (int(prompt) // max(1, int(self.kv_block_size))) * max(
+                    1, int(self.kv_block_size))
+                self.log({"kind": "prefix_frontier", "req": str(req)[-6:],
+                          "covered": int(covered), "prompt": int(prompt)})
+            if covered <= 0:
+                self.log({"kind": "prefix_publish_refused", "req": str(req)[-6:],
+                          "reason": "no sealed frontier", "prompt": int(prompt)})
+                return False
+            expected = int(covered) // max(1, int(self.page_tokens))
+            st = self._state.get(req)
+            row = tuple(int(p) for p in (getattr(st, "row", ()) or ()))
+            if len(row) < expected:
+                self.log({"kind": "prefix_publish_refused", "req": str(req)[-6:],
+                          "reason": "row shorter than the frontier", "row": len(row),
+                          "expected": expected})
+                return False
+            # The prefix pages ARE the request's own row prefix: those are the device pages that
+            # hold tokens [0, covered). Copy their bytes to host once, under logical indices.
+            pages = [int(p) for p in row[:expected]]
+            if expected > 4096:
+                self.log({"kind": "prefix_publish_refused", "req": str(req)[-6:],
+                          "reason": "frontier too large to snapshot", "pages": expected})
+                return False
+            state = None
+            try:
+                state = (self._d_snaps or {}).get(req)
+            except Exception:
+                state = None
+            if state is None:
+                try:
+                    state = self.capture_state(req, int(covered))
+                except Exception:
+                    state = None
+            cache = getattr(self, "_prefix_cache", None)
+            if cache is None:
+                cache = self._prefix_cache = PrefixCache(capacity=8)
+            logical = {}
+            try:
+                kvs = self.view.paged_kv()
+                for index, page in enumerate(pages):
+                    if int(page) <= 0 or int(page) >= int(kvs[0].shape[0]):
+                        logical = {}
+                        break
+                    logical[int(index)] = [t[int(page)].detach().to("cpu").clone()
+                                           for t in kvs]
+            except Exception as exc:
+                self.log({"kind": "prefix_publish_error", "req": str(req)[-6:],
+                          "error": f"page snapshot: {type(exc).__name__}: {exc}"})
+                return False
+            if len(logical) != expected:
+                self.log({"kind": "prefix_publish_refused", "req": str(req)[-6:],
+                          "reason": "page snapshot incomplete", "pages": len(logical),
+                          "expected": expected})
+                return False
+            record = cache.publish(
+                token_ids=list(ids)[:int(covered)],
+                block_size=int(self.kv_block_size),
+                page_tokens=int(self.page_tokens),
+                pages=logical,
+                state=state,
+                request_id=str(req),
+                compacted_in_prefill=bool(getattr(st, "compacted_in_prefill", False)))
+            _o.makedirs("/tmp/kvmem_prefix_cache", exist_ok=True)
+            import json as _j
+            with open("/tmp/kvmem_prefix_cache/%s.json" % record.chain[-1].hex(), "w") as fh:
+                _j.dump({"tail": record.chain[-1].hex(), "covered": int(record.covered),
+                         "page_tokens": int(record.page_tokens),
+                         "block_size": int(self.kv_block_size),
+                         "digest": record.digest, "pages": int(len(logical)),
+                         "request": str(req)[-8:]}, fh)
+            self.log({"kind": "prefix_published", "req": str(req)[-6:],
+                      "covered": int(record.covered), "pages": int(len(logical))})
+            return True
+        except PrefixCacheError as exc:
+            self.log({"kind": "prefix_publish_refused", "req": str(req)[-6:],
+                      "reason": str(exc)[:140]})
+            return False
+        except Exception as exc:
+            self.log({"kind": "prefix_publish_error", "req": str(req)[-6:],
+                      "error": f"{type(exc).__name__}: {exc}"})
+            return False
+
     def prepare_session_checkpoint(self, req):
         """Called by EngineCore only after this request has emitted a terminal output."""
+        try:
+            self.publish_prefix_record(req)
+        except Exception as _ppr:
+            self.log({"kind": "prefix_publish_error", "req": str(req)[-6:],
+                      "error": f"{type(_ppr).__name__}: {_ppr}"})
         try:
             pending = int(self._prev_n.get(req, 0) or 0)
             if pending:
@@ -6610,6 +6769,36 @@ class VllmSparseRuntime:
 
     def after_step(self, req, n_new_tokens, prefill=False):
         self._ensure(req)
+        # ONE-SHOT PREFIX PUBLICATION (new protocol): fires as soon as this request has executed
+        # its whole prompt, which is the only moment a "sealed prefix" exists. The publisher
+        # validates everything (not compacted / state present / logical pages complete).
+        try:
+            import os as _o_pp
+            if getattr(self, "_pc_probe_n", 0) < 3:
+                self._pc_probe_n = int(getattr(self, "_pc_probe_n", 0)) + 1
+                self.log({"kind": "prefix_probe", "req": str(req)[-6:],
+                          "env": str(_o_pp.environ.get("KVMEM_PREFIX_CACHE")),
+                          "prompt": int(self._prompt_len.get(req, 0) or 0),
+                          "tokens": int(getattr(self._state.get(req), "tokens", 0) or 0),
+                          "n_new": int(n_new_tokens)})
+            if str(_o_pp.environ.get("KVMEM_PREFIX_CACHE", "0")).strip().lower() in (
+                    "1", "true", "yes", "on"):
+                _done = getattr(self, "_prefix_published", None)
+                if _done is None:
+                    _done = self._prefix_published = set()
+                if str(req) not in _done:
+                    _st = self._state.get(req)
+                    _prompt = int(self._prompt_len.get(req, 0) or 0)
+                    if (_prompt > 0 and _st is not None
+                            and int(getattr(_st, "tokens", 0) or 0) >= _prompt):
+                        _done.add(str(req))
+                        self.log({"kind": "prefix_attempt", "req": str(req)[-6:],
+                                  "prompt": _prompt,
+                                  "tokens": int(getattr(_st, "tokens", 0) or 0)})
+                        self.publish_prefix_record(req)
+        except Exception as _ppe:
+            self.log({"kind": "prefix_publish_error", "req": str(req)[-6:],
+                      "error": f"{type(_ppe).__name__}: {_ppe}"})
         if (bool(getattr(self, "sched_compact", False))
                 and bool(getattr(self._state[req], "applied_view_coord", False))
                 and int(self._decode_probe.get(req, 0) or 0) < 2):
