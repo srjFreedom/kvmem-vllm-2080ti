@@ -6447,3 +6447,38 @@ capture 路径改变了工作集（`clip_session_checkpoint_chunk` 会在检查�
 
 **下一轮单点（唯一需要验的）**：把"存档里的 page 列表"与"该请求自己 row 的前 N 个 page"做**顺序比较**；
 两者不等 ⇒ 拒绝发布/接受 checkpoint（这才是上游"sealed boundary"的严格含义）。
+
+## 962. Round 818：三条否定结果 + 按官方的重建计划
+
+**本轮三个实验（都以 47K、无 session、冷启动实例）**
+| 配置 | cold#1 | warm#2 |
+|---|---|---|
+| 基线（旧 resume 开） | 75s 干净 | 81s `ductZX-4417-QJ7` |
+| + store 认领闸门 + 压缩前缀不发布 | 75s 干净 | 81s 脏 |
+| + 恢复改“顺序前缀”（不再选片） | 75s 干净 | 81s 脏 |
+| **`KVMEM_RESUME_LEGACY=0`（旧 resume 全关）** | 75s 干净 | **80s 脏** |
+
+⇒ **旧 resume 路径不是 `duct` 的原因**。即使完全不 resume，同一 prompt 的第二次请求依然
+慢 5s 且脏 ⇒ 污染发生在**请求间的压缩/选片**（共享 `HostPageStore`、`usable_pages()` 返回的是
+整个 store 的逻辑页集合，不区分请求）。
+
+**已落地的 fail-closed 闸门（都按上游语义，保留）**
+1. 命中 entry 无 `mamba_state` ⇒ 拒绝命中（`resume_refused_no_state`）；
+2. 跨请求 `_spill_stores` 认领需已有 resume 决定；
+3. `compacted_in_prefill` 的请求不发布 checkpoint；
+4. checkpoint 的页序列必须等于请求自己 row 的前 N 页；
+5. `KVMEM_RESUME_LEGACY=0` 可整条关掉旧 resume（用于隔离实验与重建期间的安全默认）。
+
+## 963. 重建计划（按官方 kvmem-vllm 的四步，写在这里作为下一步施工单）
+
+目标：`B` 池 + 全量在 RAM + **通用前缀命中**（无 session 字段），命中后与冷跑输出一致且更快。
+
+- **P1 归属（ownership）**：每个请求开工时建立 `req → 逻辑页集合` 的所有权；`usable_pages()`
+  必须按请求过滤（今天返回的是全 store）。这是"第二个请求变脏"的直接原因。
+- **P2 发布（seal）**：只在"完整执行过的前缀"上发布：
+  `covered == 该请求按序拥有的前 N 页 × page_tokens`，并且 `has_state` 为真；否则不发布。
+- **P3 查找（lookup）**：块哈希链 LCP + 前缀 digest 精确比较；命中长度 = 页数 × page_tokens。
+- **P4 恢复（restore）**：先零化目标页 → 按序把逻辑页 i 拷到本次 row 的第 i 个页 →
+  恢复 GDN/草稿状态 → 再把 `num_computed_tokens` 设为命中长度（顺序即上游顺序）。
+
+**验收（上游同款）**：同 prompt 两次请求的 greedy token ID 完全一致，且第二次明显更快。

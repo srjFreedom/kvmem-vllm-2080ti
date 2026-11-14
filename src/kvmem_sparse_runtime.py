@@ -3241,6 +3241,24 @@ class VllmSparseRuntime:
             hashes = self._session_hashes(req, ids)
             pages = orch.usable_pages(target)
             expected = int(target) // max(1, int(self.page_tokens))
+            # SEALED-PREFIX PAGE IDENTITY (upstream "sealed boundary"): the checkpoint may only
+            # describe pages this request owns IN ORDER for its first N tokens. A compacted view
+            # keeps a SELECTED page set, so its list differs from the request's own row prefix -
+            # restoring it later assembles mismatched bytes (measured: warm request answered
+            # "ductZX-4417-QJ7" after resuming hit=25,088 while the cold run was clean).
+            try:
+                _row_self = tuple(int(p) for p in (getattr(self._state.get(req), "row", ()) or ()))
+                _cp_pages = tuple(int(p) for p in list(pages)[:expected])
+                if len(_row_self) >= expected and _cp_pages != _row_self[:expected]:
+                    _bad = next((i for i in range(expected) if _cp_pages[i] != _row_self[i]), -1)
+                    if self.log is not None:
+                        self.log({"kind": "session_park_skipped", "req": str(req)[-6:],
+                                  "reason": "checkpoint pages are not the request row prefix",
+                                  "target": int(target), "expected": int(expected),
+                                  "first_bad": int(_bad)})
+                    return False
+            except Exception:
+                pass
             self.log({"kind": "d_capture_direct", "req": str(req)[-6:],
                       "target": int(target), "hashes": len(hashes or ()),
                       "pages": len(pages), "expected": int(expected),
@@ -3575,7 +3593,14 @@ class VllmSparseRuntime:
                           "visible": int(visible_tokens)})
         except Exception:
             pass
-        pages = self._resume_selection(orch, count, int(hit_tokens))
+        # EXACT PREFIX, NOT A SELECTION (upstream prompt-sessions): a resumed prefix must be the
+        # FIRST `count` logical pages in order, because the engine just allocated `count` pages
+        # for positions [0, count*pt) and our restore writes logical page i into row slot i.
+        # Choosing "sink + newest tail + inward" here (the old behaviour) put recent pages into
+        # the head slots: bytes were fine and the page count matched, but every position held
+        # somebody else's tokens - measured: a resumed 47K request answered "ductZX-4417-QJ7"
+        # while the cold run was clean.
+        pages = list(range(int(count)))
         self._absorb_engine_row(req)
         # `st.row` may already mirror the engine's appended pages for THIS step (the plugin
         # syncs the block-table row before prepare_inputs). Those entries beyond the restored

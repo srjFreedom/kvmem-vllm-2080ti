@@ -3025,6 +3025,13 @@ def register():
             if not isinstance(cfg, dict) or not cfg:
                 cfg = _config() or {}
             try:
+                # Kill switch for the legacy park/resume path. It costs MORE than it saves on a
+                # compacted request (measured 81s vs 75s cold) and restored a selection instead
+                # of the ordered prefix, so the clean prefix-cache path is built separately.
+                import os as _os_r
+                if str(_os_r.environ.get("KVMEM_RESUME_LEGACY", "1")).strip().lower() in (
+                        "0", "false", "no", "off"):
+                    return False
                 return bool(cfg.get("session_reuse", False)) and bool(
                     cfg.get("inrequest_compaction", False))
             except Exception:
