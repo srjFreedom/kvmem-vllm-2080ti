@@ -219,6 +219,15 @@ def main(argv=None) -> int:
                           ("KVMEM_BLOCK_TOKENS", "block_tokens")):
         if _env_flag(_k601):
             cfg[_ck601] = True
+    # Probe knobs must travel the same way: the workers' env is filtered too, so an
+    # os.environ read there silently yields nothing (measured: KVMEM_AUDIT_T absent in
+    # every worker while present in /etc/default).
+    _audit601 = os.environ.get("KVMEM_AUDIT_T", "").strip()
+    if _audit601:
+        try:
+            cfg["audit_t"] = int(_audit601)
+        except Exception:
+            pass
     for _k601, _ck601 in (("KVMEM_PAGE_TOKENS", "page_tokens"),
                           ("KVMEM_WINDOW_TOKENS", "window_tokens"),
                           ("KVMEM_POOL_TOKENS", "pool_tokens")):
