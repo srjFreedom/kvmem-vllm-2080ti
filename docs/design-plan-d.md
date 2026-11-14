@@ -5590,3 +5590,23 @@ worker TP0: [kvmem got] has_blocks=False(0) has_base=False(0)   ← 但 worker �
 
 **下一步（有确切观测点）**：在 `prepare_attn` 里对**本步的 slot_mapping** 做范围断言
 （`max(slot) < nb_pages*32`，`min(slot) >= 0`），把越界的具体 token/位置打印出来。
+
+## 918. Round 721–724：slot 值其实是"虚拟槽"（max_model_len + pos），范围断言需换口径
+
+**实测（超池 152K，`KVMEM_RING_ALLOC=1`）**
+- `slot_mappings` 的值 = `262,144 + pos`（warmup 时 pos 0..1 → 262,144/262,145；
+  prefill pos 4,096..8,191 → 266,240..270,335），而 `262,144 = max_model_len`；
+- 同期 `nb`（该请求 own 的页数）从 294 涨到 539，`limit = nb*32` 只有 9,408——
+  说明**这个 slot 不是物理写地址**，而是虚拟槽口径；用它做范围断言会全部"越界"，
+  该探针结论作废（本轮只得到一个口径事实，不是 bug）。
+
+**这也解释了为什么此前的越界断言/审计一直自相矛盾**：断言分母用错（nb 而非池总量），
+分子用错（虚拟槽而非页×32+offset）。
+
+**下一步（口径先对齐，再断言）**
+1. 在 `prepare_attn` 里把 `slot_mappings` 与 `nb_pages`（池总量 2,842）对照前，先确认该 group 的
+   slot 语义（虚拟 or 物理）；若虚拟，应从 `slot - 262,144` 得到 dense，再按 `dense//32 / %32` 校验；
+2. 再定位 152K 在 base=48,608 的 illegal access。
+
+**顺带修复**：`model_runner.py` 的 `import os` 在回退时又被抹掉，导致探针 `NameError` 被吞；
+已恢复（这也是本轮唯一"探针不生效"的原因）。
