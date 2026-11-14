@@ -6349,3 +6349,22 @@ turn2 是 `-4417-QJ7`（丢了前缀）。这与压缩选片/恢复的内容一�
 **注意**：`INREQUEST_COMPACTION=1` 是 resume 闸门的必要条件
 （`_resume_decided_is_enabled` 要求 `session_reuse ∧ inrequest_compaction`），
 但它与 100K 级 prompt 组合会崩，这是取得"完整前缀命中"前必须解决的一处。
+
+## 958. Round 814：修掉两个 session 缺陷；前缀命中稳定，但出现"垃圾前缀"
+
+**修复 1（tuple）**：`_spill_stores[key]` 存的是 `(store, tokens)`，而消费点把它整个赋给
+`orch.store`，导致 `orch.store.has(...)` 抛 `'tuple' object has no attribute 'has'`、
+park 直接失败。已改为取值时解包（`_st[0] if isinstance(_st, tuple) else _st`）。
+
+**修复 2（TP checkpoint 诊断）**：在 `verify_tp_checkpoint_records` 的拒绝分支加了诊断
+（写 `/tmp/kvmem_tpckpt.jsonl`：每 rank 的记录类型/长度/repr），避免以后再"只报错不看原因"。
+
+**重启后的实测（47K，同一 `session_id`，`INREQUEST_COMPACTION=1`）**
+- 事件：`session_park_prepared` → `session_dense_sealed` → `session_checkpoint_retired` ✓
+  （不再有 park 失败 / retire 中止）；
+- t1 **80s**，t2 **55s**（省 31%），两轮答案内容一致；
+- **但答案带垃圾前缀**：`ductZX-4417-QJ7`（不含 session 时同一 prompt 是干净的 `ZX-4417-QJ7`）。
+
+**新结论**：开启 session（park/capture）会让**第一轮**的答案也带上垃圾前缀 ⇒
+capture 路径改变了工作集（`clip_session_checkpoint_chunk` 会在检查点处切分 prefill 块），
+在压缩模式下切分影响了选片结果。这是下一步要修的点：**capture 不得影响本轮的工作集**。

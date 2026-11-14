@@ -1901,7 +1901,12 @@ class VllmSparseRuntime:
                         for _k424 in reversed(list(_h424b or ())):
                             _st424 = _pool424b.get(str(_k424))
                             if _st424 is not None:
-                                orch.store = _st424
+                                # The pool stores (store, tokens); assigning the tuple to
+                                # orch.store made every later orch.store.has() raise
+                                # "'tuple' object has no attribute 'has'" (measured: the
+                                # session park aborted, so prefix hits were only partial).
+                                orch.store = (_st424[0]
+                                              if isinstance(_st424, tuple) else _st424)
                                 self.log({"kind": "d_store_claim",
                                           "req": str(req)[-6:],
                                           "key": str(_k424)[:16]})

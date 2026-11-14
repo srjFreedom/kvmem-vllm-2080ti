@@ -483,6 +483,20 @@ def terminal_checkpoint_requests(output_map, allowed_reasons):
 def verify_tp_checkpoint_records(records, tp_size, request_id):
     """Return one agreed checkpoint record, or refuse publication for all TP ranks."""
     if len(records) != tp_size or any(not isinstance(p, dict) for p in records):
+        # Diagnose the abort instead of reporting it blindly: the shapes differ per rank, and
+        # which rank returned what decides the fix.
+        try:
+            import json as _j
+            import os as _o
+            with open("/tmp/kvmem_tpckpt.jsonl", "a") as _f:
+                _f.write(_j.dumps({
+                    "pid": _o.getpid(), "req": str(request_id)[-8:],
+                    "tp_size": int(tp_size), "n": len(records),
+                    "types": [type(p).__name__ for p in records],
+                    "lens": [len(p) if hasattr(p, "__len__") else -1 for p in records],
+                    "repr": [str(p)[:80] for p in records]}) + "\n")
+        except Exception:
+            pass
         raise ValueError("TP workers did not all prepare a checkpoint")
     first = records[0]
     keys = ("hashes", "covered", "prefix_digest", "kv_block_size", "page_tokens",
