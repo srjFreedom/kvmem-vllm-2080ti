@@ -6076,3 +6076,19 @@ if getattr(self, "d_mode", False):
 1. 把"gathered 行 vs 我们装的行"回读对照（round 727 在池内做过，需在**超池**档重做一次）；
 2. 在第一个 decode 步打印 logits 的 top-5（若 top-5 几乎等概率 ⇒ 注意力输出退化，属"KV 无效"；
    若 top-5 有意义但答案错 ⇒ 窗口内容错位）。
+
+## 945. Round 796–797：找到"发布行路径从未通过 RPC 生效"的真实缺陷
+
+**缺陷**：模块级 `kvmem_ring.step(runner, ...)` 在构造 `RingClean.step(...)` 时**丢掉了
+`blocks` / `bases` 两个参数**（只传了 `req_ids` / `book`）：
+```python
+ring.step(idx_mapping, query_start_loc, None, positions, None, req_ids=req_ids, book=book)
+```
+⇒ `RingClean.step` 永远收到 `blocks=None, bases=None` ⇒ 它只能从 `/tmp` 文件通道/本地推导取窗口，
+"通过 `scheduler_output` 发布的窗口"这条路径**从未生效**（此前"发布行 vs canon 行"的对比实验，
+其实两组都走的是文件通道/本地推导）。
+
+**已修**：`ring.step(..., blocks=blocks, bases=bases)`。
+
+**顺带确认的探针事实**：`prepare_attn` 前 5 次调用的 `row_len=0, audit_t=0` 是**正常的**
+（那时还都是 identity 步，base=0，环未装行），不是环实例绑错对象。
