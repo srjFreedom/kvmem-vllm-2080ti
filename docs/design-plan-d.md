@@ -6482,3 +6482,27 @@ capture 路径改变了工作集（`clip_session_checkpoint_chunk` 会在检查�
   恢复 GDN/草稿状态 → 再把 `num_computed_tokens` 设为命中长度（顺序即上游顺序）。
 
 **验收（上游同款）**：同 prompt 两次请求的 greedy token ID 完全一致，且第二次明显更快。
+
+## 964. Round 819：把 `duct` 的范围收窄到"同一 prompt 的第二次请求"，并排除三个机制
+
+**实验矩阵（全部 47K、无 session 字段、`GPU_UTIL=0.85`）**
+| 场景 | 结果 |
+|---|---|
+| 冷启动后第 1 次 47K | 76s，`ZX-4417-QJ7` ✓ |
+| 先跑一个 **短请求**，再跑 47K | 75s，**✓ 干净** |
+| 同一 47K 连跑两次（旧 resume 开） | 第 2 次 80s 脏 |
+| 同一 47K 连跑两次（`KVMEM_RESUME_LEGACY=0`） | 第 2 次 80s 脏 |
+| 同一 47K 连跑两次（`KVMEM_SESSION_PARK=0`，日志确认 `park disabled`） | 第 2 次 **90s 脏** |
+| 同一 47K，adoption 逻辑页重键/拒绝 | 第 2 次 91s 脏 |
+
+⇒ **排除**：①旧 resume（plugin 闸门）；②我们自己的 park/存档；③adoption 的物理页/逻辑页错位
+（本轮已实现 `_adopt_rekey`：用 `slot_of` 把页重建成逻辑键，映射不全则拒绝 adoption）。
+**也排除** host 共享额度不同：两次请求 `host_share = 49,152 MiB / 3,145,728 tokens` 完全一致。
+
+**剩下唯一与现象一致的机制**：**KVMem 核心的 H 层（host tier）里同前缀页被复用**——
+换一个 prompt 就干净，用同一个 prompt 才脏，且与我们的 park/adoption 无关。
+两次请求在核心侧是不同 session（2 vs 3），但同前缀的页可能被核心直接命中/复用，
+而我们这边（positions / 视图行 / 恢复）没有按"这是别人的页"处理。
+
+**下一步**：查 KVMem 核心的 H 层前缀复用开关（是否可关、命中后页的归属怎么表达），
+要么按官方"exact prefix"给出显式协议，要么在本阶段先关掉核心侧隐式复用，让我们的显式前缀路径成为唯一入口。

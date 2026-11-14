@@ -1884,6 +1884,21 @@ class VllmSparseRuntime:
                           "error": _tb.format_exc()[-300:]})
                 adopted = None
             if adopted is not None:
+                # LOGICAL REKEY GATE (upstream "exact prefix"): the parked store is keyed by the
+                # PARKED request's PHYSICAL page ids, while usable_pages() and the ordered-prefix
+                # restore treat a key as the LOGICAL page index. Without this remap a resumed
+                # request reads somebody else's tokens (measured: "ductZX-4417-QJ7" on a warm run
+                # whose cold control was clean). Refuse the adoption when the parked request's
+                # slot_of book cannot cover pages 0..N-1 - the prompt then simply recomputes.
+                try:
+                    _e0, _hit0, _vis0 = adopted
+                    if not self._adopt_rekey(req, _e0, int(_hit0)):
+                        adopted = None
+                except Exception as exc:
+                    self.log({"kind": "adopt_rekey_error", "req": str(req)[-6:],
+                              "error": f"{type(exc).__name__}: {exc}"})
+                    adopted = None
+            if adopted is not None:
                 # Continue a parked session: its orchestrator already owns the whole context in the
                 # host tier, so nothing is re-prefilled and no new host share is opened.
                 entry, hit_tokens, visible_tokens = adopted
@@ -3019,6 +3034,16 @@ class VllmSparseRuntime:
                                             _tk424)
                 while len(_pool424) > max(2, int(self.sessions)):
                     _pool424.pop(next(iter(_pool424)), None)
+        # PARK SWITCH (fail-closed rebuild): no checkpoint may be published while the
+        # scheduler-side skip and the rank-side restore are not one protocol - a skip without a
+        # restore leaves the prefix neither prefilled nor restored (measured: the warm request on
+        # an identical prompt answered "ductZX-4417-QJ7" while a cold run of the same prompt, or a
+        # warm run of a DIFFERENT prompt, was clean).
+        import os as _os_pk
+        if str(_os_pk.environ.get("KVMEM_SESSION_PARK", "1")).strip().lower() in (
+                "0", "false", "no", "off"):
+            self.log({"kind": "session_park_enter", "req": req, "which": "park disabled"})
+            return None
         if not self.session_reuse or self.session_store is None:
             self.log({"kind": "session_park_enter", "req": req, "which": "disabled",
                       "reuse": self.session_reuse, "store": self.session_store is not None})
@@ -3771,6 +3796,44 @@ class VllmSparseRuntime:
             self.log({"kind": "d_resume_knife_err",
                       "err": f"{type(_e396).__name__}: "
                              f"{_e396}"[:150]})
+        return True
+
+    def _adopt_rekey(self, req, entry, hit_tokens):
+        """Rebuild a parked store under LOGICAL page keys, or refuse the adoption."""
+        orch = getattr(entry, "orchestrator", None)
+        if orch is None:
+            return False
+        n_pages = int(hit_tokens) // max(1, int(self.page_tokens))
+        if n_pages <= 0:
+            return False
+        by_slot = {}
+        for pg, sl in (getattr(orch, "slot_of", {}) or {}).items():
+            try:
+                by_slot[int(sl)] = int(pg)
+            except Exception:
+                continue
+        if len(by_slot) < n_pages:
+            self.log({"kind": "adopt_refused", "req": str(req)[-6:],
+                      "hit": int(hit_tokens), "need": int(n_pages),
+                      "slots": len(by_slot)})
+            return False
+        try:
+            from kvmem_sparse_orchestrator import HostPageStore as _HPS
+            rekeyed = _HPS()
+            for index in range(n_pages):
+                src = by_slot.get(index)
+                if src is None or not orch.store.has(src):
+                    self.log({"kind": "adopt_refused", "req": str(req)[-6:],
+                              "hit": int(hit_tokens), "need": int(n_pages),
+                              "slots": len(by_slot), "missing": int(index)})
+                    return False
+                rekeyed.put(index, orch.store.get(src))
+        except Exception as exc:
+            self.log({"kind": "adopt_rekey_error", "req": str(req)[-6:],
+                      "error": f"{type(exc).__name__}: {exc}"})
+            return False
+        orch.store = rekeyed
+        self.log({"kind": "adopt_rekey", "req": str(req)[-6:], "pages": int(n_pages)})
         return True
 
     def _adopt_session(self, req):
