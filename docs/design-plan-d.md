@@ -6043,3 +6043,20 @@ if getattr(self, "d_mode", False):
 说明落页对，但**内容对模型无效**——下一步必须核对"内核实际写入的 slot"与我们预期的列是否一致：
 在 `prepare_attn` 里把审计 token（position=T）对应的 `slot_mappings[gi]` 值打出来，
 与 `row[(T-base)//32]` 对比。若 slot 与我们预期列不同 ⇒ 引擎没用我们的行；相同 ⇒ 行有效但内容错。
+
+## 943. Round 793–794：探针基建再修一处（worker env 被过滤 ⇒ 探针参数必须走 config 通道）
+
+**事实**：`tr '\0' '\n' < /proc/<worker>/environ | grep KVMEM_AUDIT_T` = **0**（worker 进程里根本没有该变量），
+而 `/etc/default/kvmem-vllm` 里明明有。⇒ 任何在 worker 侧用 `os.environ.get("KVMEM_AUDIT_T")`
+的探针**一直没生效**（这解释了 `slot vs row` 审计连续几轮为空）。
+
+**已修**：把探针参数纳入已建立的发布通道
+- `backends/vllm/worker.py`：`KVMEM_AUDIT_T` → `cfg["audit_t"]`；
+- 环：从 `runner.kvmem_cfg` 读 `audit_t` 并发布 `runner._kvmem_audit_t`；
+- 环同时把 `_kvmem_ring_row/_kvmem_ring_base` 改成**与行来源无关**的发布点（此前只在"发布块行"分支里）。
+
+**验证**：修完后写侧审计（`/tmp/kvmem_write3.jsonl`）恢复输出（`T=136000, base=92,512, col=1,359`），
+但 **runner 侧 `slot vs row` 审计仍为空** ⇒ 该插入点在当前执行路径上不可达（与 `prepare_inputs`
+里的探针不同）。下一步应把该对比挂到**环自身**的 step 里（已知每步都跑），而不是 `prepare_attn`。
+
+**超池结论未变**：小池（0.85，池 90,944）+ 环臂下 152K 仍是 `ductduct…`（退化环，非 echo）。
