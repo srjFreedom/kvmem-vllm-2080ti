@@ -5573,3 +5573,20 @@ worker TP0: [kvmem got] has_blocks=False(0) has_base=False(0)   ← 但 worker �
 这是最后的分支定位，之后才能把探针放到正确的位置。
 
 **已回退**：引擎文件回到已提交绿状态；默认臂复测绿。
+
+## 917. Round 716–720：**环其实一直没在跑**（hook 每步 TypeError 被吞），修好后才看到真实现象
+
+**决定性发现**：`[kvmem ring] hook failed: TypeError: step() got an unexpected keyword argument 'bases'`
+——`model_runner` 传 `bases=`，而 `kvmem_ring.step` 的签名在回退到绿基线时丢了这个参数，
+于是**每一步都异常退出**，只打一行日志被忽略。之前十几轮的"探针 0 行 / 0 错误"、
+以及"绿基线"其实都不是环的结果（环被丢弃 ≡ 默认行为）。
+
+**修好后的真实数据（超池 152K，pre-install 审计 24 行）**
+- 行宽原来是 `win_pages`（1,421），但 dense 尾部到 45,600 ⇒ 需要到第 **1,468** 列 ⇒ 内核越界；
+- 已改为 `win_pages + pages_per_block`（1,470）：审计显示 `rowlen=1470, width=1470`，
+  `max dense col 1468` ⇒ 不再越界；
+- 但**仍在 base=48,608 / true=94,208 处 illegal Triton access**（该 base 恰为 31×1,568），
+  说明还有第二个越界源，与行宽无关。
+
+**下一步（有确切观测点）**：在 `prepare_attn` 里对**本步的 slot_mapping** 做范围断言
+（`max(slot) < nb_pages*32`，`min(slot) >= 0`），把越界的具体 token/位置打印出来。
