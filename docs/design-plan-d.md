@@ -5669,3 +5669,19 @@ worker TP0: [kvmem got] has_blocks=False(0) has_base=False(0)   ← 但 worker �
 **下一步（在 47K 单滑用例上迭代，每轮一变量）**
 用环臂跑 47K，检查 `slid_rebuild` 记录的 `off/rowlen/head_distinct` 与 `meta` 的
 `seq0/pos0/sm_*`；重点确认"窗口第一列对应的页"是否真的是 token 1,568 所在的页。
+
+## 922. Round 739–749：在 47K 单滑用例上把 slid 分支拆开——三个已证明的事实
+
+**事实 1（行安装是对的）**：安装平移后的行、但**不发布帧**（`dv=0, vl=0`）⇒ 47K 与 88K mid 都
+`ZX-4417-QJ7` ✓；`dv=base`、不发布 `vl` ⇒ 同样 ✓。
+**事实 2（`vl` 有害）**：一旦发布 seq_lens 覆盖，mid 立刻退化成 `'ZX where settles settles…'`。
+⇒ 已把 `vl` 改成**默认不发布**（只在 `/tmp/kvmem_ring_vl.on` 时发布），`dv` 默认发布。
+**事实 3（尾部页的问题）**：
+- 快照 `canon` 是在**第一次滑动**时拍的，那时请求还没 prefill 完 ⇒ 最新 token 所在页**尚未分配**，
+  列号落到快照之外；
+- 之前越界列回退用 `canon[% len]`（绕回最老的页）或统一 clamp 到同一页 ⇒ **尾部多列映射到同一页**，
+  最后几个 chunk 的 KV 互相覆盖 ⇒ 尾部 needle 被冲掉；
+- 已改为"越界列用**互不相同、且不在快照里**的空闲页"，并只从"我们从未写过的纯区"延展快照。
+
+**仍未解决**：`needle 在最后几个 token`（88K tail / 超池）仍失败 ⇒ 下一步只盯这一件事：
+"最新 token 所在页在分配前就该由环给出，且必须与下一页不别名"。
