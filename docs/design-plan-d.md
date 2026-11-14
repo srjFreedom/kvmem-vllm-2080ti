@@ -6368,3 +6368,29 @@ park 直接失败。已改为取值时解包（`_st[0] if isinstance(_st, tuple)
 **新结论**：开启 session（park/capture）会让**第一轮**的答案也带上垃圾前缀 ⇒
 capture 路径改变了工作集（`clip_session_checkpoint_chunk` 会在检查点处切分 prefill 块），
 在压缩模式下切分影响了选片结果。这是下一步要修的点：**capture 不得影响本轮的工作集**。
+
+## 959. Round 815（按用户裁决）：去掉 session 语义，只保留"前缀哈希"身份
+
+**先回答用户的问题**：`session_id` **不是 KVMem 核心的机制**。
+- 上游 `kvmem-vllm`（`/home/srj/src/kvmem-vllm-upstream`）的 `docs/prompt-sessions.md` 明写该路径
+  **默认关闭、实验性**；
+- 上游核心的档案身份是**内容摘要**（`core/storage.py` 里 `sha256` 记录摘要 + 前缀 digest），
+  即"不管会话、只管前缀内容"。
+
+**我方代码本来就有通用前缀机制**（`plugin/vllm_kvmem_plugin.py` 的 `_maybe_resume` 注释即用户原话
+"a conversation IS its shared token prefix - no client must declare identity"，无 session 时用
+`__prefix_cache__` 命名空间 + owner-agnostic `store.lookup(_hashes, prefix_digest=...)`）。
+
+**本轮改动（单一改动）**：彻底忽略 `request.session_id`，统一
+`_session_id = "__prefix_cache__"`、`owner_session_id = ("", "__prefix_cache__")`。
+正确性仍由块哈希链 + 前缀 digest 决定。
+
+**实测（47K，无任何 session 字段，`INREQUEST_COMPACTION=1`）**
+| 请求 | 耗时 | 答案 |
+|---|---|---|
+| r1（47K prompt） | 75s | `ZX-4417-QJ7` ✓ 干净 |
+| r2（同前缀 + 新问题） | **55s**（省 27%） | **`ductZX-4417-QJ7`** ✗ 带垃圾前缀 |
+
+**新缺陷**：`duct` 不在 prompt 里（该 prompt 中 `duct` 出现 0 次）⇒ 不是"读到 prompt 开头"，
+而是**被恢复的上下文有一部分不对**（模型先吐一个退化 token 再恢复），只出现在**命中前缀的请求**上。
+下一步：核对"命中长度 ↔ 恢复页数 ↔ 引擎行"三者是否严格对齐（这是 resume 内容正确性的唯一判据）。

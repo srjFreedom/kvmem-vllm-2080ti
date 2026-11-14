@@ -3101,12 +3101,14 @@ def register():
                                  "rid": str(rid)[-6:],
                                  "sess_id": str(_session_id)[:20],
                                  "salt_len": len(str(_cache_salt or ""))})
-                    if (not isinstance(_session_id, str) or not _session_id
-                            or len(_session_id) > 1024
-                            or (_cache_salt is not None and not isinstance(_cache_salt, str))
-                            or len(_cache_salt or "") > 1024):
-                        _session_id = "__prefix_cache__"
-                    owner_session_id = (_cache_salt or "", _session_id)
+                    # PREFIX-ONLY IDENTITY (user ruling): KVMem decides reuse from the block
+                    # hash chain, not from any client-declared session. The session field is
+                    # therefore ignored here - every request parks and resumes inside the one
+                    # implicit prefix namespace, and correctness still comes from the hashes
+                    # plus the prefix digest. (The upstream core does the same: archive
+                    # identity is the content digest; their session path is opt-in/experimental.)
+                    _session_id = "__prefix_cache__"
+                    owner_session_id = ("", _session_id)
                     ids = list(getattr(request, "prompt_token_ids", None) or ())
                     if len(ids) < block_size:
                         _append(_sched_cfg(scheduler).get("probe_log")

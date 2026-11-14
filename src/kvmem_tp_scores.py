@@ -33,6 +33,20 @@ def average_reconstruction_scores(scores, expected, request_id, frontier, device
     torch.distributed.all_reduce(maximum, op=torch.distributed.ReduceOp.MAX, group=group)
     if (not torch.equal(minimum, maximum) or not present
             or length != int(expected) or length <= 0):
+        # Per-rank self report: the mismatch tuple is all we get from the reduce, so record
+        # what THIS rank contributed before failing.
+        try:
+            import json as _j
+            import os as _o
+            with open("/tmp/kvmem_tpmeta.jsonl", "a") as _f:
+                _f.write(_j.dumps({
+                    "pid": _o.getpid(), "req": str(request_id)[-8:],
+                    "present": bool(present), "length": int(length),
+                    "expected": int(expected), "frontier": int(frontier),
+                    "min": [int(v) for v in minimum.tolist()],
+                    "max": [int(v) for v in maximum.tolist()]}) + "\n")
+        except Exception:
+            pass
         raise RuntimeError("TP reconstruction score availability, shape or request differs")
     values = torch.as_tensor(scores, dtype=torch.float32, device=device).contiguous()
     if size > 1:
