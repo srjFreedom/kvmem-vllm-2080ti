@@ -5645,3 +5645,27 @@ worker TP0: [kvmem got] has_blocks=False(0) has_base=False(0)   ← 但 worker �
 **下一步（在修复后的无崩溃基础上）**
 先单独把**池内**跑通（环执行 + 池内三绿），再谈超池内容。当前环在池内的几何还用旧"下移 + rope=base"
 公式，与新几何混用会互相污染；需要按区域**一次性写清**（同一请求整个生命周期只用一种几何）。
+
+## 921. Round 734–738：拿到**最小可复现失败用例**（47,064 token、只滑一块）+ 默认臂对照
+
+**构造**：取 88K tail 请求，裁掉中段使总量 = **47,064 token**（needle 仍在尾部），
+存为 `tools/battery/needle_47k_oneslide.request.json`。此时窗口 45,472，`base` 只前进 **1,568**
+（恰好一个 kv-block），即"滑动一步"。
+
+**A/B（同一请求、同一 boot 形态）**
+| 臂 | 答案 |
+|---|---|
+| 默认臂（不启用环） | `ZX-4417-QJ7` ✓ |
+| 环臂（`KVMEM_RING_CLEAN=1`，环确实执行，hook failed=0） | `'ZX dogs and and and …'` ✗ |
+
+⇒ **滑动一步就已经错**，不必等到 12 步；此前的"just-crossing 绿"是因为它 `base` 始终为 0（根本没滑）。
+这把问题缩小到一个可快速迭代的最小输入。
+
+**本轮同时确认的两点**
+1. 环把 `positions` 减 base、又发布 `delta=base` ⇒ `slot = true − 2·base`，同一 token 的页随 base
+   漂移；已统一为**单次扣减**（positions 保持真值、rope=0、`delta=base`），崩溃随之消失。
+2. `num_blocks` 钉死与否对 47K/88K 结果无差别（已做单变量对照），可从怀疑名单移除。
+
+**下一步（在 47K 单滑用例上迭代，每轮一变量）**
+用环臂跑 47K，检查 `slid_rebuild` 记录的 `off/rowlen/head_distinct` 与 `meta` 的
+`seq0/pos0/sm_*`；重点确认"窗口第一列对应的页"是否真的是 token 1,568 所在的页。
