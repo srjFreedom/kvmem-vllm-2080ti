@@ -135,3 +135,17 @@ class PrefixCache:
                 continue
             return record
         return None
+
+
+# The record holds KV tensors in PROCESS memory, so the cache must live as long as the process,
+# not as long as any one runtime object: a per-instance cache lost every record between the
+# publish step and the fill step of the very next request (measured: "no record", cache_n=-1,
+# while the same pid had just published 902 pages).
+_SHARED: PrefixCache | None = None
+
+
+def shared_cache(capacity: int = 8) -> PrefixCache:
+    global _SHARED
+    if _SHARED is None:
+        _SHARED = PrefixCache(capacity=capacity)
+    return _SHARED

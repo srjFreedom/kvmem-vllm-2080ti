@@ -19,6 +19,10 @@ import traceback
 
 _PATCHED = False
 
+# Engine-start time of THIS process: records older than this cannot be filled (their KV lives
+# in worker memory) and must not be consumed.
+_PREFIX_EPOCH = None
+
 
 _ACTIVE_CONFIG: dict = {}
 
@@ -3051,6 +3055,14 @@ def register():
             root = "/tmp/kvmem_prefix_cache"
             if not os.path.isdir(root):
                 return False
+            # EPOCH GATE: the record's KV lives in a worker's process memory, so a record written
+            # by a PREVIOUS process can never be filled - skipping on it hands the engine an empty
+            # row (measured: garbage output and a 5s "success"). Only records published after this
+            # engine started may be consumed.
+            global _PREFIX_EPOCH
+            if _PREFIX_EPOCH is None:
+                import time as _time_pe
+                _PREFIX_EPOCH = _time_pe.time()
             cache_cfg = getattr(scheduler, "cache_config", None)
             block_size = int(getattr(cache_cfg, "block_size", 0) or 0)
             if block_size <= 0:
@@ -3090,8 +3102,11 @@ def register():
                 for name in names:
                     if not name.endswith(".json"):
                         continue
+                    path = os.path.join(root, name)
                     try:
-                        with open(os.path.join(root, name)) as fh:
+                        if os.path.getmtime(path) < float(_PREFIX_EPOCH or 0.0):
+                            continue
+                        with open(path) as fh:
                             meta = json.load(fh)
                     except Exception:
                         continue

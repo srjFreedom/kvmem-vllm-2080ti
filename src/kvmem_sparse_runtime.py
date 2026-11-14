@@ -3309,7 +3309,7 @@ class VllmSparseRuntime:
                 import os as _o_pc
                 if str(_o_pc.environ.get("KVMEM_PREFIX_CACHE", "0")).strip().lower() in (
                         "1", "true", "yes", "on"):
-                    from kvmem_prefix_cache import PrefixCache, PrefixCacheError
+                    from kvmem_prefix_cache import PrefixCache, PrefixCacheError, shared_cache
                     _pc = getattr(self, "_prefix_cache", None)
                     if _pc is None:
                         _pc = self._prefix_cache = PrefixCache(capacity=8)
@@ -3518,7 +3518,7 @@ class VllmSparseRuntime:
                 "1", "true", "yes", "on"):
             return False
         try:
-            from kvmem_prefix_cache import PrefixCache, PrefixCacheError
+            from kvmem_prefix_cache import PrefixCache, PrefixCacheError, shared_cache
             ids = self._prompt_ids.get(req)
             prompt = int(self._prompt_len.get(req, 0) or 0)
             if not ids or len(list(ids)) < prompt or prompt <= 0:
@@ -3570,9 +3570,7 @@ class VllmSparseRuntime:
                     state = self.capture_state(req, int(covered))
                 except Exception:
                     state = None
-            cache = getattr(self, "_prefix_cache", None)
-            if cache is None:
-                cache = self._prefix_cache = PrefixCache(capacity=8)
+            cache = shared_cache(capacity=8)
             logical = {}
             try:
                 kvs = self.view.paged_kv()
@@ -5452,7 +5450,8 @@ class VllmSparseRuntime:
                 fill = _j.load(fh)
             dest = [int(p) for p in (fill.get("dest") or ())]
             covered = int(fill.get("covered", 0) or 0)
-            cache = getattr(self, "_prefix_cache", None)
+            from kvmem_prefix_cache import shared_cache
+            cache = shared_cache()
             record = None
             tail_hex = str(fill.get("tail", "") or "")
             if cache is not None:
@@ -5469,9 +5468,12 @@ class VllmSparseRuntime:
                             record = candidate
                             break
             if record is None or not dest:
+                _keys = list(getattr(cache, "_order", []))[:3] if cache is not None else []
                 self.log({"kind": "prefix_fill_refused", "req": str(req)[-6:],
                           "reason": "no record" if record is None else "no dest",
-                          "covered": covered})
+                          "covered": covered, "tail": tail_hex[:24],
+                          "cache_n": (len(cache) if cache is not None else -1),
+                          "keys": [k.hex()[:24] for k in _keys]})
                 _os.unlink(path)
                 return False
             kvs = self.view.paged_kv()
@@ -5485,8 +5487,26 @@ class VllmSparseRuntime:
                     raise RuntimeError("dest page out of range: %d" % slot)
                 for layer, kv in enumerate(kvs):
                     kv[slot].copy_(tensors[layer].to(kv.device, non_blocking=True))
+            # RECURRENT STATE IS PART OF THE PREFIX (upstream: "GDN and draft context
+            # restoration"). Without it the restored KV runs on a fresh state and the answer
+            # drifts even though every page is byte-correct (measured: cold "ZX-4417-QJ7" vs
+            # warm "The access code for the unique record is").
+            state_ok = False
+            try:
+                self.log({"kind": "prefix_state_probe", "req": str(req)[-6:],
+                          "record_state": bool(getattr(record, "state", None) is not None),
+                          "restorer": bool(self.restore_state is not None)})
+            except Exception:
+                pass
+            if getattr(record, "state", None) is not None and self.restore_state is not None:
+                try:
+                    state_ok = bool(self.restore_state(req, record.state))
+                except Exception as exc:
+                    self.log({"kind": "prefix_state_error", "req": str(req)[-6:],
+                              "error": f"{type(exc).__name__}: {exc}"})
             self.log({"kind": "prefix_fill_applied", "req": str(req)[-6:],
-                      "pages": int(count), "covered": int(covered)})
+                      "pages": int(count), "covered": int(covered),
+                      "state": bool(state_ok)})
             _os.unlink(path)
             return True
         except Exception as exc:

@@ -6649,3 +6649,29 @@ connector 的形态重写：**一个 restore 入口 + 显式页所有权 + 发�
 2. `prefix_fill_refused` 仍偶发（本次答案正确，说明至少有一次 fill 生效；但日志口径需修）；
 3. GDN 状态尚未随命中恢复（当前命中后仍从 0 状态起算，靠这 32 token 的 prefill 不足以解释正确性，
    需要下一轮用"cold vs warm 逐 token 相同"来正式确认，而不是单次答案正确）。
+
+## 971. Round 826：显式前缀协议端到端（含装页+填充）打通；只剩"状态恢复返回 False"
+
+**关键修正**
+1. **epoch 闸门**：记录带 mtime，调度器只消费 **本进程启动之后**发布的记录（KV 张量只在进程内存，
+   重启后的记录无法填充）。实测：重启后第一次 30s ✓（旧记录被忽略），同实例第二次 5s ✓；
+2. **进程级单例缓存** `shared_cache()`：记录不能挂在 runtime 实例上（发布与填充不在同一实例，
+   实测 `cache_n=-1`、"no record"）；
+3. **装页**：`get_new_blocks()` + 直接写入注意力组 `req_to_blocks`（`adopt_attention_blocks`
+   只接受已拥有的块）；
+4. **跳过量留一页**：`covered - page_tokens`，否则 `assert num_new_tokens > 0` 崩；
+5. **填充**：worker `before_step` 按 `tail` 找记录，把逻辑页 i 的 KV 拷到 dest[i]。
+   实测 `prefix_fill_applied pages=901 covered=28,846` ✓。
+
+**实测（30K，同一实例）**
+| | 耗时 | 答案 |
+|---|---|---|
+| cold#1 | 30s | `ZX-4417-QJ7` ✓ |
+| warm#2 | **5s** | `The access code for the unique record is **ZX` |
+
+⇒ 5–6 倍提速、已读到 needle，但**首部仍有漂移**：`prefix_state_probe` 显示
+`record_state=True, restorer=True`，而 `restore_state(req, state)` **返回 False**（无异常）。
+这正是上游强调的 "GDN and draft context restoration" 未真正生效。
+
+**下一步（唯一缺口）**：让 `restore_state` 接受这个快照（很可能是行索引/投机门禁不匹配——
+历史记录里 park 的门是 `num_spec_tokens == 0`）。状态一旦恢复，warm 应与 cold **逐 token 相同**。
