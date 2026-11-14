@@ -5433,8 +5433,73 @@ class VllmSparseRuntime:
         return orch
 
     # --- hook 1 ------------------------------------------------------------------------
+    def _apply_prefix_fill(self, req):
+        """Copy a hit record's cached KV into the pages EngineCore just adopted for this request.
+
+        Order matters: pages are installed and filled BEFORE the first forward, otherwise the
+        attention kernel reads an empty row (measured: a 5s prefix hit answered with '').
+        """
+        import os as _os
+        if str(_os.environ.get("KVMEM_PREFIX_CACHE", "0")).strip().lower() not in (
+                "1", "true", "yes", "on"):
+            return False
+        path = "/tmp/kvmem_prefix_fill/%s.json" % str(req)
+        if not _os.path.exists(path):
+            return False
+        try:
+            import json as _j
+            with open(path) as fh:
+                fill = _j.load(fh)
+            dest = [int(p) for p in (fill.get("dest") or ())]
+            covered = int(fill.get("covered", 0) or 0)
+            cache = getattr(self, "_prefix_cache", None)
+            record = None
+            tail_hex = str(fill.get("tail", "") or "")
+            if cache is not None:
+                if tail_hex:
+                    try:
+                        record = cache._records.get(bytes.fromhex(tail_hex))
+                    except Exception:
+                        record = None
+                if record is None:
+                    # fall back to the deepest record that covers the requested prefix
+                    for tail in reversed(getattr(cache, "_order", [])):
+                        candidate = cache._records.get(tail)
+                        if candidate is not None and int(candidate.covered) >= covered:
+                            record = candidate
+                            break
+            if record is None or not dest:
+                self.log({"kind": "prefix_fill_refused", "req": str(req)[-6:],
+                          "reason": "no record" if record is None else "no dest",
+                          "covered": covered})
+                _os.unlink(path)
+                return False
+            kvs = self.view.paged_kv()
+            count = min(len(dest), int(record.page_count))
+            for index in range(count):
+                tensors = record.pages.get(int(index))
+                if not tensors:
+                    raise RuntimeError("logical page missing: %d" % index)
+                slot = int(dest[index])
+                if slot <= 0 or slot >= int(kvs[0].shape[0]):
+                    raise RuntimeError("dest page out of range: %d" % slot)
+                for layer, kv in enumerate(kvs):
+                    kv[slot].copy_(tensors[layer].to(kv.device, non_blocking=True))
+            self.log({"kind": "prefix_fill_applied", "req": str(req)[-6:],
+                      "pages": int(count), "covered": int(covered)})
+            _os.unlink(path)
+            return True
+        except Exception as exc:
+            self.log({"kind": "prefix_fill_error", "req": str(req)[-6:],
+                      "error": f"{type(exc).__name__}: {exc}"})
+            return False
+
     def before_step(self, req, n_query_tokens=1, row_index=None, position_slots=None,
                     rows_only=False):
+        try:
+            self._apply_prefix_fill(req)
+        except Exception:
+            pass
         try:
             import os as _osp
             if _osp.environ.get('KVMEM_D_POS') == '1':

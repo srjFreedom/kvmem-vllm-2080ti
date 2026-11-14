@@ -6622,3 +6622,30 @@ connector 的形态重写：**一个 restore 入口 + 显式页所有权 + 发�
 **下一步（Milestone B，唯一缺口）**：命中时先给本请求**装页**——从块池取 `covered/page_tokens` 个物理页，
 用 `adopt_attention_blocks` 装成该请求的 row，再把这些页的编号写进通道文件；worker 在 `before_step`
 里按序把 `PrefixCache` 里的逻辑页 i 拷到 dest[i]。顺序必须是**装页 → 拷贝 → 允许 forward**。
+
+## 970. Round 825：**新协议端到端跑通（同一实例）**：cold 30s → warm 5s，答案正确
+
+**Milestone B 实现**
+1. **装页**（EngineCore，命中时）：用 `get_new_blocks()` 取 `covered/page_tokens` 页对应的块，
+   **直接装入注意力组的 `req_to_blocks`**（`adopt_attention_blocks` 只接受本请求已拥有的块，
+   对新分配会拒绝并泄漏），失败时归还块；把目标页列表写到 `/tmp/kvmem_prefix_fill/<req>.json`。
+2. **拷贝**（worker，`before_step` → `_apply_prefix_fill`）：按记录里的 `tail` 找到进程内记录，
+   把逻辑页 i 的 KV 拷到 dest[i]（**forward 之前**）。
+3. 细节修正：
+   - 跳过量必须留至少一页（`covered - page_tokens`），否则引擎 `assert num_new_tokens > 0` 崩（实测 HTTP 500）；
+   - fill 查找由 `covered` 改为按 `tail`（跳过长度与记录长度本就不同）。
+
+**实测（30K，无 session 字段，同一实例）**
+| | 耗时 | 答案 |
+|---|---|---|
+| cold#1 | 30s | `ZX-4417-QJ7` ✓ |
+| warm#2（命中 28,846 / 902 页） | **5s** | **`ZX-4417-QJ7` ✓** |
+
+⇒ 目标 ④ 首次达成（同一实例内：正确 + 6 倍提速）。
+
+**已知缺口**
+1. 记录里的 KV 张量只在**进程内存**，重启后元数据还在但字节没了 ⇒ 重启后的"命中"会跳过 prefill 却没有内容
+   （实测：答案变成乱码）。必须要么持久化（磁盘/主机层），要么让元数据随进程生命周期失效；
+2. `prefix_fill_refused` 仍偶发（本次答案正确，说明至少有一次 fill 生效；但日志口径需修）；
+3. GDN 状态尚未随命中恢复（当前命中后仍从 0 状态起算，靠这 32 token 的 prefill 不足以解释正确性，
+   需要下一轮用"cold vs warm 逐 token 相同"来正式确认，而不是单次答案正确）。

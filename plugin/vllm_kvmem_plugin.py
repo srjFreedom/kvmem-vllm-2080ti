@@ -3107,6 +3107,65 @@ def register():
                 if record is None:
                     continue
                 covered = int(record["covered"])
+                # Leave one page to be genuinely prefilled: an engine step with zero new tokens
+                # trips `assert num_new_tokens > 0` (measured: EngineCore AssertionError, HTTP 500).
+                # Upstream restores the frame and then computes the remaining tokens, never zero.
+                covered = max(0, covered - int(record["page_tokens"]))
+                if covered <= 0:
+                    continue
+                # MILESTONE B: the skip must come with pages this request OWNS, otherwise the
+                # attention kernel reads a row the engine never filled (measured: a 5s hit whose
+                # answer was empty). Allocate the blocks, install them as the request's row, and
+                # hand the worker the destination page list to copy the cached KV into.
+                try:
+                    page_tokens = int(record["page_tokens"])
+                    block_tokens = int(record.get("block_size", block_size) or block_size)
+                    pages_per_block = max(1, block_tokens // page_tokens)
+                    need_pages = covered // page_tokens
+                    need_blocks = -(-need_pages // pages_per_block)
+                    manager = scheduler.kv_cache_manager
+                    # The attention group is the owner of req_to_blocks; the top-level manager
+                    # only fans out (resolved the same way plan_attention_blocks does).
+                    attn_manager = manager
+                    try:
+                        _cands = [m for m in manager.coordinator.single_type_managers
+                                  if "FullAttention" in type(m).__name__]
+                        if len(_cands) == 1:
+                            attn_manager = _cands[0]
+                    except Exception:
+                        attn_manager = manager
+                    pool = getattr(attn_manager, "block_pool", None) or manager.block_pool
+                    blocks = pool.get_new_blocks(need_blocks)
+                    dest = []
+                    for block in blocks:
+                        base = int(block.block_id) * pages_per_block
+                        dest.extend(base + off for off in range(pages_per_block))
+                    dest = dest[:need_pages]
+                    # This is a FRESH allocation, not a compaction: the request owns nothing yet,
+                    # so install the blocks directly (`adopt_attention_blocks` refuses pages the
+                    # request does not already own and leaked the allocation on refusal).
+                    attn_manager.req_to_blocks[rid] = list(blocks)
+                    adopted = {"blocks": len(blocks),
+                               "free_blocks": pool.get_num_free_blocks()}
+                    os.makedirs("/tmp/kvmem_prefix_fill", exist_ok=True)
+                    with open("/tmp/kvmem_prefix_fill/%s.json" % str(rid), "w") as fh:
+                        json.dump({"dest": [int(p) for p in dest],
+                                   "covered": covered,
+                                   "tail": str(record.get("tail", "")),
+                                   "request": str(rid)}, fh)
+                    _append(_sched_cfg(scheduler).get("probe_log") or "/tmp/kvmem_sparse.jsonl",
+                            {"kind": "prefix_pages_adopted", "req": str(rid)[-6:],
+                             "blocks": need_blocks, "pages": len(dest), **adopted})
+                except Exception as exc:
+                    try:
+                        if "blocks" in dir() and blocks:
+                            pool.free_blocks(list(blocks))
+                    except Exception:
+                        pass
+                    _append(_sched_cfg(scheduler).get("probe_log") or "/tmp/kvmem_sparse.jsonl",
+                            {"kind": "prefix_adopt_error", "req": str(rid)[-6:],
+                             "error": f"{type(exc).__name__}: {exc}"})
+                    continue
                 request.num_computed_tokens = covered
                 request.num_logical_tokens = covered
                 request.num_kvmem_offset = 0
