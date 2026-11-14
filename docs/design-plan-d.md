@@ -5856,3 +5856,22 @@ per-slot 状态（`dv`/`pagemap`/`scratch_perm`）上。
 
 **下一步建议**：若继续追超池，应按路线 1（store/还原）而不是继续调环的落页；环只在"池内 + 滑窗"
 范围内作为可选实现保留。
+
+## 932. Round 777：改走 KVMem 压缩路线，先摸清当前实际形态
+
+**关键背景（已确认）**
+- 默认臂的超池本来就答不对（`152K tailA → ductduct…`），所以这不是环引入的问题；
+- 文档记录的"超池正解"是另一条路线：`KVMEM_PREFILL_PRESSURE=1`（有界常驻压缩）+
+  `KVMEM_COMPACT_REBUILD=1`（默认开），验收过 88K 7/7、152K 2/2、250K 2/2；
+- 本机服务实际几何（launcher）：`BUDGET=36,864 / RESERVE=16,384 / SINK=12,288 / RECENT=1,024 /
+  CTX=524,288 / MAX_BATCHED_TOKENS=4,096 / SPECULATIVE_TOKENS=0`，且日志确认
+  `sched_compact install-gate = True (cfg keys: budget_tokens, compact_rebuild, …)` ⇒ 该机制是装上的。
+
+**但当前实测**：`KVMEM_PREFILL_PRESSURE=1`（基线）与 `=0` 两种情况下，152K tailA/mid 都不对
+（`ductduct…` / `The answer is:` 复读）。⇒ 相对 v0.5.0 记录的验收，**这条路线在当前树上也退化了**。
+
+**下一步（路线 1 的排查顺序）**
+1. 对齐 deploy 的缺省几何（`deploy/run-kvmem-vllm.sh`: B=36864/R=16384/**SINK=8192/RECENT=2048**）
+   与 launcher（SINK=12288/RECENT=1024）的差异，逐一单变量试；
+2. 用仓库自带的 152K 验收脚本/证据（`docs/evidence/`）作对照，判断是环境差异还是代码回退；
+3. 若确认代码回退，用 `backends/versions.json` 的 `patched_tree` 与当前引擎树 diff 定位。
