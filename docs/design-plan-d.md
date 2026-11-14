@@ -5456,3 +5456,28 @@ worker TP0: [kvmem got] has_blocks=False(0) has_base=False(0)   ← 但 worker �
 `getattr(scheduler_output,"kvmem_ring_blocks",None)`，再在 worker 的 `execute_model` 入口 print
 `id(scheduler_output)`——若 id 相同但字段为 None ⇒ worker 侧模块版本/反序列化问题；id 不同 ⇒
 被复制/重建。
+
+## 911. Round 700–703：把"绿基线"钉回 `d6d2182` 并提交；超池结论收束
+
+**过程**：本轮试了两个方向（`/tmp` 文件通道、id 对比），都在中途把树改成了非绿状态
+（HEAD 上 88K mid/tail 变红、超池 152K 挂起）。按"先回到可复现绿基线"的纪律，
+把四个文件（scheduler / output / model_runner / kvmem_ring）统一切回 **`d6d2182`**
+（"drive the ring frame and row from the scheduler's published base and blocks"）。
+
+**复验（同一个 boot，连跑三发）**
+| 输入 | 答案 |
+|---|---|
+| just-crossing | `ZX-4417-QJ7` ✓ |
+| 88K mid | `ZX-4417-QJ7` ✓ |
+| 88K tail | `ZX-4417-QJ7` ✓ |
+
+**超池 152K 的最终状态（本段结论）**
+- 环不再崩（book 钉行宽修复）、也不再读到"旧窗口"以外的乱码，但**仍只读到开头内容**；
+- 剩下的唯一断点已定位到**跨进程发布**：scheduler 侧 `[kvmem pub]` 打印确认发布执行，
+  worker 侧 `[kvmem got]` 显示 `has_blocks=False` ⇒ `SchedulerOutput` 字段没有到达 worker
+  （已验证"字段化"无效；`/tmp` 文件通道的第一次尝试因为同时改动了别处而未能隔离验证）。
+
+**下一段（严格顺序，每步只做一件事）**
+1. 只加 `/tmp` 文件通道（不动任何其他逻辑），确认 worker 能读到 base/blocks；
+2. 再让环消费它；
+3. 跑池内三绿回归 → 超池 tailA/tailB。
