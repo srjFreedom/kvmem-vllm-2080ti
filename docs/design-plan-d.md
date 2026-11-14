@@ -6295,3 +6295,30 @@ page = 9,639 —— **远超池内页数（2,842）**，是典型的"哑页号"�
 
 这两条都需要在 forward 内部加只读探针，属于引擎深度改动；在"不改写入路径"的约束下，
 我已无法用黑盒手段继续收敛。
+
+## 956. Round 812（按用户澄清的目标重做）：**B 大小物理池 + KVMem 召回 = 6/6 全绿**
+
+**用户目标（澄清）**：物理池只放 B（工作集），全量上下文留在 RAM；靠 KVMem 召回核心上下文；
+下一次请求命中前缀，只 prefill 新增 token。
+
+**关键结论**：之前所有超池失败都发生在 **Plan D（`KVMEM_PLAN_D=1 ∧ D_KNIFE=1`）** 下——
+该模式在 `_rebuild_select` 首行就 `return False, "d-lane: rebuild stage disabled"`，
+把"预填 → 选片 → 重建工作集"这条正路**设计性禁用**了。关掉 Plan D 后一切正常。
+
+**实测（`GPU_UTIL=0.85` ⇒ 池 90,944 token ≈ B 的 1.7 倍；`PLAN_D=0`；`PREFILL_PRESSURE=1`）**
+| 用例 | 报给 API 的 prompt_tokens | 结果 |
+|---|---|---|
+| 88K mid | 36,802 | `ZX-4417-QJ7` ✓ |
+| 88K tail | 36,813 | `ZX-4417-QJ7` ✓ |
+| 152K mid | 36,888 | `ZX-4417-QJ7` ✓ |
+| 152K tailA | 36,887 | `ZX-4417-QJ7` ✓ |
+| 152K tailB | 36,885 | `ZX-4417-QJ7` ✓ |
+| 250K | 37,116 | `ZX-4417-QJ7` ✓ |
+
+`prompt_tokens ≈ 36.8K = B` 正是"GPU 只持有工作集、其余在 RAM"的直接证据（88K/152K/250K 输入
+在设备侧都只占约 B）。
+
+**尚未验证/未达成**：同 session 的第二次请求**前缀命中**。
+两轮实测（100K prompt + 追问，`session_id` 相同，`KVMEM_SESSION_REUSE=1`）：
+turn1 36.04s / turn2 35.50s（几乎无提速），日志里只有 `resume_probe`、**没有 `session_resumed`**
+⇒ 会话存储在压缩配置下没有命中。这是剩下的唯一缺口。
