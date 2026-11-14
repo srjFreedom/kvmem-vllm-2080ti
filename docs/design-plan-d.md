@@ -5543,3 +5543,18 @@ worker TP0: [kvmem got] has_blocks=False(0) has_base=False(0)   ← 但 worker �
 2. 新协议先验证"接线真的通"，再谈正确性；
 3. 每轮只改一层，改完立刻复测池内三绿；
 4. 任何"绿"必须能一次 boot 内复现，不能拿跨 boot 的累积日志当证据。
+
+## 915. Round 710–714：只消费"发布 base"也无效（超池仍读开头）；绿基线保持
+
+**尝试**：让环**只**消费 scheduler 发布的 `base`（行仍用绿路径的 canon 映射），验证"冻结 base 是否
+就是 '#KEY-MID'/开头内容的全部原因"。
+**结果**：152K tailA 仍是开头文本（`'The ferryman keeps a ledger…'`）⇒ **base 正确还不够**：
+窗口页的内容本身没被后续 token 覆盖。
+
+**同时**：池内三绿在"committed ring + scheduler 写通道"的组合下保持 ✓（环不读通道时无影响）。
+
+**结论**：超池的核心缺口只剩一条——**窗口内 token 的写入是否落到 canonical 行给出的页**。
+下一段用"最小探针"回答：在环的 step 里（已知会跑）记录某 token 的
+`(dense 列, row[列], 该页在写入前后的 fp)`，三个值就够了；不要再去动 base/帧/发布。
+
+**已回退**：两个引擎文件回到已提交绿状态；默认臂复测绿。
