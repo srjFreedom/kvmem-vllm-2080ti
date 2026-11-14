@@ -6420,3 +6420,30 @@ capture 路径改变了工作集（`clip_session_checkpoint_chunk` 会在检查�
 **下一步（对齐官方后仍有的一块）**：让"工作集里第一个 token"永远从稳定的语义边界开始——
 即选片时把 sink 对齐到块边界**且**保证首块内容与原始 prompt 首块一致（不能选到别处页）。
 这与上游"restoring the already compressed frame … exactly reproduces cold outputs"是同一判据。
+
+## 961. Round 817：按官方语义加两道 fail-closed 闸门；`duct` 仍未消除（记录精确事实）
+
+**改动（都是"宁可重算"方向，符合上游 spec）**
+1. 跨请求 `_spill_stores` 认领：只有当本请求**已有 resume 决定**时才允许认领
+   （否则会把上一轮请求的物理页当成自己的页恢复）；
+2. `d_capture_direct` 发布 checkpoint 前拒绝
+   `st.compacted_in_prefill=True` 的请求（压缩过的视图不是"完整执行过的前缀"）。
+
+**实测（冷启动实例，同一 47K prompt 连跑两次）**
+| | 耗时 | 答案 |
+|---|---|---|
+| cold#1 | 75s | `ZX-4417-QJ7` ✓ |
+| warm#2 | 81s | **`ductZX-4417-QJ7`** ✗ |
+
+**精确事实（本轮日志）**
+- warm#2 走的是 **runtime 的** `session_resumed hit=25,088`（16 块 × 1,568 = 25,088），
+  而 prompt 是 47,064 ⇒ 只有部分前缀被恢复；随后还有 `resume_skip: no prefix match`（19 块请求 vs 16 块存档）；
+- 也就是说：**存档只覆盖 25,088 token（budget 对齐的 frontier）**，恢复后剩余 21,976 token 重新 prefill，
+  但恢复的那段内容与"真实前 25,088 token"不一致 ⇒ 首 token 退化（`duct` 是模型凭空补的碎片，
+  prompt 里 `duct` 出现 0 次）。
+
+**结论**：问题不在"能不能恢复"，而在"**恢复的内容是不是这段前缀的 KV**"。
+存档来自一个**被压缩过的请求**（page 集合是选出来的），所以它描述的不是前 N 个 token。
+
+**下一轮单点（唯一需要验的）**：把"存档里的 page 列表"与"该请求自己 row 的前 N 个 page"做**顺序比较**；
+两者不等 ⇒ 拒绝发布/接受 checkpoint（这才是上游"sealed boundary"的严格含义）。

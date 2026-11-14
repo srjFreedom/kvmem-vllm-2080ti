@@ -1900,6 +1900,15 @@ class VllmSparseRuntime:
                                             {})
                         for _k424 in reversed(list(_h424b or ())):
                             _st424 = _pool424b.get(str(_k424))
+                            # A spilled store belongs to a FINISHED request: its page ids are
+                            # that request's physical pages, so claiming it for a request that
+                            # never passed the resume proof restores somebody else's bytes into
+                            # this row (measured: the second request on one prompt answered
+                            # "ductZX-4417-QJ7" while the cold run was clean). Claim only when
+                            # this request actually carries a resume decision.
+                            if _st424 is not None and not getattr(
+                                    self._state.get(req), "resume", None):
+                                _st424 = None
                             if _st424 is not None:
                                 # The pool stores (store, tokens); assigning the tuple to
                                 # orch.store made every later orch.store.has() raise
@@ -3212,6 +3221,17 @@ class VllmSparseRuntime:
                 if self.log is not None:
                     self.log({"kind": "d_final_harvest_sweep_error",
                               "err": str(_fhs)[:200]})
+            # SEALED-PREFIX RULE (upstream prompt-sessions): a checkpoint may only describe a
+            # prefix the request actually EXECUTED in full. A request compacted during prefill
+            # holds a SELECTED page set, so publishing it as "the first N tokens" makes a later
+            # restore assemble somebody else's bytes - measured: the second request on one 47K
+            # prompt resumed hit=25,088 and answered "ductZX-4417-QJ7" while the cold run was
+            # clean. Fail closed: compacted prefill never publishes a session checkpoint.
+            if getattr(self._state.get(req), "compacted_in_prefill", False):
+                if self.log is not None:
+                    self.log({"kind": "session_park_skipped", "req": str(req)[-6:],
+                              "reason": "compacted prefill cannot be a sealed prefix"})
+                return False
             from kvmem_session_store import session_checkpoint_frontier
             target = session_checkpoint_frontier(
                 int(len(ids)), self.kv_block_size, self.budget_tokens,
