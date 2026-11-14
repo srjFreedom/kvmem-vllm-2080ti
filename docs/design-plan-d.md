@@ -5705,3 +5705,25 @@ worker TP0: [kvmem got] has_blocks=False(0) has_base=False(0)   ← 但 worker �
 **仍未解决（下一步唯一目标）**：`needle 在最后几个 token`。
 下一步探针：对 needle 所在**真实页**分别记录「写入时的 fp」与「读取时的 fp」（同一个 pid、
 同一个 page），若不同 ⇒ 找到被谁覆盖；若相同但答案错 ⇒ 问题在 seq/读列口径而非内容。
+
+## 924. Round 754–756：新发现——**同一 boot 内只有第一个请求正确，后续请求全退化**
+
+**观测（一个 boot，连续 4 发，环臂 窗口 45,472）**
+| 顺序 | 用例 | 结果 |
+|---|---|---|
+| 1 | 88K tail | `ZX-4417-QJ7` ✓ |
+| 2 | 88K mid | `ductduct…` ✗ |
+| 3 | 88K tail | `ductduct…` ✗ |
+| 4 | 88K mid | `ductduct…` ✗ |
+
+⇒ 这解释了此前结果"时对时错、反复横跳"：不是随机，而是**跨请求污染**。
+且与 `hook failed` 无关（=0）。
+
+**已实施但未修好**：让 scheduler 发布**该请求完整块序列**（`/tmp/kvmem_ring_all.json`），
+环据此直接生成行、不再依赖 worker 的块表行（环自己会改写它）。第一个请求 ✓，后续仍 ✗ ⇒
+污染源不在"行"，在别处（候选：按请求槽索引的 `kvmem_slot_deltas`/`view_lens` 残留、块表行缓存、
+页复用、GDN 状态）。
+
+**下一步（单点）**：在同一 boot 里发**两个短请求**（各 ~5K token，都在窗口内不滑动），
+确认第二个是否也错；若不滑动也错 ⇒ 污染在 identity/准备阶段；若不错 ⇒ 污染在滑动产生的
+per-slot 状态（`dv`/`pagemap`/`scratch_perm`）上。
