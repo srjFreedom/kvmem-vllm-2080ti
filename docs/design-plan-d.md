@@ -5626,3 +5626,22 @@ worker TP0: [kvmem got] has_blocks=False(0) has_base=False(0)   ← 但 worker �
 **结论（供下一段）**：接下来不要再沿"slot 越界"推理；改为**直接核对内核看到的行**：
 在 `prepare_attn` 返回前把 `block_tables[gi][0, :1470]` 回读出来，与环装的 `_row` 逐项比对
 （落一条 `/tmp/kvmem_row_readback.jsonl`）。若一致，则问题不在行；若不一致，就是装行路径。
+
+## 920. Round 727–733：**记录更正**——此前的"池内窗口化三绿"不是环的结果
+
+**证据链**
+1. 环的 hook 因 `step() got an unexpected keyword argument 'bases'` **每一步都异常退出**，只留一行日志；
+   所以所有"环已启用"的 boot 里，实际生效的是**默认适配器路径**。
+2. 因此 `restore the green window state` 之后测到的"just-crossing / 88K mid / 88K tail 三绿"，
+   与默认臂同值，**不是窗口化召回**（我此前把它当成环的成果，记录有误，此处更正）。
+3. 一旦把 `bases` 形参补回让环**真的执行**，池内 88K mid/tail 立刻劣化（`'where settles settles…'`）。
+
+**本轮真正的技术收获（仍然有效）**
+- 崩溃根因已定量确认：环把 `positions` 就地减 base，同时又发布 `delta = base` ⇒
+  `slot = dense − base < 0`（实测 `slot = -7,104`）⇒ illegal access。
+- 去掉重复扣减后，超池 152K **不再崩溃**，slot 变为 `45,715`（= dense）✓，但答案是
+  `'ZX the season season…'`（只拿到开头 `ZX`）⇒ 内容层仍未对。
+
+**下一步（在修复后的无崩溃基础上）**
+先单独把**池内**跑通（环执行 + 池内三绿），再谈超池内容。当前环在池内的几何还用旧"下移 + rope=base"
+公式，与新几何混用会互相污染；需要按区域**一次性写清**（同一请求整个生命周期只用一种几何）。
