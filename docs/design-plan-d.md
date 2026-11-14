@@ -5481,3 +5481,19 @@ worker TP0: [kvmem got] has_blocks=False(0) has_base=False(0)   ← 但 worker �
 1. 只加 `/tmp` 文件通道（不动任何其他逻辑），确认 worker 能读到 base/blocks；
 2. 再让环消费它；
 3. 跑池内三绿回归 → 超池 tailA/tailB。
+
+## 912. Round 704–707：`/tmp` 通道**验证可用**；但"published 行"与绿路径不等价（回归）
+
+**通道验证（本轮唯一目标，达成 ✓）**
+- scheduler 在发布点镜像写 `/tmp/kvmem_ring_win.json`；实测文件内容正确：
+  `base: 97,216`（该请求）、`blocks: 30`；
+- 环侧读到后记录 `pub_blocks` = **30**（此前恒为 None）⇒ **跨进程通道打通**，
+  且 `model_runner` 传 `bases=`/`blocks=` 的链路也确认（补上形参后不再 TypeError）。
+
+**但"published 路径"本身不等价**：同一 boot 下池内三绿回归 → just-crossing 仍绿，但
+88K mid / tail **变红**（`pub_blocks=30` 的步走了新路径，`pub_blocks=None` 的老路径才绿）。
+⇒ **块序列→页行的展开顺序（或窗口顺序）有误**，这是下一步要单独修的（不要与通道混在一起）。
+
+**超池**：published 路径下 152K 在 base≈48,608（true≈94K，≈池大小）仍 illegal Triton access。
+
+**已回退**：两个文件回到已提交的绿状态（`d6d2182` 内容），池内三绿复验通过 ✓。
