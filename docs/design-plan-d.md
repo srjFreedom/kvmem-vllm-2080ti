@@ -6092,3 +6092,19 @@ ring.step(idx_mapping, query_start_loc, None, positions, None, req_ids=req_ids, 
 
 **顺带确认的探针事实**：`prepare_attn` 前 5 次调用的 `row_len=0, audit_t=0` 是**正常的**
 （那时还都是 identity 步，base=0，环未装行），不是环实例绑错对象。
+
+## 946. Round 798–799：`blocks/bases` 转发修复生效；runner 侧 slot 审计仍不可达（另有原因）
+
+**已确认生效**：修好模块级 `step()` 的转发后，`prepare_attn` 里能看到环的状态
+（`audit_t=40000/46500`、`row_len=1470`、`ring_base=1568` 均正确出现）。
+
+**仍未解决**：我新加的 `slot vs row` 审计块**始终不产出**（连 `.err` 都没有），
+即使审计点落在滑动期（T=46,500，且该用例答案本就正确）。查代码发现
+`model_runner.py` 里**已存在一个更早的同类探针**（design 633，硬编码 `_T633 = 136034`，
+直接读 `slot_mappings[0, _idx]`），我新增的块很可能与它的作用域/位置冲突而永不执行。
+
+**下一步（不再新增块）**：直接把**已有的 design 633 探针**改成从 config 通道读审计位置
+（`cfg["audit_t"]`），复用它做"内核 slot vs 行给出的 slot"对比——这是最小改动路径。
+
+**结论（超池）**：`blocks/bases` 转发修复后，100K 超池仍是退化环
+（`addOn …`），说明"发布行"并不是唯一缺口；但至少现在这条路径真正可用了，后续对比才有意义。
