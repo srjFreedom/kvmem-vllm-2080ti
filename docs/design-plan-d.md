@@ -6577,3 +6577,22 @@ resume: src page 0..3 → 同一组值；dest page = 931 / 932 / 933 / 934
 
 **下一步**：恢复必须写明"哪些页归前缀、哪些页归本次视图"（上游是 connector 在
 restore 之前先零化 native 页、再按 view 顺序布置），冲突页要拒绝而不是覆盖。
+
+## 968. Round 823：冲突拒绝未触发 ⇒ 恢复路径不止一条；legacy 复用树必须重写
+
+**本轮实现**：`_complete_resume` 里加"页归属冲突"拒绝（dest 页与本次压缩要用的尾部页相交 ⇒ 跳过恢复）。
+
+**实测**：30K/47K 的 warm 依旧退化（`ductduct…` / `ductZX…`），且日志里没有
+`resume_restore_skipped_conflict` ⇒ **真正写坏页面的恢复调用不在 `_complete_resume` 里**。
+
+**累计证据（这棵 legacy 复用树）**
+1. 至少 5 条 adoption 路径（调度器跳过、runtime adopt、self-derive、伪造 entry、单幸存者桥接），
+   逐条加闸门后仍有一条未被拦住；
+2. 恢复动作至少有 3 处（`_complete_resume`、`restore_batch_applied` 调用点、rebuild 的 pack 恢复），
+   本轮加的冲突闸门只覆盖其中一处；
+3. 已证明的正面事实：**跳过 prefill 但不恢复页 = 输出正确**（30K：36s，`ZX-4417-QJ7`）；
+   指纹证明存量页/目标页/字节都对 ⇒ 坏的是"某处恢复把前缀字节写到了正在使用的页上"。
+
+**结论**：继续给这棵树打补丁不收敛。要达成目标 ④（第二次请求既正确又更快），必须按上游
+connector 的形态重写：**一个 restore 入口 + 显式页所有权 + 发布即合格（含状态）**。
+本轮把服务置于安全默认（`KVMEM_PREFIX_REUSE=0`）：所有请求冷跑，结果稳定正确。

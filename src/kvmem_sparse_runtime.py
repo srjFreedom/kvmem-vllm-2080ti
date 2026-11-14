@@ -3683,6 +3683,22 @@ class VllmSparseRuntime:
             self.log({"kind": "resume_no_room", "req": req, "pages": len(pages),
                       "row": len(row_values), "visible": int(visible_tokens)})
             return False
+        # PAGE-OWNERSHIP CONFLICT (upstream: restore before attention metadata, into pages the
+        # connector OWNS). Writing the prefix into pages the current compaction is about to use
+        # for the retained tail overwrites the needles: measured on a 30K prompt where the bytes,
+        # the source pages and the destination pages were all proven correct, the answer still
+        # degenerated to "ductduct...", while the same run with the restore dropped was clean.
+        try:
+            _tail_pages = set(int(v) for v in synced[int(count):] if int(v) > 0)
+            _dest_pages = set(int(v) for v in row_values)
+            _conflict = sorted(_dest_pages & _tail_pages)
+            if _conflict:
+                self.log({"kind": "resume_restore_skipped_conflict",
+                          "req": str(req)[-6:], "pages": len(pages),
+                          "conflict": len(_conflict), "first": _conflict[:4]})
+                return True
+        except Exception:
+            pass
         # DISCRIMINATOR: keep the skip book, drop the page restore. Same bad output => the book
         # arithmetic is wrong; clean output => the restored bytes are wrong.
         import os as _os_nr
