@@ -6322,3 +6322,30 @@ page = 9,639 —— **远超池内页数（2,842）**，是典型的"哑页号"�
 两轮实测（100K prompt + 追问，`session_id` 相同，`KVMEM_SESSION_REUSE=1`）：
 turn1 36.04s / turn2 35.50s（几乎无提速），日志里只有 `resume_probe`、**没有 `session_resumed`**
 ⇒ 会话存储在压缩配置下没有命中。这是剩下的唯一缺口。
+
+## 957. Round 813（按用户新口径）：B 池 + 前缀命中已跑通一半；新增 GPU 看门狗
+
+**用户新目标**：物理池只放 B，全量上下文在 RAM；靠 KVMem 召回；下次请求命中前缀只 prefill 新增。
+
+**已实测成立**
+- 关掉 Plan D（`KVMEM_PLAN_D=0`）后，池 90,944（≈B 的 1.7 倍）下 88K/152K(mid,tailA,tailB)/250K
+  共 6 条官方电池全部 `ZX-4417-QJ7`，且 `prompt_tokens ≈ 36.8K = B`（设备侧只有工作集）。
+- **两轮前缀命中已生效**：47K prompt 同一 `session_id`，turn1 **90s** → turn2 **45s**（2 倍提速）。
+
+**发现的两个具体缺陷（都在 session 路径）**
+1. `session_park_prepare_error: AttributeError: 'tuple' object has no attribute 'has'`
+   —— 说明某个 `store` 对象被赋成了 tuple，`store.has(...)` 直接抛错；
+2. `session_checkpoint_retire_aborted: ValueError: TP workers did not all prepare a checkpoint`
+   —— TP2 两卡没有都准备好 checkpoint，导致存档被中止（所以只能"部分命中"）。
+
+**另有内容质量问题（待查）**：`compaction=1` 下 turn1 答案变成 `ductZX-4417-QJ7`（多了垃圾前缀），
+turn2 是 `-4417-QJ7`（丢了前缀）。这与压缩选片/恢复的内容一致性有关，不是速度问题。
+
+**新增工具**：`scripts/run_with_watch.sh <payload> [out] [max_s] [idle_samples]`
+—— 采样 `nvidia-smi`，若请求在飞但 GPU 连续空闲（默认 30s）就中止并打印引擎尾部日志与适配器最近事件，
+避免再出现"盲等"。已用它抓到了 `INREQUEST_COMPACTION=1 + 100K` 的 `device-side assert` 崩溃
+（47K 同配置正常，说明与 prompt 规模相关）。
+
+**注意**：`INREQUEST_COMPACTION=1` 是 resume 闸门的必要条件
+（`_resume_decided_is_enabled` 要求 `session_reuse ∧ inrequest_compaction`），
+但它与 100K 级 prompt 组合会崩，这是取得"完整前缀命中"前必须解决的一处。
