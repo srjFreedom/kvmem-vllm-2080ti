@@ -2062,6 +2062,15 @@ class VllmSparseRuntime:
                     self.log({"kind": "d_resume_pair",
                               "req": str(req)[-6:],
                               "pair": _resume_pair384()})
+                if not self._reuse_allowed():
+                    self.log({"kind": "adopt_refused", "req": str(req)[-6:],
+                              "hit": int(hit_tokens), "reason": "reuse disabled"})
+                    return
+                # Every adoption must pass the same four conditions: recurrent state present,
+                # store re-keyed to LOGICAL pages, exact token prefix (digest) verified, ordered
+                # restore. Any miss refuses and the prompt recomputes.
+                if not self._adopt_rekey(req, entry, int(hit_tokens)):
+                    return
                 self._owned_slots[req] = set()
                 st = _ReqState()
                 st.resume = (entry, hit_tokens, visible_tokens)
@@ -3798,10 +3807,35 @@ class VllmSparseRuntime:
                              f"{_e396}"[:150]})
         return True
 
+    def _reuse_allowed(self):
+        """One authoritative switch for every session-reuse entry point.
+
+        The adapter grew several adoption paths (scheduler resume, runtime adopt, self-derive
+        fallback, knife-on-adoption). While the explicit prefix protocol is being rebuilt they
+        must all be closable from one place, otherwise a single missed path silently restores a
+        prefix that was never proven (measured: "ductZX-4417-QJ7" on a warm run).
+        """
+        import os as _os
+        if str(_os.environ.get("KVMEM_SESSION_REUSE", "1")).strip().lower() in (
+                "0", "false", "no", "off"):
+            return False
+        if str(_os.environ.get("KVMEM_SESSION_PARK", "1")).strip().lower() in (
+                "0", "false", "no", "off"):
+            return False
+        return True
+
     def _adopt_rekey(self, req, entry, hit_tokens):
         """Rebuild a parked store under LOGICAL page keys, or refuse the adoption."""
         orch = getattr(entry, "orchestrator", None)
         if orch is None:
+            return False
+        # STATE REQUIRED (upstream prompt-sessions): a checkpoint without the recurrent StateImage
+        # cannot reproduce the prefix - the restored KV would run on somebody else's GDN state.
+        # Measured: restore-type checkpoints (has_state=False) were adopted anyway and the warm
+        # request answered "ductZX-4417-QJ7" while the cold control was clean.
+        if self.has_recurrent and getattr(entry, "mamba_state", None) is None:
+            self.log({"kind": "adopt_refused", "req": str(req)[-6:],
+                      "hit": int(hit_tokens), "reason": "no recurrent state"})
             return False
         n_pages = int(hit_tokens) // max(1, int(self.page_tokens))
         if n_pages <= 0:
@@ -3838,6 +3872,8 @@ class VllmSparseRuntime:
 
     def _adopt_session(self, req):
         """Take the parked session for `req` out of the store, if EngineCore asked for a resume."""
+        if not self._reuse_allowed():
+            return None
         if str(req).startswith("_warmup"):
             # WARMUP NEVER ADOPTS (design 443): the boot warmup is
             # a synthetic dummy decode; adopting a real archive

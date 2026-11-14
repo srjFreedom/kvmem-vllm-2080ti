@@ -6506,3 +6506,26 @@ capture 路径改变了工作集（`clip_session_checkpoint_chunk` 会在检查�
 
 **下一步**：查 KVMem 核心的 H 层前缀复用开关（是否可关、命中后页的归属怎么表达），
 要么按官方"exact prefix"给出显式协议，要么在本阶段先关掉核心侧隐式复用，让我们的显式前缀路径成为唯一入口。
+
+## 965. Round 820：**根因确认**——"调度器跳过 prefill"与"rank 恢复页"是两套独立决定
+
+**决定性实验**
+| 配置 | cold#1 | warm#2 |
+|---|---|---|
+| `KVMEM_SESSION_REUSE=0`（统一闸门关掉全部复用路径） | 76s ✓ | **75s ✓ 干净** |
+| `KVMEM_SESSION_REUSE=1` + 所有 adoption 要求"状态+逻辑重键" | 76s ✓ | 90s ✗ `duct` |
+
+**根因**：复用被做成了**两套独立决定**——
+- **EngineCore（插件）** 侧：`_maybe_resume` 命中后把 `num_computed_tokens` 设成 hit ⇒ **跳过 hit 长度的 prefill**；
+- **rank（runtime）** 侧：`_adopt_rekey()` 因"缺状态/映射不全"**拒绝 adoption** ⇒ 那 hit 长度的 KV **既没 prefill 也没恢复**。
+
+⇒ 上下文直接缺一段，模型顺着残缺词继续（`duct`），且因为多了一次失败的恢复尝试还更慢（90s vs 76s）。
+把两侧同时关掉（`SESSION_REUSE=0`）就完全干净 ⇒ 证明上述因果。
+
+**本轮落地的统一闸门**：`_reuse_allowed()`（`KVMEM_SESSION_REUSE` / `KVMEM_SESSION_PARK` 任一为关即拒），
+插在**所有** adoption 入口（`_adopt_session` 开头 + self-derive 回退分支），
+解决"漏掉某条路径就静默恢复未证明的前缀"的问题。
+
+**正确的下一步（上游做法）**：跳过与恢复必须是**一个协议**——
+EngineCore 在决定 skip 前向 rank 预检（"这个 checkpoint 能不能按 exact prefix 恢复：状态在、页映射完整、digest 相等"），
+预检通过才省 prefill；否则整条请求按冷跑处理。当前实现缺的正是这个预检握手。
