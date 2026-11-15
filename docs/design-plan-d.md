@@ -6798,3 +6798,29 @@ connector 的形态重写：**一个 restore 入口 + 显式页所有权 + 发�
 **下一步（本轮已写下探针但未生效，需重加）**：在恢复处打印
 `model_state._align_mode`、`frontier_col=(covered-1)//block`、`st.tokens`，
 以及 capture 端同一组值——让两端的列号**同一**；再决定是否需要把引擎后续写入也钉到该列。
+
+## 977. Round 832：封存点改为“精确 frontier”，命中链路恢复；仍差 1 token
+
+**本轮三个修正**
+1. **`covered` 必须精确等于状态 frontier**：之前把 `covered` 向下对齐到引擎块（1,568），
+   而状态快照取自未对齐的 frontier（4,096），两者差 960 token —— 这正是那个 1-token 偏移的来源。
+   现在 `covered = (tokens // page_tokens) * page_tokens`（页对齐，与 `tokens` 相等）。
+2. **身份链改逐 token**（`block_size=1`），使 `PrefixCache` 内按链重算出的 `covered` 与本值一致，
+   避免"页数不符"的拒绝。
+3. **几何与身份分离**：`block_size=1` 让采纳逻辑误以为 `pages_per_block=1`，
+   报 `Cannot get 768 free blocks from the pool`；元数据新增 `engine_block`，采纳几何用它（16 块）。
+
+**实测（47K，同一实例）**
+| | 耗时 | 答案 |
+|---|---|---|
+| cold | 76s | `ZX-4417-QJ7` ✓ |
+| warm | **35s**（2.2×） | `-ZX-4417-QJ7`（仍多一个 `-`） |
+
+事件链完整：`prefix_sealed covered=24,576 pages=768 state` → `prefix_record_found`
+→ `prefix_pages_adopted pages=768 blocks=16` → `prefix_hit covered=24,576`
+→ `prefix_fill_applied pages=768 state=True`。
+
+**剩余偏差的定位方向（下一轮）**：状态/KV 的 frontier 现在已经严格对齐（24,576），
+所以偏差更可能来自**恢复后第一段 prefill 的调度口径**（引擎 `num_computed_tokens` 与适配器
+`st.tokens/seq_len` 的相互作用，或第一段 prefill 的 chunk 边界）。下一步在同一位置打印
+"引擎 computed / 适配器 tokens / 第一段 prefill 的 token 数"，与冷跑同位置对比。

@@ -5530,15 +5530,21 @@ class VllmSparseRuntime:
             if st is None or bool(getattr(st, "compacted_in_prefill", False)):
                 return False
             toks = int(getattr(st, "tokens", 0) or 0)
-            edge = max(4096, int(self.budget_tokens) - 8192)
+            # `edge` (env-tunable for the experiment) decides how much of the prompt stays
+            # un-sealed. If the remainder fits the resident budget, the resuming run does NOT
+            # compact where the cold run did, so the two runs see different contexts.
+            import os as _os_e
+            _edge_env = int(_os_e.environ.get("KVMEM_PREFIX_SEAL_EDGE", "0") or 0)
+            edge = _edge_env if _edge_env > 0 else max(4096, int(self.budget_tokens) - 8192)
             if toks < edge:
                 return False
             pt = max(1, int(self.page_tokens))
-            # Align to the ENGINE BLOCK, not only to a page: the cache recomputes `covered` from
-            # the block-hash chain, so a page-aligned frontier produced a record whose page count
-            # did not match (`logical pages must be exactly 0..734, got 768`).
-            blk = max(1, int(self.kv_block_size))
-            covered = (toks // blk) * blk
+            # `covered` MUST equal the frontier the state belongs to. Aligning it down to the
+            # engine block (1,568) while the snapshot was taken at 4,096 left the state 960 tokens
+            # ahead of the KV/book frontier - which is exactly the one-token drift observed
+            # ("-ZX-4417-QJ7"). Page alignment is all the page table needs, and the identity chain
+            # is built per token so the cache's recomputed `covered` equals this value too.
+            covered = (toks // pt) * pt
             if covered <= 0:
                 return False
             expected = covered // pt
@@ -5573,7 +5579,7 @@ class VllmSparseRuntime:
             cache = shared_cache(capacity=8)
             ids = self._prompt_ids.get(req)
             record = cache.publish(
-                token_ids=list(ids)[:covered], block_size=int(self.kv_block_size),
+                token_ids=list(ids)[:covered], block_size=1,
                 page_tokens=pt, pages=pages, state=state, request_id=str(req),
                 compacted_in_prefill=False)
             _os.makedirs("/tmp/kvmem_prefix_cache", exist_ok=True)
@@ -5581,7 +5587,8 @@ class VllmSparseRuntime:
             with open("/tmp/kvmem_prefix_cache/%s.json" % record.chain[-1].hex(), "w") as fh:
                 _j.dump({"tail": record.chain[-1].hex(), "covered": int(record.covered),
                          "page_tokens": int(record.page_tokens),
-                         "block_size": int(self.kv_block_size), "digest": record.digest,
+                         "block_size": 1, "digest": record.digest,
+                         "engine_block": int(self.kv_block_size),
                          "pages": int(len(pages)), "request": str(req)[-8:]}, fh)
             self.log({"kind": "prefix_sealed", "req": str(req)[-6:],
                       "covered": int(covered), "pages": int(len(pages)),

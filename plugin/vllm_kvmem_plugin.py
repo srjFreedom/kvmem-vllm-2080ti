@@ -3216,7 +3216,8 @@ def register():
                 # hand the worker the destination page list to copy the cached KV into.
                 try:
                     page_tokens = int(record["page_tokens"])
-                    block_tokens = int(record.get("block_size", block_size) or block_size)
+                    block_tokens = int(record.get("engine_block", 0)
+                                       or record.get("block_size", block_size) or block_size)
                     pages_per_block = max(1, block_tokens // page_tokens)
                     need_pages = covered // page_tokens
                     need_blocks = -(-need_pages // pages_per_block)
