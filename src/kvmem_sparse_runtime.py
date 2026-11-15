@@ -8583,7 +8583,7 @@ class VllmSparseRuntime:
                     import json as _jr
                     with open("/tmp/kvmem_prefix_cache/sel-%s.json" % _dgp) as _fr:
                         _replay_mid = [int(x) for x in
-                                       (json.load(_fr).get("middle") or ())]
+                                       (_jr.load(_fr).get("middle") or ())]
                     self.log({"kind": "sel_replay_used", "req": str(req)[-6:],
                               "blocks": len(_replay_mid)})
             except Exception as _rpe:
@@ -8607,14 +8607,20 @@ class VllmSparseRuntime:
             logical_pages = sorted({p for b in chosen for p in
                                     range(b * bp, (b + 1) * bp) if p < n_pages})
             try:
-                if _dgp:
+                # Never publish the result of a replay: it would overwrite the cold selection the
+                # next request needs (measured: the replaying run stored its own partial middle,
+                # the following rebuild then read a torn file and the answer stayed "KEY-MID").
+                if _dgp and not _replay_mid:
                     import json as _jw
                     import os as _ow
                     _ow.makedirs("/tmp/kvmem_prefix_cache", exist_ok=True)
-                    with open("/tmp/kvmem_prefix_cache/sel-%s.json" % _dgp, "w") as _fw:
+                    _tmp = "/tmp/kvmem_prefix_cache/sel-%s.json.tmp%d" % (
+                        _dgp, _ow.getpid())
+                    with open(_tmp, "w") as _fw:
                         _jw.dump({"middle": [int(b) for b in middle],
                                   "tail": sorted(int(b) for b in tail_blocks),
                                   "prompt": int(prompt_tokens)}, _fw)
+                    _ow.replace(_tmp, "/tmp/kvmem_prefix_cache/sel-%s.json" % _dgp)
                     self.log({"kind": "sel_published", "req": str(req)[-6:],
                               "blocks": len(middle)})
             except Exception:
