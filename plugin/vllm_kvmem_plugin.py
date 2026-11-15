@@ -3177,6 +3177,28 @@ def register():
                             meta = json.load(fh)
                     except Exception:
                         continue
+                    if str(meta.get("kind", "")) == "frame":
+                        if str(os.environ.get("KVMEM_PREFIX_FRAME_HIT", "0")).strip(
+                        ).lower() not in ("1", "true", "yes", "on"):
+                            # Frame restore needs the view positions to be rotated back to their
+                            # true phases; until that lands these records the resume would skip
+                            # prefill without the KV it implies.
+                            continue
+                        # fall through to the frame branch below
+                        # FRAME HIT: the record holds the compacted view (view order) plus the state
+                        # at the prompt frontier, so the request can skip prefill AND compaction.
+                        _fvc = int(meta.get("covered", 0) or 0)
+                        _fvt = int(meta.get("view_tokens", 0) or 0)
+                        _fpt = int(meta.get("page_tokens", 0) or 0)
+                        _flg = meta.get("logical") or ()
+                        if (_fvc <= 0 or _fvc > len(ids) or _fvc <= best or _fvt <= 0
+                                or _fpt <= 0 or len(_flg) * _fpt < _fvt):
+                            continue
+                        if _digest_token_ids(ids, _fvc) != str(meta.get("digest", "")):
+                            continue
+                        record = meta
+                        best = _fvc
+                        continue
                     covered = int(meta.get("covered", 0) or 0)
                     if covered <= 0 or covered > len(ids) or covered <= best:
                         if getattr(_prefix_cache_decision, "_r", 0) < 8:
@@ -3216,6 +3238,61 @@ def register():
                 _append("/tmp/kvmem_sparse.jsonl",
                         {"kind": "prefix_record_found", "req": str(rid)[-6:],
                          "covered": int(record["covered"]), "prompt": len(ids)})
+                if str(record.get("kind", "")) == "frame":
+                    try:
+                        page_tokens = int(record["page_tokens"])
+                        block_tokens = int(record.get("engine_block", 0) or block_size)
+                        pages_per_block = max(1, block_tokens // page_tokens)
+                        view_tokens = int(record["view_tokens"])
+                        need_pages = view_tokens // page_tokens
+                        need_blocks = -(-need_pages // pages_per_block)
+                        manager = scheduler.kv_cache_manager
+                        _cands = [m for m in manager.coordinator.single_type_managers
+                                  if "FullAttention" in type(m).__name__]
+                        attn_manager = _cands[0] if len(_cands) == 1 else manager
+                        pool = getattr(attn_manager, "block_pool", None) or manager.block_pool
+                        blocks = pool.get_new_blocks(need_blocks)
+                        dest = []
+                        for block in blocks:
+                            base = int(block.block_id) * pages_per_block
+                            dest.extend(base + off for off in range(pages_per_block))
+                        dest = dest[:need_pages]
+                        attn_manager.req_to_blocks[rid] = list(blocks)
+                        os.makedirs("/tmp/kvmem_prefix_fill", exist_ok=True)
+                        with open("/tmp/kvmem_prefix_fill/%s.json" % str(rid), "w") as fh:
+                            json.dump({"mode": "frame", "dest": [int(p) for p in dest],
+                                       "covered": int(record["covered"]),
+                                       "view_tokens": int(view_tokens),
+                                       "logical": [int(x) for x in (record.get("logical") or ())],
+                                       "tail": str(record.get("tail", "")),
+                                       "request": str(rid)}, fh)
+                        # resident book = view, served book = logical frontier (the adapter's view
+                        # coordinates), exactly the pairing a normal compaction installs.
+                        # Positions stay LOGICAL (so nothing is re-prefilled); the SLOT mapping
+                        # subtracts the offset, which lands every logical position inside the
+                        # restored view. This is the "positions logical / slots compacted"
+                        # geometry the fork supports via num_kvmem_offset.
+                        request.num_computed_tokens = int(record["covered"])
+                        request.num_logical_tokens = int(record["covered"])
+                        request.num_kvmem_offset = int(record["covered"]) - int(view_tokens)
+                        request.kvmem_session_resume = True
+                        _append(_sched_cfg(scheduler).get("probe_log")
+                                or "/tmp/kvmem_sparse.jsonl",
+                                {"kind": "frame_hit", "req": str(rid)[-6:],
+                                 "covered": int(record["covered"]),
+                                 "view_tokens": int(view_tokens),
+                                 "pages": len(dest), "blocks": need_blocks})
+                    except Exception as exc:
+                        try:
+                            if "blocks" in dir() and blocks:
+                                pool.free_blocks(list(blocks))
+                        except Exception:
+                            pass
+                        _append(_sched_cfg(scheduler).get("probe_log")
+                                or "/tmp/kvmem_sparse.jsonl",
+                                {"kind": "frame_adopt_error", "req": str(rid)[-6:],
+                                 "error": f"{type(exc).__name__}: {exc}"})
+                    continue
                 covered = int(record["covered"])
                 # Leave one page to be genuinely prefilled: an engine step with zero new tokens
                 # trips `assert num_new_tokens > 0` (measured: EngineCore AssertionError, HTTP 500).
@@ -3914,6 +3991,33 @@ def register():
                         _append(scfg.get("probe_log") or "/tmp/kvmem_sparse.jsonl",
                                 {"kind": "block_channel_attached", "pid": os.getpid()})
                 _maybe_resume(self)
+                try:
+                    _bt = getattr(self, "_book_trace", None)
+                    if _bt is None:
+                        _bt = self._book_trace = {}
+                    for _lst in (getattr(self, "running", None) or [],
+                                 getattr(self, "waiting", None) or []):
+                        for _rq in list(_lst)[:2]:
+                            _k = str(getattr(_rq, "request_id", ""))
+                            _nc = int(getattr(_rq, "num_computed_tokens", -1))
+                            _np_ = int(getattr(_rq, "num_prompt_tokens", -1))
+                            _tail = _np_ > 0 and _nc >= _np_ - 8192
+                            _lim = 24 if _tail else 3
+                            if _bt.get(_k, 0) >= _lim:
+                                continue
+                            _bt[_k] = _bt.get(_k, 0) + 1
+                            _append(_sched_cfg(self).get("probe_log")
+                                    or "/tmp/kvmem_sparse.jsonl",
+                                    {"kind": "book_trace", "req": _k[-6:],
+                                     "step": _bt[_k] - 1,
+                                     "ncomp": int(getattr(_rq, "num_computed_tokens", -1)),
+                                     "nprompt": int(getattr(_rq, "num_prompt_tokens", -1)),
+                                     "nlogical": int(getattr(_rq, "num_logical_tokens", -1)),
+                                     "offset": int(getattr(_rq, "num_kvmem_offset", 0)),
+                                     "noutput": int(getattr(_rq, "num_output_tokens", 0)
+                                                    or len(getattr(_rq, "output_token_ids", []) or []))})
+                except Exception:
+                    pass
                 _out = original(self, *args, **kwargs)
                 try:
                     # C6 draft audit (docs/design-mtp-draft-ledger.md): the outermost

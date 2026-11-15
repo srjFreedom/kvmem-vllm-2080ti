@@ -3542,6 +3542,15 @@ class VllmSparseRuntime:
                 state = (self._d_snaps or {}).get(req)
             except Exception:
                 state = None
+            if state is None:
+                try:
+                    state = self.capture_state(req, int(prompt))
+                except Exception:
+                    state = None
+            if state is None:
+                self.log({"kind": "frame_publish_refused", "req": str(req)[-6:],
+                          "reason": "no recurrent state"})
+                return False
             pages = {}
             kvs = self.view.paged_kv()
             for slot, page in enumerate(row):
@@ -3567,7 +3576,9 @@ class VllmSparseRuntime:
                          "covered": int(record.covered),
                          "view_tokens": int(record.view_tokens),
                          "page_tokens": int(record.page_tokens),
+                         "engine_block": int(self.kv_block_size),
                          "digest": record.digest, "pages": int(len(pages)),
+                         "logical": [int(x) for x in record.logical],
                          "request": str(req)[-8:]}, fh)
             self.log({"kind": "frame_published", "req": str(req)[-6:],
                       "covered": int(covered), "view_tokens": int(view_tokens),
@@ -5642,6 +5653,9 @@ class VllmSparseRuntime:
                 fill = _j.load(fh)
             dest = [int(p) for p in (fill.get("dest") or ())]
             covered = int(fill.get("covered", 0) or 0)
+            _mode = str(fill.get("mode", "prefix") or "prefix")
+            _view_tokens = int(fill.get("view_tokens", 0) or 0)
+            _logical = [int(x) for x in (fill.get("logical") or ())]
             # Align the adapter's own book with the engine's: the engine continues from
             # `num_computed_tokens = covered`, so a runtime that still believes `st.tokens == 0`
             # drives its per-step view logic one context behind (measured: one stray token before
@@ -5658,10 +5672,13 @@ class VllmSparseRuntime:
                               "tokens": int(covered)})
             except Exception:
                 pass
-            from kvmem_prefix_cache import shared_cache
-            cache = shared_cache()
-            record = None
+            from kvmem_prefix_cache import shared_cache, shared_frames
             tail_hex = str(fill.get("tail", "") or "")
+            if _mode == "frame":
+                cache = shared_frames()
+            else:
+                cache = shared_cache()
+            record = None
             if cache is not None:
                 if tail_hex:
                     try:
@@ -5752,9 +5769,30 @@ class VllmSparseRuntime:
                                          "fp": _fps}) + "\n")
             except Exception:
                 pass
+            if _mode == "frame":
+                # Install the restored frame as THIS request's view (upstream: the frame is the
+                # context, not a raw prefix). Book order matches a normal compaction.
+                try:
+                    st_fr = self._state.get(req)
+                    if st_fr is not None:
+                        st_fr.row = tuple(int(p) for p in dest)
+                        st_fr.logical = tuple(_logical[:len(dest)])
+                        st_fr.seq_len = int(_view_tokens)
+                        st_fr.tokens = int(covered)
+                        st_fr.applied_view_coord = True
+                        st_fr.view_installed = True
+                        st_fr.compacted_in_prefill = True
+                        st_fr.window_src = {0: 0}
+                        self._owned_slots[req] = set(int(p) for p in dest)
+                        self.log({"kind": "frame_view_installed", "req": str(req)[-6:],
+                                  "row": len(dest), "view_tokens": int(_view_tokens),
+                                  "covered": int(covered)})
+                except Exception as exc:
+                    self.log({"kind": "frame_view_error", "req": str(req)[-6:],
+                              "error": f"{type(exc).__name__}: {exc}"})
             self.log({"kind": "prefix_fill_applied", "req": str(req)[-6:],
                       "pages": int(count), "covered": int(covered),
-                      "state": bool(state_ok)})
+                      "state": bool(state_ok), "mode": _mode})
             _os.unlink(path)
             return True
         except Exception as exc:
@@ -5767,6 +5805,23 @@ class VllmSparseRuntime:
         try:
             if not self._apply_prefix_fill(req, row_index):
                 self._seal_prefix_before_forward(req, row_index)
+        except Exception:
+            pass
+        # FRAME PUBLICATION (gap 1, upstream "compressed frame"): once the prompt is fully executed
+        # the request holds a compacted view whose pages + state ARE the context a later identical
+        # request needs. Publishing here makes the resuming request skip compaction entirely.
+        try:
+            _fp = getattr(self, "_frame_pub_done", None)
+            if _fp is None:
+                _fp = self._frame_pub_done = set()
+            if str(req) not in _fp:
+                _st_f = self._state.get(req)
+                _pl_f = int(self._prompt_len.get(req, 0) or 0)
+                if (_pl_f > 0 and _st_f is not None
+                        and int(getattr(_st_f, "tokens", 0) or 0) >= _pl_f
+                        and bool(getattr(_st_f, "compacted_in_prefill", False))):
+                    _fp.add(str(req))
+                    self.publish_frame_record(req)
         except Exception:
             pass
         # FRONTIER TRACE: compare the engine's own computed book with the adapter's, for the first

@@ -6864,3 +6864,29 @@ restore 写的是**新请求自己的槽**（28/29/30）——**状态槽几何�
 **唯一结论**：多出的那个 token 由 **压缩路径对引擎账本的一次回退**造成（冷跑同样压缩但不回退）。
 下一轮：在压缩的账本写入点（`num_computed_tokens = visible` / `_cap`）打印
 "命中后的 computed / visible / logical"三个值，与冷跑同点对比，找出那 1 个 token 的来源。
+
+## 980. Round 835：帧复用需要"逆 RoPE 重旋"，先归档；记账追踪确认前缀路径账本正常
+
+**本轮新增（脚手架，默认关闭）**
+- **压缩帧发布**：预填完成时（`st.tokens >= prompt` 且已压缩）把**视图页（view 顺序）+ logical 映射 +
+  该 frontier 的循环状态**存入 `FrameCache` 并写 `<tail>.json`（`kind: frame`）。
+  实测 47K：`frame_published covered=47,040 view_tokens=26,688 pages=834 state=True`。
+- **帧命中路径**（`KVMEM_PREFIX_FRAME_HIT=1` 才启用）：装 834 页 → 填 KV → 恢复状态 →
+  把视图记账装进运行时（`frame_view_installed row=834 view_tokens=26,688`）。
+
+**为什么默认关闭**：帧里的 KV 是**真实位置**上算出来的，而视图只有 26,688 个槽；
+要让 47,040 个逻辑位置映射进去，必须把视图位置**压紧**（常数 offset）——但选片是
+sink+recent+中间，位置不连续，常数 offset 表达不了；官方做法是在恢复时**逆 RoPE 重旋**回真实相位。
+实测：直接按 offset 恢复 ⇒ 引擎 `assert num_new_tokens > 0` 崩；把帧记录误当"前缀"命中 ⇒
+跳过 prefill 又无 KV ⇒ 空输出。两条都已用闸门挡住（帧记录不再落入前缀路径）。
+
+**`book_trace`（前缀路径，冷 vs 暖）**
+```
+cold: ncomp 0 → 4096 → 8192 …（nprompt 47,064）
+warm: ncomp 24576 → 28672 → 32768 …（nprompt 47,064，logical 同步，offset 0）
+```
+⇒ 账本推进正常；那 1 个 token 的偏差仍只在"压缩被触发"时出现（上一轮已定位）。
+
+**下一步**：直接在前缀路径上对比**冷/暖各自的压缩选片规模**（`rebuild_select pages=`、`tail_forced`、
+`prompt_tokens`），找出为什么 warm 多生成 1 个 token；若确认是选片差异，则让命中后的压缩复用
+"冷跑同点"的选片参数即可，不必走 RoPE 旋转那条重路。
