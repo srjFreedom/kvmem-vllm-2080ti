@@ -8436,7 +8436,12 @@ class VllmSparseRuntime:
                           "error": f"{type(exc).__name__}: {exc}"})
         prompt_tokens = len(ids)
         n_pages = -(-prompt_tokens // pt)
-        tail_tokens = max(pt, int(getattr(self, "rebuild_tail_tokens", 0) or 4096))
+        # The forced tail must cover the caller's RECENT window: otherwise a needle that sits just
+        # outside `rebuild_tail_tokens` (4,096) but inside `recent` (8,192) is left to the scored
+        # middle, which missed it (measured at 152K: needle page 4,252 absent from the 839-page
+        # selection while the tail started at 4,337, answer "KEY-MID").
+        tail_tokens = max(pt, int(getattr(self, "rebuild_tail_tokens", 0) or 4096),
+                          int(getattr(self, "recent_tokens", 0) or 0))
         tail_pages_n = max(1, tail_tokens // pt)
         tail_first = max(0, n_pages - tail_pages_n)
         forced_tail = list(range(tail_first, n_pages))
@@ -8743,6 +8748,18 @@ class VllmSparseRuntime:
         if ok:
             self.accept_reconstruction(req)
         if self.log is not None:
+            try:
+                import os as _on
+                _np_ = int(_on.environ.get("KVMEM_NEEDLE_PAGE", "0") or 0)
+                if _np_ > 0:
+                    _in = int(_np_) in set(int(x) for x in selected)
+                    self.log({"kind": "needle_page_check", "req": str(req)[-6:],
+                              "needle_page": _np_, "selected": bool(_in),
+                              "selected_n": len(selected),
+                              "tail_pages": sorted(int(x) for x in list(selected)[-6:]),
+                              "head_pages": sorted(int(x) for x in list(selected)[:6])})
+            except Exception:
+                pass
             try:
                 import hashlib as _hs
                 _selh = _hs.sha1(",".join(str(int(x)) for x in selected).encode()).hexdigest()[:12]

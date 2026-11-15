@@ -7015,3 +7015,23 @@ prompt digest 与命中时记录的不同（`_prompt_ids[req]` 在重建阶段�
 1. 152K 的冷跑漏针要先解决（sink/评分选片质量），否则"warm 与 cold 一致"没有意义；
 2. 88K 若要"逐 token 相同"，需要修冷跑的 1-token 伪影（或接受 warm 更干净这一事实并记录口径）；
 3. 清理本轮调试开关与探针、把 `KVMEM_PREFIX_CACHE` 等写进文档与默认值。
+
+## 987. Round 842：**152K 漏针修好**（强制尾部要覆盖 recent 窗口）；三档验收数据齐了
+
+**152K 漏针的根因（探针 `needle_page_check`）**
+- 针位于 prompt 末尾前约 6,837 token（page 4,252）；`RECENT` 已设为 8,192，但**重建的强制尾部**
+  用的是 `rebuild_tail_tokens`（4,096）⇒ 尾部从 page 4,337 起，针页 4,252 落在"中间打分段"里被漏掉：
+  实测 `needle_page 4252 selected: False`，答案 `KEY-MID`。
+- **修复**：强制尾部取 `max(page, rebuild_tail_tokens, recent_tokens)` ⇒ 实测
+  `needle_page 4252 selected: True`，答案恢复 `…ZX-4417-QJ7`。
+
+**三档验收（同一实例，0.972，`RECENT=8192`）**
+| 用例 | cold | warm | 提速 | warm 答案 |
+|---|---|---|---|---|
+| 47K | 76s/10 token/`ZX-4417-QJ7` | 55s/10/`ZX-4417-QJ7` | 1.38× | **与冷跑逐 token 相同** ✓ |
+| 88K | 126s/11/`ductZX-4417-QJ7` | 90s/**10**/`ZX-4417-QJ7` | 1.40× | 正确（比冷跑干净）|
+| 152K tailA | 261s/11/`ductZX-4417-QJ7` | 222s/**10**/`ZX-4417-QJ7` | 1.18× | 正确（比冷跑干净）|
+
+**剩余差距**：88K/152K 的**冷跑**本身多 1 个 token（`duct` 前缀），warm 反而干净 ⇒
+"warm 与 cold 逐 token 相同"目前是"warm 比 cold 更好"。下一步要么修冷跑那 1-token（很可能与
+47K 命中时修掉的 `seq_len` 同类：重建后适配器记账差一步），要么把口径明确为"warm 必须正确且更快"。
