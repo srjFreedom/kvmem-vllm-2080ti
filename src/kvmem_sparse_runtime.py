@@ -7213,7 +7213,9 @@ class VllmSparseRuntime:
         # seq_len had become `tokens - covered`), and the warm answer drifts by one token.
         try:
             _hits0 = _HIT_LEDGER
-            if _hits0 and str(req) in _hits0:
+            _law_all = str(__import__("os").environ.get(
+                "KVMEM_SEQ_LEN_LAW", "all")).strip().lower() in ("all", "1", "true", "yes", "on")
+            if _law_all or (_hits0 and str(req) in _hits0):
                 _st_h = self._state.get(req)
                 if _st_h is not None:
                     _want = int(getattr(_st_h, "tokens", 0) or 0)
@@ -7750,7 +7752,10 @@ class VllmSparseRuntime:
             # drifts by one token. Correct it here, where the gate is about to use it.
             try:
                 _hits_g = _HIT_LEDGER
-                if _hits_g and str(req) in _hits_g:
+                _law_all_g = str(__import__("os").environ.get(
+                    "KVMEM_SEQ_LEN_LAW", "all")).strip().lower() in (
+                    "all", "1", "true", "yes", "on")
+                if _law_all_g or (_hits_g and str(req) in _hits_g):
                     if int(getattr(st, "seq_len", -1) or -1) != int(st.tokens):
                         self.log({"kind": "hit_seq_len_fixed", "req": str(req)[-6:],
                                   "was": int(getattr(st, "seq_len", -1) or -1),
@@ -8573,6 +8578,7 @@ class VllmSparseRuntime:
                         break
             except Exception:
                 _dgp = None
+            _replay_pages = None
             _replay_mid = None
             try:
                 self.log({"kind": "sel_digest_probe", "req": str(req)[-6:],
@@ -8587,8 +8593,9 @@ class VllmSparseRuntime:
                 if _hit and _dgp:
                     import json as _jr
                     with open("/tmp/kvmem_prefix_cache/sel-%s.json" % _dgp) as _fr:
-                        _replay_mid = [int(x) for x in
-                                       (_jr.load(_fr).get("middle") or ())]
+                        _sel = _jr.load(_fr)
+                    _replay_mid = [int(x) for x in (_sel.get("middle") or ())]
+                    _replay_pages = [int(x) for x in (_sel.get("pages") or ())]
                     self.log({"kind": "sel_replay_used", "req": str(req)[-6:],
                               "blocks": len(_replay_mid)})
             except Exception as _rpe:
@@ -8611,6 +8618,15 @@ class VllmSparseRuntime:
             chosen = sorted(set(middle) | tail_blocks)
             logical_pages = sorted({p for b in chosen for p in
                                     range(b * bp, (b + 1) * bp) if p < n_pages})
+            # FULL-SELECTION REPLAY: the middle-only replay still let the two rebuild passes
+            # diverge (measured: 383 vs 432 pages for the same request, answers "KEY-MID-7392").
+            # The published list IS the view the cold run used - install exactly it.
+            if _replay_pages:
+                _rp = [int(p) for p in _replay_pages if int(p) < n_pages]
+                if _rp:
+                    logical_pages = sorted(_rp)
+                    middle = [int(b) for b in {p // max(1, bp) for p in logical_pages
+                                               if p // max(1, bp) not in tail_blocks}]
             try:
                 # Never publish the result of a replay: it would overwrite the cold selection the
                 # next request needs (measured: the replaying run stored its own partial middle,
@@ -8624,6 +8640,7 @@ class VllmSparseRuntime:
                     with open(_tmp, "w") as _fw:
                         _jw.dump({"middle": [int(b) for b in middle],
                                   "tail": sorted(int(b) for b in tail_blocks),
+                                  "pages": [int(x) for x in logical_pages],
                                   "prompt": int(prompt_tokens)}, _fw)
                     _ow.replace(_tmp, "/tmp/kvmem_prefix_cache/sel-%s.json" % _dgp)
                     self.log({"kind": "sel_published", "req": str(req)[-6:],

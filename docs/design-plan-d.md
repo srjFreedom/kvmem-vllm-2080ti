@@ -7035,3 +7035,27 @@ prompt digest 与命中时记录的不同（`_prompt_ids[req]` 在重建阶段�
 **剩余差距**：88K/152K 的**冷跑**本身多 1 个 token（`duct` 前缀），warm 反而干净 ⇒
 "warm 与 cold 逐 token 相同"目前是"warm 比 cold 更好"。下一步要么修冷跑那 1-token（很可能与
 47K 命中时修掉的 `seq_len` 同类：重建后适配器记账差一步），要么把口径明确为"warm 必须正确且更快"。
+
+## 988. Round 843：**三档全部达成**（warm 与 cold 逐 token 相同 + 更快）
+
+**本轮两个修正**
+1. **长度定律扩展到所有请求**（`KVMEM_SEQ_LEN_LAW=all`，默认）：重建后适配器的 `seq_len` 同样会
+   落后一步，这正是 88K/152K **冷跑**多 1 个 token（`duct` 前缀）的来源；扩展后冷跑恢复 10 token。
+2. **整份选片重放**（不只是中间段）：重建会被调用两次，两次的 `block_ok/room` 过滤不同，
+   仅重放中间段仍会分叉（`383 vs 432` 页 ⇒ `KEY-MID-7392`）。改为发布/重放**完整 `logical_pages`**，
+   两边选片哈希一致（`sel_hash 24c21863a354`）。
+
+**验收（同一实例，0.972，`RECENT=8192`）**
+| 用例 | cold | warm | 提速 | 答案一致 |
+|---|---|---|---|---|
+| 47K | 81s / 10 token / `ZX-4417-QJ7` | **60s / 10 token / `ZX-4417-QJ7`** | 1.35× | ✓ 逐 token |
+| 88K | 125s / 10 / `ZX-4417-QJ7` | **106s / 10 / `ZX-4417-QJ7`** | 1.18× | ✓ 逐 token |
+| 152K tailA | 257s / 10 / `ZX-4417-QJ7` | **221s / 10 / `ZX-4417-QJ7`** | 1.16× | ✓ 逐 token |
+
+**配置已固化到 `/etc/default/kvmem-vllm`**：`GPU_UTIL=0.972`、`KVMEM_PLAN_D=0`、`KVMEM_D_KNIFE=0`、
+`KVMEM_PREFILL_PRESSURE=1`、`KVMEM_SESSION_REUSE=0`、`INREQUEST_COMPACTION=1`、
+`KVMEM_PREFIX_CACHE=1`、`RECENT=8192`。
+
+**剩余（第 ③ 项收尾）**：清理本轮临时探针与开关（`prefix_probe/attempt/frontier`、
+`book_trace`、`frontier_trace`、`hit_digest`、`sel_digest_probe` 等），把开关语义写进
+`PARAMETERS.md`/README，然后从"干净重启 + 仅 `/etc/default`"复现一次验收。
