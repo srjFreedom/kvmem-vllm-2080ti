@@ -6700,3 +6700,29 @@ connector 的形态重写：**一个 restore 入口 + 显式页所有权 + 发�
 ② 恢复包含 GDN 状态：`prefix_fill_applied state=True`；
 ③ 命中前精确 token 前缀比较：按记录 digest 复算，改动 1 字符即 miss；
 ④ 第二次请求与冷跑一致且更快：30s → 5s（6 倍），重复与换文档均一致。
+
+## 973. Round 828（缺口 1 开工）：压缩前"封存前缀"发布已实现；父请求的命中窗口尚未打开
+
+**用户裁决**：①继续攻压缩场景复用；②记录放进程内存即可，不做磁盘/重启保留；③按顺序推进。
+
+**本轮实现**
+1. `publish_prefix_record(req, covered=None)` 支持**显式 frontier**；新增
+   `publish_frame_record`（压缩帧）与 `FrameCache`（帧记录，含 view 顺序 + 逻辑映射 + 状态）。
+2. **封存前缀发布**（关键）：在 `after_step` 里当 `tokens >= budget-8192` 且 **尚未压缩**
+   （`compacted_in_prefill=False`）且 row 仍是稠密前缀时，用 `capture_state(req, covered)` 抓状态，
+   发布 `covered = tokens`（block 对齐）的记录。这样下一次相同 prompt 可以跳过这段 prefill，
+   其余（含压缩）照常重算——正是上游"boundary"语义。
+3. 语法校验改用 `compile()`（`ast.parse` 不检查 `continue` 不在循环内；本轮因此让 runtime 挂载失败、
+   47K 退化成裸 vLLM 45s，已修复）。
+
+**实测（47K，压缩场景，同一实例）**
+- #1：75s ✓ `ZX-4417-QJ7`，`prefix_seal_attempt covered=24,576` → `prefix_published pages=768`（含状态）；
+- #2：76s ✓（**未命中**）：`prefix_decide_probe` 只看到 **child 请求**（prompt=30,776 的选出 token 列表）
+  ⇒ `prefix_digest_miss`（预期，因为 child 的 token 列表不同于原 prompt）；
+- 父请求（prompt=47,064）**没有进入决策窗口**：既无 `prefix_hit` 也无 `prefix_skip` 记录。
+
+**结论/下一步**
+- 压缩场景的复用必须以 **child 的 token 列表（选中 token）** 为 key：父请求的封存前缀在重建后
+  就不再是这个请求的身份；因此发布/查找要对齐 `select_tokens(logical)`。
+- 另一个待查点：为何父请求进入调度时 `waiting` 里看不到它（下一步加"每次 `_maybe_resume` 的
+  waiting/running 计数"日志，确认决策窗口是否真的存在）。

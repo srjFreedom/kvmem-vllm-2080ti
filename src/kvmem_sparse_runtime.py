@@ -3511,7 +3511,78 @@ class VllmSparseRuntime:
                           "err": str(_dcx)[:200]})
             return False
 
-    def publish_prefix_record(self, req):
+    def publish_frame_record(self, req):
+        """Publish the compacted frame of a finished over-budget request (new protocol)."""
+        import os as _o
+        if str(_o.environ.get("KVMEM_PREFIX_CACHE", "0")).strip().lower() not in (
+                "1", "true", "yes", "on"):
+            return False
+        try:
+            from kvmem_prefix_cache import PrefixCacheError, shared_frames
+            ids = self._prompt_ids.get(req)
+            prompt = int(self._prompt_len.get(req, 0) or 0)
+            st = self._state.get(req)
+            if not ids or prompt <= 0 or st is None:
+                return False
+            row = tuple(int(p) for p in (getattr(st, "row", ()) or ()))
+            logical = tuple(getattr(st, "logical", ()) or ())
+            if not row or not logical or not getattr(st, "compacted_in_prefill", False):
+                return False
+            covered = (int(prompt) // max(1, int(self.kv_block_size))) * max(
+                1, int(self.kv_block_size))
+            view_tokens = int(len(row) * int(self.page_tokens))
+            if covered <= 0 or view_tokens <= 0:
+                return False
+            if len(row) > 4096:
+                self.log({"kind": "frame_publish_refused", "req": str(req)[-6:],
+                          "reason": "view too large", "pages": len(row)})
+                return False
+            state = None
+            try:
+                state = (self._d_snaps or {}).get(req)
+            except Exception:
+                state = None
+            pages = {}
+            kvs = self.view.paged_kv()
+            for slot, page in enumerate(row):
+                if int(page) <= 0 or int(page) >= int(kvs[0].shape[0]):
+                    pages = {}
+                    break
+                pages[int(slot)] = [t[int(page)].detach().to("cpu").clone() for t in kvs]
+            if len(pages) != len(row):
+                self.log({"kind": "frame_publish_refused", "req": str(req)[-6:],
+                          "reason": "page snapshot incomplete", "pages": len(pages)})
+                return False
+            frames = shared_frames(capacity=2)
+            record = frames.publish(
+                token_ids=list(ids)[:covered], block_size=int(self.kv_block_size),
+                page_tokens=int(self.page_tokens), covered=int(covered),
+                view_tokens=int(view_tokens), pages=pages, logical=logical,
+                state=state, request_id=str(req))
+            _o.makedirs("/tmp/kvmem_prefix_cache", exist_ok=True)
+            import json as _j
+            with open("/tmp/kvmem_prefix_cache/frame-%s.json" % record.chain[-1].hex(),
+                      "w") as fh:
+                _j.dump({"kind": "frame", "tail": record.chain[-1].hex(),
+                         "covered": int(record.covered),
+                         "view_tokens": int(record.view_tokens),
+                         "page_tokens": int(record.page_tokens),
+                         "digest": record.digest, "pages": int(len(pages)),
+                         "request": str(req)[-8:]}, fh)
+            self.log({"kind": "frame_published", "req": str(req)[-6:],
+                      "covered": int(covered), "view_tokens": int(view_tokens),
+                      "pages": int(len(pages)), "state": bool(state is not None)})
+            return True
+        except PrefixCacheError as exc:
+            self.log({"kind": "frame_publish_refused", "req": str(req)[-6:],
+                      "reason": str(exc)[:140]})
+            return False
+        except Exception as exc:
+            self.log({"kind": "frame_publish_error", "req": str(req)[-6:],
+                      "error": f"{type(exc).__name__}: {exc}"})
+            return False
+
+    def publish_prefix_record(self, req, covered=None):
         """Publish the explicit prefix record (new protocol). Never touches the legacy tree."""
         import os as _o
         if str(_o.environ.get("KVMEM_PREFIX_CACHE", "0")).strip().lower() not in (
@@ -3531,9 +3602,11 @@ class VllmSparseRuntime:
                           "reason": "no orchestrator"})
                 return False
             from kvmem_session_store import session_checkpoint_frontier
-            covered = session_checkpoint_frontier(prompt, int(self.kv_block_size),
-                                                 int(self.budget_tokens),
-                                                 int(self.select_block_tokens))
+            if covered is None:
+                covered = session_checkpoint_frontier(prompt, int(self.kv_block_size),
+                                                      int(self.budget_tokens),
+                                                      int(self.select_block_tokens))
+            covered = int(covered or 0)
             if covered <= 0:
                 # A prompt that fits the resident budget never reaches the pressure frontier,
                 # yet it IS the simplest sealed prefix there is: the whole prompt, block aligned.
@@ -3570,6 +3643,9 @@ class VllmSparseRuntime:
                     state = self.capture_state(req, int(covered))
                 except Exception:
                     state = None
+            if state is None and self.log is not None:
+                self.log({"kind": "prefix_state_missing", "req": str(req)[-6:],
+                          "covered": int(covered)})
             cache = shared_cache(capacity=8)
             logical = {}
             try:
@@ -6889,8 +6965,27 @@ class VllmSparseRuntime:
                 if str(req) not in _done:
                     _st = self._state.get(req)
                     _prompt = int(self._prompt_len.get(req, 0) or 0)
+                    _blk = max(1, int(self.kv_block_size))
+                    _toks = int(getattr(_st, "tokens", 0) or 0) if _st is not None else 0
+                    _row = tuple(getattr(_st, "row", ()) or ()) if _st is not None else ()
+                    _dense = _st is not None and not bool(
+                        getattr(_st, "compacted_in_prefill", False))
+                    _edge = max(4096, int(self.budget_tokens) - 8192)
+                    if (_prompt > 0 and _st is not None and _dense
+                            and _toks >= _edge
+                            and len(_row) >= (_toks // _blk) * (_blk // max(1, int(self.page_tokens)))):
+                        # SEALED PREFIX BEFORE COMPACTION (gap 1): while the prompt is still
+                        # executing densely, the first `tokens` are an honest sealed prefix with a
+                        # trustworthy state. Publishing here lets the next identical request skip
+                        # exactly that much prefill; the remainder (including compaction) recomputes
+                        # normally, which is the upstream "boundary" semantics.
+                        _aligned = (_toks // _blk) * _blk
+                        _done.add(str(req))
+                        self.log({"kind": "prefix_seal_attempt", "req": str(req)[-6:],
+                                  "covered": int(_aligned), "row": len(_row)})
+                        self.publish_prefix_record(req, covered=_aligned)
                     if (_prompt > 0 and _st is not None
-                            and int(getattr(_st, "tokens", 0) or 0) >= _prompt):
+                            and _toks >= _prompt):
                         _done.add(str(req))
                         self.log({"kind": "prefix_attempt", "req": str(req)[-6:],
                                   "prompt": _prompt,
@@ -8235,6 +8330,20 @@ class VllmSparseRuntime:
         st.compacted_in_prefill = True
         st.window_src = {rank: int(lp) for rank, lp in enumerate(selected)}
         self._owned_slots[req] = set(int(p) for p in st.row)
+        # COMPRESSED FRAME PUBLICATION (new protocol, gap 1): this is the only moment that has
+        # BOTH the view pages and the recurrent state at the prompt frontier. A finished
+        # over-budget request never reaches `tokens >= prompt` in after_step (it is rebuilt as a
+        # child at this point), so the frame must be captured here.
+        try:
+            _frames_done = getattr(self, "_frame_published", None)
+            if _frames_done is None:
+                _frames_done = self._frame_published = set()
+            if str(req) not in _frames_done:
+                _frames_done.add(str(req))
+                self.publish_frame_record(req)
+        except Exception as _pfe:
+            self.log({"kind": "frame_publish_error", "req": str(req)[-6:],
+                      "error": f"{type(_pfe).__name__}: {_pfe}"})
         # 4) hand Core the reconstruction over the channel (rebuild branch -> pending -> fresh
         #    dense admission of `select_tokens(logical)` on the scheduler thread)
         # worker-side source of truth for the pending rebuilt admission (the

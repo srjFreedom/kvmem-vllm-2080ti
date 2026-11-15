@@ -3092,7 +3092,15 @@ def register():
                          "prompt": len(list(getattr(waiting[0], "prompt_token_ids", ()) or ()))})
             for request in waiting:
                 rid = getattr(request, "request_id", None)
-                if rid is None or int(getattr(request, "num_computed_tokens", 0) or 0) > 0:
+                _ncomp = int(getattr(request, "num_computed_tokens", 0) or 0)
+                if rid is None or _ncomp > 0:
+                    if getattr(_prefix_cache_decision, "_s", 0) < 8:
+                        _prefix_cache_decision._s = getattr(
+                            _prefix_cache_decision, "_s", 0) + 1
+                        _append("/tmp/kvmem_sparse.jsonl",
+                                {"kind": "prefix_skip", "req": str(rid)[-6:],
+                                 "why": "no rid" if rid is None else "already computed",
+                                 "ncomp": _ncomp})
                     continue
                 ids = list(getattr(request, "prompt_token_ids", None) or ())
                 if len(ids) < block_size:
@@ -3127,7 +3135,16 @@ def register():
                         continue
                     if int(meta.get("page_tokens", 0) or 0) <= 0:
                         continue
-                    if _digest_token_ids(ids, covered) != str(meta.get("digest", "")):
+                    _want = str(meta.get("digest", ""))
+                    _have = _digest_token_ids(ids, covered)
+                    if _have != _want:
+                        if getattr(_prefix_cache_decision, "_d", 0) < 6:
+                            _prefix_cache_decision._d = getattr(
+                                _prefix_cache_decision, "_d", 0) + 1
+                            _append("/tmp/kvmem_sparse.jsonl",
+                                    {"kind": "prefix_digest_miss", "req": str(rid)[-6:],
+                                     "covered": covered, "rec": _want[:16],
+                                     "have": _have[:16], "n": len(ids)})
                         continue
                     record = meta
                     best = covered
