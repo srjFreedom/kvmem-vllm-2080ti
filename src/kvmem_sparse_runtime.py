@@ -5575,6 +5575,20 @@ class VllmSparseRuntime:
                 self.log({"kind": "prefix_seal_refused", "req": str(req)[-6:],
                           "reason": "page snapshot incomplete", "pages": len(pages)})
                 return False
+            try:
+                import json as _js
+                _idx = sorted(set(list(range(min(3, expected))) +
+                                  list(range(max(0, expected - 3), expected))))
+                _fps = []
+                for _slot in _idx:
+                    _t = pages[_slot][0]
+                    _fps.append([int(_slot), round(float(_t.float().abs().mean()), 5)])
+                with open("/tmp/kvmem_seal_fp.jsonl", "a") as _fs:
+                    _fs.write(_js.dumps({"pid": __import__("os").getpid(),
+                                         "req": str(req)[-6:], "covered": int(covered),
+                                         "fp": _fps}) + "\n")
+            except Exception:
+                pass
             from kvmem_prefix_cache import PrefixCacheError, shared_cache
             cache = shared_cache(capacity=8)
             ids = self._prompt_ids.get(req)
@@ -5633,7 +5647,10 @@ class VllmSparseRuntime:
             # drives its per-step view logic one context behind (measured: one stray token before
             # the right answer, "-ZX-4417-QJ7").
             try:
-                st_ft = self._state.get(req)
+                import os as _os_ba
+                _no_align = str(_os_ba.environ.get("KVMEM_PREFIX_NO_BOOK_ALIGN", "0")).strip(
+                ).lower() in ("1", "true", "yes", "on")
+                st_ft = self._state.get(req) if not _no_align else None
                 if st_ft is not None and int(getattr(st_ft, "tokens", 0) or 0) < int(covered):
                     st_ft.tokens = int(covered)
                     st_ft.seq_len = int(covered)
@@ -5667,9 +5684,12 @@ class VllmSparseRuntime:
                           "keys": [k.hex()[:24] for k in _keys]})
                 _os.unlink(path)
                 return False
+            import os as _os_sf
+            _skip_fill = str(_os_sf.environ.get("KVMEM_PREFIX_SKIP_FILL", "0")).strip().lower() in (
+                "1", "true", "yes", "on")
             kvs = self.view.paged_kv()
             count = min(len(dest), int(record.page_count))
-            for index in range(count):
+            for index in range(0 if _skip_fill else count):
                 tensors = record.pages.get(int(index))
                 if not tensors:
                     raise RuntimeError("logical page missing: %d" % index)
@@ -5712,6 +5732,26 @@ class VllmSparseRuntime:
                 except Exception as exc:
                     self.log({"kind": "prefix_state_error", "req": str(req)[-6:],
                               "error": f"{type(exc).__name__}: {exc}"})
+            try:
+                import json as _jf
+                _idx = sorted(set(list(range(min(3, count))) +
+                                  list(range(max(0, count - 3), count))))
+                _fps = []
+                for _slot in _idx:
+                    _src = record.pages.get(int(_slot))
+                    _sp = (round(float(_src[0].float().abs().mean()), 5)
+                           if _src else -1.0)
+                    try:
+                        _dp = round(float(kvs[0][int(dest[_slot])].float().abs().mean()), 5)
+                    except Exception:
+                        _dp = -2.0
+                    _fps.append([int(_slot), int(dest[_slot]), _sp, _dp])
+                with open("/tmp/kvmem_fill_fp.jsonl", "a") as _ff:
+                    _ff.write(_jf.dumps({"pid": __import__("os").getpid(),
+                                         "req": str(req)[-6:], "covered": int(covered),
+                                         "fp": _fps}) + "\n")
+            except Exception:
+                pass
             self.log({"kind": "prefix_fill_applied", "req": str(req)[-6:],
                       "pages": int(count), "covered": int(covered),
                       "state": bool(state_ok)})
