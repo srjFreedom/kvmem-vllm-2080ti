@@ -6726,3 +6726,29 @@ connector 的形态重写：**一个 restore 入口 + 显式页所有权 + 发�
   就不再是这个请求的身份；因此发布/查找要对齐 `select_tokens(logical)`。
 - 另一个待查点：为何父请求进入调度时 `waiting` 里看不到它（下一步加"每次 `_maybe_resume` 的
   waiting/running 计数"日志，确认决策窗口是否真的存在）。
+
+## 974. Round 829（缺口 1）：**压缩场景也能命中了**（76s → 35s），只剩一个 token 的偏差
+
+**用户裁决**：Plan-D 旧设计挡路就丢掉，不迁就（本轮据此不再依赖旧 session 开关）。
+
+**三个关键修正**
+1. **块大小不再依赖旧开关**：`enable_session_reuse()` 只在 `session_reuse=1` 时被调用，导致
+   `runtime.kv_block_size=0` ⇒ 身份链退化成"逐 token 哈希"、发布记录永不匹配（实测 meta `block_size: 0`）。
+   现在只要 `KVMEM_PREFIX_CACHE` 打开就按 `cache_config.block_size` 赋值（1568）。
+2. **epoch 必须是"导入时间"**：原先在"第一次决策调用"时才设，晚于本进程第一次发布
+   （实测 `mtime=…820 < epoch=…824`）⇒ 自己刚发布的记录全部被判过期。改为模块导入时固定。
+3. **跳过量 = 封存 frontier**：只有"整段 prompt 都被封存"时才留一页（避免
+   `assert num_new_tokens > 0`）；部分封存（压缩场景）直接跳过封存 frontier，与状态对齐。
+
+**实测（同一实例，无 session 字段）**
+| 用例 | cold | warm | 提速 | 答案 |
+|---|---|---|---|---|
+| 47K（压缩，>B） | 76s | **35s** | 2.2× | `-ZX-4417-QJ7`（多一个 `-`） |
+| 30K（≤B） | 31s | **10s** | 3.1× | `ZX-4417-QJ7` ✓ 精确 |
+
+事件链（47K warm）：`prefix_record_found covered=23,520` → `prefix_pages_adopted pages=734`
+→ `prefix_hit` → `prefix_fill_applied pages=734 state=True` ✓。
+
+**剩余**：压缩场景的首 token 偏差（答案多一个 `-`）。候选原因：状态快照的 frontier 与
+被跳过 token 数的对齐还差一步（`capture_state` 或 `num_computed_tokens` 的口径），
+下一轮用"逐 token 对比 cold/warm"定位后修正。

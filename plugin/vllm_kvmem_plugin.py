@@ -19,9 +19,13 @@ import traceback
 
 _PATCHED = False
 
-# Engine-start time of THIS process: records older than this cannot be filled (their KV lives
-# in worker memory) and must not be consumed.
-_PREFIX_EPOCH = None
+# Engine-start time of THIS process: records older than this cannot be filled (their KV lives in
+# worker memory) and must not be consumed. It must be captured at IMPORT time - setting it on the
+# first decision call made it later than the first request's own publication (measured:
+# mtime=...820 vs epoch=...824), which invalidated every record a run had just published.
+import time as _time_epoch
+
+_PREFIX_EPOCH = _time_epoch.time()
 
 
 _ACTIVE_CONFIG: dict = {}
@@ -832,6 +836,19 @@ def _attach_sparse(runner, log_path):
             return done
 
         runtime.reset_state = _reset_state
+    # The explicit prefix cache needs the engine's block size for its identity chain, and it must
+    # not depend on the legacy session switch (which is off): without this the chain degraded to
+    # one hash per token and the published record never matched at decision time (measured:
+    # meta block_size=0, digest computed over a 24,576-long chain).
+    try:
+        if not int(getattr(runtime, "kv_block_size", 0) or 0):
+            _bs_pc = int(getattr(getattr(getattr(runner, "vllm_config", None), "cache_config", None),
+                                "block_size", 0) or 0)
+            if _bs_pc > 0:
+                runtime.kv_block_size = int(_bs_pc)
+                _append(log_path, {"kind": "prefix_block_size", "block_size": int(_bs_pc)})
+    except Exception:
+        pass
     if bool(cfg.get("session_reuse", False)) and runtime.inrequest_compaction:
         try:
             from kvmem_session_store import get_session_store
@@ -3071,10 +3088,7 @@ def register():
             # by a PREVIOUS process can never be filled - skipping on it hands the engine an empty
             # row (measured: garbage output and a 5s "success"). Only records published after this
             # engine started may be consumed.
-            global _PREFIX_EPOCH
-            if _PREFIX_EPOCH is None:
-                import time as _time_pe
-                _PREFIX_EPOCH = _time_pe.time()
+            # epoch is fixed at import time (see the module-level comment)
             cache_cfg = getattr(scheduler, "cache_config", None)
             block_size = int(getattr(cache_cfg, "block_size", 0) or 0)
             if block_size <= 0:
@@ -3103,6 +3117,13 @@ def register():
                                  "ncomp": _ncomp})
                     continue
                 ids = list(getattr(request, "prompt_token_ids", None) or ())
+                if getattr(_prefix_cache_decision, "_w", 0) < 12:
+                    _prefix_cache_decision._w = getattr(
+                        _prefix_cache_decision, "_w", 0) + 1
+                    _append("/tmp/kvmem_sparse.jsonl",
+                            {"kind": "prefix_window", "req": str(rid)[-6:],
+                             "prompt": len(ids), "ncomp": _ncomp,
+                             "records": len(os.listdir(root))})
                 if len(ids) < block_size:
                     continue
                 try:
@@ -3125,6 +3146,13 @@ def register():
                     path = os.path.join(root, name)
                     try:
                         if os.path.getmtime(path) < float(_PREFIX_EPOCH or 0.0):
+                            if getattr(_prefix_cache_decision, "_r", 0) < 8:
+                                _prefix_cache_decision._r = getattr(
+                                    _prefix_cache_decision, "_r", 0) + 1
+                                _append("/tmp/kvmem_sparse.jsonl",
+                                        {"kind": "prefix_rec_skip", "req": str(rid)[-6:],
+                                         "why": "epoch", "mtime": int(os.path.getmtime(path)),
+                                         "epoch": int(float(_PREFIX_EPOCH or 0))})
                             continue
                         with open(path) as fh:
                             meta = json.load(fh)
@@ -3132,8 +3160,21 @@ def register():
                         continue
                     covered = int(meta.get("covered", 0) or 0)
                     if covered <= 0 or covered > len(ids) or covered <= best:
+                        if getattr(_prefix_cache_decision, "_r", 0) < 8:
+                            _prefix_cache_decision._r = getattr(
+                                _prefix_cache_decision, "_r", 0) + 1
+                            _append("/tmp/kvmem_sparse.jsonl",
+                                    {"kind": "prefix_rec_skip", "req": str(rid)[-6:],
+                                     "why": "covered range", "covered": covered,
+                                     "prompt": len(ids), "best": best, "file": name[:18]})
                         continue
                     if int(meta.get("page_tokens", 0) or 0) <= 0:
+                        if getattr(_prefix_cache_decision, "_r", 0) < 8:
+                            _prefix_cache_decision._r = getattr(
+                                _prefix_cache_decision, "_r", 0) + 1
+                            _append("/tmp/kvmem_sparse.jsonl",
+                                    {"kind": "prefix_rec_skip", "req": str(rid)[-6:],
+                                     "why": "page_tokens", "file": name[:18]})
                         continue
                     _want = str(meta.get("digest", ""))
                     _have = _digest_token_ids(ids, covered)
@@ -3149,12 +3190,24 @@ def register():
                     record = meta
                     best = covered
                 if record is None:
+                    _append("/tmp/kvmem_sparse.jsonl",
+                            {"kind": "prefix_no_record", "req": str(rid)[-6:],
+                             "prompt": len(ids), "records": len(names)})
                     continue
+                _append("/tmp/kvmem_sparse.jsonl",
+                        {"kind": "prefix_record_found", "req": str(rid)[-6:],
+                         "covered": int(record["covered"]), "prompt": len(ids)})
                 covered = int(record["covered"])
                 # Leave one page to be genuinely prefilled: an engine step with zero new tokens
                 # trips `assert num_new_tokens > 0` (measured: EngineCore AssertionError, HTTP 500).
                 # Upstream restores the frame and then computes the remaining tokens, never zero.
-                covered = max(0, covered - int(record["page_tokens"]))
+                # The skip point must equal the frontier the published state belongs to. When the
+                # whole prompt is sealed there is nothing left to prefill and an engine step with
+                # zero new tokens trips `assert num_new_tokens > 0`, so exactly one page is held
+                # back there; a partial seal (compacted prompts) skips the sealed frontier itself.
+                _prompt_len = len(ids)
+                if covered >= _prompt_len:
+                    covered = max(0, covered - int(record["page_tokens"]))
                 if covered <= 0:
                     continue
                 # MILESTONE B: the skip must come with pages this request OWNS, otherwise the
