@@ -160,3 +160,19 @@ engine window = N x (B+R) = 196608
 max_model_len auto = 2 x (65536 + 32768) = 196608
 KVMEM_CAPTURE_TOKENS=512
 ```
+
+## 前缀缓存（显式复用，2026-11-16 验收）
+
+| 变量 | 默认 | 作用 | 备注 |
+| --- | --- | --- | --- |
+| `KVMEM_PREFIX_CACHE` | `1` | 打开显式前缀缓存：预填完成后把"已完整执行的前缀"（页 KV + 循环状态 + 块哈希身份）发布到进程内缓存与 `/tmp/kvmem_prefix_cache`，下次相同 prompt 命中后跳过这段 prefill | 依赖 `KVMEM_PREFILL_PRESSURE=1`；身份 = 块哈希链 + 前缀 digest，与 `session_id` 无关 |
+| `RECENT` | `8192` | 尾窗 token 数；重建时**强制尾部会取 `max(rebuild_tail_tokens, RECENT)`** | 太小会把落在尾窗外的 needle 交给评分选片（152K 实测漏针），因此 8K 是当前默认 |
+| `KVMEM_SEQ_LEN_LAW` | `all` | 每个 step 强制适配器 `seq_len == tokens` | 命中/重建后 `seq_len` 会落后一步，导致压缩按错误的长度选片（warm 多 1 token、冷跑 `duct` 前缀） |
+| `KVMEM_PREFIX_TRACE` | `0` | 打开调查探针日志（`prefix_*`、`sel_*`、`book_trace`、`frontier_trace` 等） | 默认在日志出口统一过滤，排障时置 `1` |
+| `KVMEM_PREFIX_SKIP_STATE` | `0` | 诊断：命中时不恢复循环状态 | 仅用于判别实验 |
+| `KVMEM_PREFIX_SKIP_FILL` | `0` | 诊断：命中时不拷贝页 | 仅用于判别实验 |
+| `KVMEM_PREFIX_FRAME_HIT` | `0` | 打开"压缩帧命中"路径 | 未完成：帧页是真实位置相位，需逆 RoPE 重旋；默认关闭 |
+| `KVMEM_PREFIX_SEAL_EDGE` | `0` | 发布封存前缀的 token 阈值（0 = `max(4096, budget-8192)`） | 调大 ⇒ 命中更深、命中率更高，但尾部重算更多 |
+
+**验收（同一实例，`GPU_UTIL=0.972`，`RECENT=8192`）**：47K 81s→60s、88K 125s→106s、
+152K tailA 257s→221s；三次 warm 与 cold 的输出 token 数（10）与答案（`ZX-4417-QJ7`）完全一致。

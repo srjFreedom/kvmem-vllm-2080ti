@@ -479,6 +479,32 @@ def _bind_state_capture(runner, runtime):
         runner, runtime, req, frontier)
 
 
+# Temporary investigation probes. They are cheap but noisy, so they are filtered at the single log
+# exit and can be re-enabled with KVMEM_PREFIX_TRACE=1 when a regression needs them again.
+_PROBE_KINDS = frozenset({
+    "prefix_probe", "prefix_attempt", "prefix_frontier", "prefix_window",
+    "prefix_decide_probe", "prefix_rec_skip", "prefix_no_record", "prefix_record_found",
+    "prefix_skip", "prefix_state_probe", "prefix_state_missing", "hit_digest",
+    "sel_digest_probe", "book_trace", "frontier_trace", "hit_seq_len_fixed",
+    "d_gate_trace", "d_prefill_snap", "d_pf_entry", "d_pf_nolayout", "state_geom",
+    "compact_geom", "needle_page_check", "d_store_probe", "d_resume_pair",
+    "d_resume_gate505", "d_resume_geom455", "resume_loop_gate", "d_step_call",
+    "d_bs_entry", "d_em_entry", "d_hv_funnel", "d_exec_after", "d_post_adapter",
+    "d_step_snapshot", "d_exec_seen", "d_preclear", "d_core_entry", "d_step362",
+})
+
+
+def _make_runtime_log(log_path):
+    def _log(record):
+        kind = str((record or {}).get("kind", ""))
+        if kind in _PROBE_KINDS and str(
+                os.environ.get("KVMEM_PREFIX_TRACE", "0")).strip().lower() not in (
+                "1", "true", "yes", "on"):
+            return
+        _append(log_path, record)
+    return _log
+
+
 def _probe_runner(runner, log_path):
     record = {"kind": "probe", "pid": os.getpid()}
     try:
@@ -757,7 +783,7 @@ def _attach_sparse(runner, log_path):
         int(cfg.get("rotary_dim", 64)), float(cfg.get("rope_theta", 1e7)),
         k_slice=slice(0, int(cfg.get("head_dim", 256))),
         reselect_interval=int(cfg.get("reselect_interval", 64)),
-        log=lambda record: _append(log_path, record),
+        log=_make_runtime_log(log_path),
         # The kvmem contract parameters: the planner needs B/R verbatim (defaults would plan a
         # 32768-token view and drive the R cadence from 16384, both wrong for this site).
         select_block_tokens=int(cfg.get("select_block_tokens", 128)),
