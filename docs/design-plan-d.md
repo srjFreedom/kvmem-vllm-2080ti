@@ -6955,3 +6955,26 @@ warm: ncomp 24576 → 28672 → 32768 …（nprompt 47,064，logical 同步，of
 **下一步**：对同一 88K 请求，比较 ①压缩前那一刻的状态指纹（cold vs warm 同一 frontier）、
 ②选中的 873 个**逻辑页**列表是否逐项相同。若页列表相同 ⇒ 问题在“选中页的**字节**”
 （warm 里新 prefill 的页可能覆盖了被选中的页）；若不同 ⇒ 在选片打分输入。
+
+## 984. Round 839：88K 的差异是**选片中间段不同**；重放基础设施已就位但未武装
+
+**选片对比（88K @0.972，同实例）**
+| | 页数 | 首 4 页 | 末 4 页 | sel_hash |
+|---|---|---|---|---|
+| cold | 873 | 343,344,345,346 | 2339…2342 | `471aae41fd5b` |
+| warm（命中 24,576） | 873 | 343,344,345,346 | 2339…2342 | `93b0670c8952` |
+
+⇒ 数量/首/尾都相同，**只有中间段不同**（打分选出的页）。原因：warm 跳过 24,576 token，
+检索统计不同 ⇒ 中间页不同 ⇒ 视图内容不同 ⇒ `KEY-MID` vs `-ZX-4417-QJ7`。
+
+**本轮新增（基础设施）**
+- `_rebuild_select` 里发布选片：`/tmp/kvmem_prefix_cache/sel-<digest>.json`
+  （`middle` 块列表 + `tail` + prompt），日志 `sel_published`；
+- 命中请求在重建时尝试**重放**该 `middle`（覆盖重新打分的中间段），日志 `sel_replay_used`；
+- `_HIT_PROMPTS`：把“该 prompt 曾命中”记成**与请求 id 无关**的属性（此前按 req 记，
+  而重建跑在子请求 id 上，导致 `sel_replay_used` 从不触发）。
+
+**仍未武装**：实测 cold/warm 的 `sel_hash` 依旧不同、`sel_replay_used` 未出现 ⇒ 重建时算出的
+prompt digest 与命中时记录的不同（`_prompt_ids[req]` 在重建阶段可能已是“选中 token”的子账本）。
+**下一步**：在重建处打印 `digest / len(_prompt_ids[req]) / prompt_len`，确认 digest 覆盖的是
+原始 prompt 还是子账本，然后把重放的键改成双方都能算出的量（例如区块哈希链的尾）。

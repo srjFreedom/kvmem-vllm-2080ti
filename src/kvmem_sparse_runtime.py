@@ -80,6 +80,7 @@ class SparseViewCapacityError(RuntimeError):
 # be module level: the fill runs on one runtime object and the compaction gate on another, exactly
 # like the prefix cache itself (measured: an instance-level ledger never reached the gate).
 _HIT_LEDGER = {}
+_HIT_PROMPTS = set()  # prompt digests served from a hit (id-independent)
 
 
 class _ReqState:
@@ -5797,9 +5798,16 @@ class VllmSparseRuntime:
                     self.log({"kind": "frame_view_error", "req": str(req)[-6:],
                               "error": f"{type(exc).__name__}: {exc}"})
             try:
-                _HIT_LEDGER[str(req)] = int(covered)
+                import hashlib as _hd
+                _ids_h = self._prompt_ids.get(req) or ()
+                _plen_h = int(self._prompt_len.get(req, 0) or 0)
+                _dg_h = _hd.sha256(b"".join(
+                    int(t).to_bytes(4, "little", signed=False)
+                    for t in list(_ids_h)[:max(int(covered), _plen_h)])).hexdigest()
+                _HIT_LEDGER[str(req)] = (int(covered), _dg_h)
+                _HIT_PROMPTS.add(_dg_h)
             except Exception:
-                pass
+                _HIT_LEDGER[str(req)] = int(covered)
             self.log({"kind": "prefix_fill_applied", "req": str(req)[-6:],
                       "pages": int(count), "covered": int(covered),
                       "state": bool(state_ok), "mode": _mode})
@@ -8526,9 +8534,57 @@ class VllmSparseRuntime:
                         and b + 1 not in _mid_set and block_ok(b + 1)):
                     middle.append(b + 1)
                     _mid_set.add(b + 1)
+            # DETERMINISTIC SELECTION REPLAY: a request served from a prefix hit skipped part of
+            # its prefill, so its retrieval statistics differ and the scored middle picks other
+            # pages than the cold run did (measured at 88K: same count/head/tail, different
+            # sel_hash, answers "-ZX-4417-QJ7" vs "KEY-MID"). Reuse the cold selection instead.
+            import hashlib as _hd2
+            _ids_p = list(self._prompt_ids.get(req) or ())
+            _plen_p = int(self._prompt_len.get(req, 0) or 0)
+            try:
+                _dgp = _hd2.sha256(b"".join(
+                    int(t).to_bytes(4, "little", signed=False)
+                    for t in _ids_p[:_plen_p])).hexdigest()
+            except Exception:
+                _dgp = None
+            _replay_mid = None
+            try:
+                _hit = (_dgp in _HIT_PROMPTS) if _dgp else False
+                if _hit and _dgp:
+                    import json as _jr
+                    with open("/tmp/kvmem_prefix_cache/sel-%s.json" % _dgp) as _fr:
+                        _replay_mid = [int(x) for x in
+                                       (json.load(_fr).get("middle") or ())]
+                    self.log({"kind": "sel_replay_used", "req": str(req)[-6:],
+                              "blocks": len(_replay_mid)})
+            except Exception:
+                _replay_mid = None
+            if _replay_mid:
+                _rm = []
+                for b in _replay_mid:
+                    if len(_rm) >= room:
+                        break
+                    if b in tail_blocks or b in _mid_set or not block_ok(b):
+                        continue
+                    _rm.append(b)
+                    _mid_set.add(b)
+                middle = _rm
             chosen = sorted(set(middle) | tail_blocks)
             logical_pages = sorted({p for b in chosen for p in
                                     range(b * bp, (b + 1) * bp) if p < n_pages})
+            try:
+                if _dgp:
+                    import json as _jw
+                    import os as _ow
+                    _ow.makedirs("/tmp/kvmem_prefix_cache", exist_ok=True)
+                    with open("/tmp/kvmem_prefix_cache/sel-%s.json" % _dgp, "w") as _fw:
+                        _jw.dump({"middle": [int(b) for b in middle],
+                                  "tail": sorted(int(b) for b in tail_blocks),
+                                  "prompt": int(prompt_tokens)}, _fw)
+                    self.log({"kind": "sel_published", "req": str(req)[-6:],
+                              "blocks": len(middle)})
+            except Exception:
+                pass
             missing = 0
             # 2) self-contained device pack: page -> pool window slot, each written as the
             #    canonical store bytes rotated ONCE to its new rank (`restore_page_rank`:
@@ -8647,9 +8703,17 @@ class VllmSparseRuntime:
         if ok:
             self.accept_reconstruction(req)
         if self.log is not None:
+            try:
+                import hashlib as _hs
+                _selh = _hs.sha1(",".join(str(int(x)) for x in selected).encode()).hexdigest()[:12]
+            except Exception:
+                _selh = ""
             self.log({"kind": "rebuild_select", "req": req, "ok": bool(ok),
                       "pages": len(selected), "tail_forced": len(forced_tail),
                       "row": len(phys), "prompt_tokens": prompt_tokens,
+                      "sel_hash": _selh,
+                      "sel_head": [int(x) for x in list(selected)[:4]],
+                      "sel_tail": [int(x) for x in list(selected)[-4:]],
                       "detail": str(res)[:160]})
         return ok, res
 
