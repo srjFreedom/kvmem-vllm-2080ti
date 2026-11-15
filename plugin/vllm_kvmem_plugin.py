@@ -3346,6 +3346,7 @@ def register():
                         json.dump({"dest": [int(p) for p in dest],
                                    "covered": covered,
                                    "tail": str(record.get("tail", "")),
+                                   "prompt_digest": _digest_token_ids(ids, len(ids)),
                                    "request": str(rid)}, fh)
                     _append(_sched_cfg(scheduler).get("probe_log") or "/tmp/kvmem_sparse.jsonl",
                             {"kind": "prefix_pages_adopted", "req": str(rid)[-6:],

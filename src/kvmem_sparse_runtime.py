@@ -5798,14 +5798,15 @@ class VllmSparseRuntime:
                     self.log({"kind": "frame_view_error", "req": str(req)[-6:],
                               "error": f"{type(exc).__name__}: {exc}"})
             try:
-                import hashlib as _hd
-                _ids_h = self._prompt_ids.get(req) or ()
-                _plen_h = int(self._prompt_len.get(req, 0) or 0)
-                _dg_h = _hd.sha256(b"".join(
-                    int(t).to_bytes(4, "little", signed=False)
-                    for t in list(_ids_h)[:max(int(covered), _plen_h)])).hexdigest()
+                # The runtime's prompt ledger is still EMPTY at fill time (measured: ids_n=0), so
+                # the replay key must be something this moment already has: the covered frontier
+                # and the record's chain tail. Both are reproducible later from the prompt ids.
+                _dg_h = str(fill.get("prompt_digest") or "") or (
+                    "%d-%s" % (int(covered), str(tail_hex)[:24]))
                 _HIT_LEDGER[str(req)] = (int(covered), _dg_h)
                 _HIT_PROMPTS.add(_dg_h)
+                self.log({"kind": "hit_digest", "req": str(req)[-6:],
+                          "dg": str(_dg_h), "covered": int(covered)})
             except Exception:
                 _HIT_LEDGER[str(req)] = int(covered)
             self.log({"kind": "prefix_fill_applied", "req": str(req)[-6:],
@@ -8541,13 +8542,41 @@ class VllmSparseRuntime:
             import hashlib as _hd2
             _ids_p = list(self._prompt_ids.get(req) or ())
             _plen_p = int(self._prompt_len.get(req, 0) or 0)
+            _dgp = None
             try:
-                _dgp = _hd2.sha256(b"".join(
+                import hashlib as _hp
+                _dgp = _hp.sha256(b"".join(
                     int(t).to_bytes(4, "little", signed=False)
                     for t in _ids_p[:_plen_p])).hexdigest()
             except Exception:
                 _dgp = None
+            try:
+                from kvmem_prefix_cache import block_hash_chain as _bhc
+                for _key in list(_HIT_PROMPTS):
+                    try:
+                        _cov_k, _tail_k = _key.split("-", 1)
+                        _cov_k = int(_cov_k)
+                    except Exception:
+                        continue
+                    if _cov_k <= 0 or _cov_k > len(_ids_p):
+                        continue
+                    if _dgp in _HIT_PROMPTS:
+                        break
+                    _chain_k = _bhc(_ids_p[:_cov_k], 1)
+                    if _chain_k and _chain_k[-1].hex()[:24] == _tail_k:
+                        _dgp = _key
+                        break
+            except Exception:
+                _dgp = None
             _replay_mid = None
+            try:
+                self.log({"kind": "sel_digest_probe", "req": str(req)[-6:],
+                          "dg": str(_dgp)[:12], "ids_n": len(_ids_p),
+                          "plen": int(_plen_p),
+                          "in_set": bool(_dgp in _HIT_PROMPTS) if _dgp else None,
+                          "set_n": len(_HIT_PROMPTS)})
+            except Exception:
+                pass
             try:
                 _hit = (_dgp in _HIT_PROMPTS) if _dgp else False
                 if _hit and _dgp:
@@ -8557,8 +8586,13 @@ class VllmSparseRuntime:
                                        (json.load(_fr).get("middle") or ())]
                     self.log({"kind": "sel_replay_used", "req": str(req)[-6:],
                               "blocks": len(_replay_mid)})
-            except Exception:
+            except Exception as _rpe:
                 _replay_mid = None
+                try:
+                    self.log({"kind": "sel_replay_error", "req": str(req)[-6:],
+                              "error": f"{type(_rpe).__name__}: {_rpe}"})
+                except Exception:
+                    pass
             if _replay_mid:
                 _rm = []
                 for b in _replay_mid:

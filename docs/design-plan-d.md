@@ -6978,3 +6978,16 @@ warm: ncomp 24576 → 28672 → 32768 …（nprompt 47,064，logical 同步，of
 prompt digest 与命中时记录的不同（`_prompt_ids[req]` 在重建阶段可能已是“选中 token”的子账本）。
 **下一步**：在重建处打印 `digest / len(_prompt_ids[req]) / prompt_len`，确认 digest 覆盖的是
 原始 prompt 还是子账本，然后把重放的键改成双方都能算出的量（例如区块哈希链的尾）。
+
+## 985. Round 840：重放键已统一到"整段 prompt digest"，但重放仍未生效（下一步看异常）
+
+**本轮修正（键统一）**
+- 插件在 fill 文件里带上 `prompt_digest = sha256(全部 prompt token)`（此前运行时在填充阶段
+  `_prompt_ids` 还是空表，digest 是空串 `e3b0c442…`）；
+- 运行时账本 `_HIT_PROMPTS` 改存该 digest；重建侧用同样的 sha256 复算 ⇒ 实测
+  `sel_digest_probe in_set=True, set_n=1`（键已能对上）；
+- 选片发布/读回都按 `sel-<digest>.json`（文件已确认存在，内容为 `{"middle": [...]}`）。
+
+**仍未生效**：`sel_replay_used` 从未出现。已给读回分支加 `sel_replay_error` 日志（此前异常被
+静默吞掉）。下一轮第一件事：跑一次 cold+warm（同一实例）读这条日志，确认为何 `json.load` 或
+其后的 `middle` 过滤没有生效（很可能是 `block_ok()` 在命中请求里对冷跑的块全部返回 False）。
