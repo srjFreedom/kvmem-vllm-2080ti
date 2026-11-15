@@ -7059,3 +7059,30 @@ prompt digest 与命中时记录的不同（`_prompt_ids[req]` 在重建阶段�
 **剩余（第 ③ 项收尾）**：清理本轮临时探针与开关（`prefix_probe/attempt/frontier`、
 `book_trace`、`frontier_trace`、`hit_digest`、`sel_digest_probe` 等），把开关语义写进
 `PARAMETERS.md`/README，然后从"干净重启 + 仅 `/etc/default`"复现一次验收。
+
+## 989. Round 844（收尾）：探针收敛 + 最终验收（三档一致且明显更快）
+
+**探针收敛**：把调查探针统一在日志出口过滤（`_append` 里按 `_PROBE_KINDS` + `KVMEM_PREFIX_TRACE`
+判定）。同上实例 47K 跑两次后日志从 **1262 条降到 283 条**，语义事件（`prefix_hit`、
+`prefix_fill_applied`、`sel_published`、`rebuild_select` 等）保留；`KVMEM_PREFIX_TRACE=1`
+可随时恢复全部探针。剩余噪声来自 v0.5 之前就存在的 D 轨探针（不属本轮改动）。
+
+**封存点上调**：`KVMEM_PREFIX_SEAL_EDGE=36864`（在 budget 内、压缩门之前）=>
+可复用的前缀从 24,576 提到 36,864，命中节省更大。
+
+**最终验收（干净重启 + 仅 `/etc/default`；`GPU_UTIL=0.972`、`RECENT=8192`、`SEAL_EDGE=36864`）**
+| 用例 | cold | warm | 提速 | token 数 | 答案 |
+|---|---|---|---|---|---|
+| 47K | 81s | **50s** | **1.62×** | 10 = 10 | `ZX-4417-QJ7` ✓ |
+| 88K | 126s | **90s** | **1.40×** | 10 = 10 | `ZX-4417-QJ7` ✓ |
+| 152K tailA | 256s | **212s** | **1.21×** | 10 = 10 | `ZX-4417-QJ7` ✓ |
+
+**目标对照**
+① 47K warm 的 1-token 偏差：已修（`seq_len` 长度定律 + 完整选片重放）；
+② 三档"第二次请求"：**答案逐 token 一致且更快**（1.21×–1.62×）；
+③ 清理与固化：探针已收敛（开关 `KVMEM_PREFIX_TRACE`）、配置写入 `/etc/default/kvmem-vllm`
+（含 `KVMEM_PREFIX_CACHE/KVMEM_PREFIX_SEAL_EDGE/RECENT/KVMEM_SEQ_LEN_LAW` 默认值）、
+`docs/PARAMETERS.md` 增补前缀缓存一节。
+
+**已知边界（不在本轮范围）**：帧级复用（跳过重建本身）需要逆 RoPE 重旋，默认关闭；
+跨重启不保留（KV 在进程内存，epoch 闸门保证不误用）。
