@@ -11402,6 +11402,19 @@ class VllmSparseRuntime:
             st.spare = spare
         st.seq_len = sum(min(self.page_tokens, max(0, st.tokens - p * self.page_tokens))
                          for p in selected)
+        try:
+            self.log({"kind": "compact_geom", "req": str(req)[-6:],
+                      "tokens": int(st.tokens), "seq_len": int(st.seq_len),
+                      "off_pages": int(getattr(st, "off_pages", -1) or 0),
+                      "row": len(st.row), "sel_n": len(selected),
+                      "sel_head": [int(x) for x in list(selected)[:4]],
+                      "sel_tail": [int(x) for x in list(selected)[-4:]],
+                      "usable": len(orch.usable_pages(int(st.tokens))),
+                      "budget_pages": int(self.selector.budget_pages()),
+                      "sink_pages": int(getattr(self, "sink_tokens", 0) or 0) // max(
+                          1, int(self.page_tokens))})
+        except Exception:
+            pass
         # Only allocated native blocks remain in the row after EngineCore frees its tail.
         # Verified on the live TP2 run (2026-10-30): after each boundary compaction the NEXT
         # schedule re-appends blocks and `sync_row_from_engine` mirrors them (row 1323 -> 1421 ->

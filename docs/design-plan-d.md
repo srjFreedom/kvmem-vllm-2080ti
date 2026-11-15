@@ -6890,3 +6890,22 @@ warm: ncomp 24576 → 28672 → 32768 …（nprompt 47,064，logical 同步，of
 **下一步**：直接在前缀路径上对比**冷/暖各自的压缩选片规模**（`rebuild_select pages=`、`tail_forced`、
 `prompt_tokens`），找出为什么 warm 多生成 1 个 token；若确认是选片差异，则让命中后的压缩复用
 "冷跑同点"的选片参数即可，不必走 RoPE 旋转那条重路。
+
+## 981. Round 836：**压缩选片差异被量化**——warm 只选最新 148 页，冷跑选 834 页（含 sink）
+
+**实测（47K 同一实例，`rebuild_select` / `compact_rebuild_queued` / `pressure_gate`）**
+| | 压缩触发点 | 选片 | 选片对应 token | 压缩时 row |
+|---|---|---|---|---|
+| cold `50c0b1` | tokens 32,768, seq_len 32,768 | **834 页** | 30,776 | 1,024 |
+| warm `a9858b` | tokens 32,768, **seq_len 8,192** | **148 页** | 8,824 | 896 |
+
+⇒ warm 的选片只覆盖**最新的 8,824 token**（148 页），**没有 sink**；冷跑覆盖 30,776（834 页，含 sink）。
+`seq_len` 在 warm 里等于 `tokens − 24,576`，正好是"命中长度"被当成了偏移。
+
+**结论**：命中后适配器的 `seq_len` 没有保持"逻辑前沿"，压缩按它选片 ⇒ 视图变小、上下文不同 ⇒
+多生成 1 个 token（`-ZX-4417-QJ7`）。
+
+**下一步（唯一动作）**：找出把 `seq_len` 变成 `tokens − covered` 的那次赋值（候选：
+`_absorb_engine_row` 之后的按行重算、`sync_row_from_engine`、或视图安装路径），
+命中后把它钉成逻辑前沿（`st.seq_len = st.tokens`）。本轮为定位加的 `compact_geom` 探针
+打在了一个未走到的分支上（无输出），下轮改打在 `pressure_gate` 命中点上。
