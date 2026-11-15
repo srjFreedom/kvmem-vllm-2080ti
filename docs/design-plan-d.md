@@ -6752,3 +6752,29 @@ connector 的形态重写：**一个 restore 入口 + 显式页所有权 + 发�
 **剩余**：压缩场景的首 token 偏差（答案多一个 `-`）。候选原因：状态快照的 frontier 与
 被跳过 token 数的对齐还差一步（`capture_state` 或 `num_computed_tokens` 的口径），
 下一轮用"逐 token 对比 cold/warm"定位后修正。
+
+## 975. Round 830（对照官方实现后推翻旧做法）：封存点改到 forward 之前
+
+**对照上游 `src/vllm_kvmem/core/memory.py` 得到的硬约束**
+1. `begin_rewind`：`if checkpoint.position % block_tokens: raise "Rewind requires a sealed-record boundary"`
+   —— checkpoint 必须**块对齐**；
+2. `restore_window`：`if self.history_end != checkpoint.position: raise "Rewind authority before
+   restoring its checkpoint window"` —— **状态（history_end）必须精确等于 checkpoint 位置**；
+3. "The completion fence must include physical suffix cleanup and **GDN/draft state restoration**"；
+4. "Both K and V must reload: a matching dense position does not mean that newly allocated pages
+   contain the checkpoint's bytes"。
+
+⇒ 我们原先在 `after_step` 抓状态，那个状态已经**越过了**记录的 frontier（多了一步的 token），
+必然产生偏移。**推翻旧做法**：新增 `_seal_prefix_before_forward()`，在 `before_step`（forward 之前）
+抓状态，`covered` 同时对齐到**引擎块大小**，跳过点 = 该 frontier，尾部自动重放。
+
+**实测（同一实例）**
+| 用例 | cold | warm | 提速 | 答案 |
+|---|---|---|---|---|
+| 30K（≤B） | 30s | **10s** | 3.0× | `ZX-4417-QJ7` ✓ |
+| 47K（压缩，>B） | 76s | **35s** | 2.2× | `-ZX-4417-QJ7`（仍差 1 token） |
+
+**新发现（下一轮的靶子）**：`_state_slot(runner, row, group, frontier)` 在
+`model_state._align_mode` 为真时按 `column = (frontier-1)//block` 选槽。把 `st.resume`
+钉到封存 frontier 后答案从 `-ZX…` 变成 `ductZX…` ⇒ **capture 与 restore 解析出的列不一致**，
+必须让两者用同一个 frontier/列，且引擎后续写入也落在同一槽。

@@ -5507,6 +5507,95 @@ class VllmSparseRuntime:
         return orch
 
     # --- hook 1 ------------------------------------------------------------------------
+    def _seal_prefix_before_forward(self, req, row_index):
+        """Seal the executed prefix BEFORE this forward (upstream "sealed boundary").
+
+        The state snapshot must belong to exactly the frontier we later skip; taking it in
+        after_step meant the state had already advanced past the recorded frontier by the step's
+        own tokens (measured: a compacted reuse answered "-ZX-4417-QJ7" - one token late). Here
+        `covered` is the frontier *before* the step, so restoring it and letting the engine
+        prefill the remainder reproduces cold execution exactly.
+        """
+        import os as _os
+        if str(_os.environ.get("KVMEM_PREFIX_CACHE", "0")).strip().lower() not in (
+                "1", "true", "yes", "on"):
+            return False
+        try:
+            done = getattr(self, "_prefix_sealed", None)
+            if done is None:
+                done = self._prefix_sealed = set()
+            if str(req) in done:
+                return False
+            st = self._state.get(req)
+            if st is None or bool(getattr(st, "compacted_in_prefill", False)):
+                return False
+            toks = int(getattr(st, "tokens", 0) or 0)
+            edge = max(4096, int(self.budget_tokens) - 8192)
+            if toks < edge:
+                return False
+            pt = max(1, int(self.page_tokens))
+            # Align to the ENGINE BLOCK, not only to a page: the cache recomputes `covered` from
+            # the block-hash chain, so a page-aligned frontier produced a record whose page count
+            # did not match (`logical pages must be exactly 0..734, got 768`).
+            blk = max(1, int(self.kv_block_size))
+            covered = (toks // blk) * blk
+            if covered <= 0:
+                return False
+            expected = covered // pt
+            row = tuple(int(p) for p in (getattr(st, "row", ()) or ()))
+            if len(row) < expected or expected > 4096:
+                return False
+            if row_index is not None:
+                st.row_index = int(row_index)
+            state = None
+            try:
+                state = self.capture_state(req, int(covered))
+            except Exception:
+                state = None
+            if state is None:
+                self.log({"kind": "prefix_seal_state_missing", "req": str(req)[-6:],
+                          "covered": int(covered)})
+                return False
+            done.add(str(req))
+            kvs = self.view.paged_kv()
+            pages = {}
+            for slot in range(expected):
+                page = int(row[slot])
+                if page <= 0 or page >= int(kvs[0].shape[0]):
+                    pages = {}
+                    break
+                pages[int(slot)] = [t[page].detach().to("cpu").clone() for t in kvs]
+            if len(pages) != expected:
+                self.log({"kind": "prefix_seal_refused", "req": str(req)[-6:],
+                          "reason": "page snapshot incomplete", "pages": len(pages)})
+                return False
+            from kvmem_prefix_cache import PrefixCacheError, shared_cache
+            cache = shared_cache(capacity=8)
+            ids = self._prompt_ids.get(req)
+            record = cache.publish(
+                token_ids=list(ids)[:covered], block_size=int(self.kv_block_size),
+                page_tokens=pt, pages=pages, state=state, request_id=str(req),
+                compacted_in_prefill=False)
+            _os.makedirs("/tmp/kvmem_prefix_cache", exist_ok=True)
+            import json as _j
+            with open("/tmp/kvmem_prefix_cache/%s.json" % record.chain[-1].hex(), "w") as fh:
+                _j.dump({"tail": record.chain[-1].hex(), "covered": int(record.covered),
+                         "page_tokens": int(record.page_tokens),
+                         "block_size": int(self.kv_block_size), "digest": record.digest,
+                         "pages": int(len(pages)), "request": str(req)[-8:]}, fh)
+            self.log({"kind": "prefix_sealed", "req": str(req)[-6:],
+                      "covered": int(covered), "pages": int(len(pages)),
+                      "tokens": int(toks)})
+            return True
+        except PrefixCacheError as exc:
+            self.log({"kind": "prefix_seal_refused", "req": str(req)[-6:],
+                      "reason": str(exc)[:140]})
+            return False
+        except Exception as exc:
+            self.log({"kind": "prefix_seal_error", "req": str(req)[-6:],
+                      "error": f"{type(exc).__name__}: {exc}"})
+            return False
+
     def _apply_prefix_fill(self, req, row_index=None):
         """Copy a hit record's cached KV into the pages EngineCore just adopted for this request.
 
@@ -5574,6 +5663,10 @@ class VllmSparseRuntime:
             # drifts even though every page is byte-correct (measured: cold "ZX-4417-QJ7" vs
             # warm "The access code for the unique record is").
             state_ok = False
+            # NOTE: pinning st.resume to the sealed frontier made the restore target a DIFFERENT
+            # state column than capture used (measured: "-ZX-4417-QJ7" became "ductZX-4417-QJ7"),
+            # so the slot geometry is `_state_slot(frontier)` with `_align_mode`, and capture and
+            # restore must resolve the same column. Left at the default (column 0) for now.
             try:
                 if row_index is not None:
                     st_fill = self._state.get(req)
@@ -5608,7 +5701,8 @@ class VllmSparseRuntime:
     def before_step(self, req, n_query_tokens=1, row_index=None, position_slots=None,
                     rows_only=False):
         try:
-            self._apply_prefix_fill(req, row_index)
+            if not self._apply_prefix_fill(req, row_index):
+                self._seal_prefix_before_forward(req, row_index)
         except Exception:
             pass
         try:
@@ -6971,7 +7065,7 @@ class VllmSparseRuntime:
                     _dense = _st is not None and not bool(
                         getattr(_st, "compacted_in_prefill", False))
                     _edge = max(4096, int(self.budget_tokens) - 8192)
-                    if (_prompt > 0 and _st is not None and _dense
+                    if (False and _prompt > 0 and _st is not None and _dense
                             and _toks >= _edge
                             and len(_row) >= (_toks // _blk) * (_blk // max(1, int(self.page_tokens)))):
                         # SEALED PREFIX BEFORE COMPACTION (gap 1): while the prompt is still
