@@ -6778,3 +6778,23 @@ connector 的形态重写：**一个 restore 入口 + 显式页所有权 + 发�
 `model_state._align_mode` 为真时按 `column = (frontier-1)//block` 选槽。把 `st.resume`
 钉到封存 frontier 后答案从 `-ZX…` 变成 `ductZX…` ⇒ **capture 与 restore 解析出的列不一致**，
 必须让两者用同一个 frontier/列，且引擎后续写入也落在同一槽。
+
+## 976. Round 831：状态恢复是必要的，但仍有 1 token 偏移（记录三个判据实验结果）
+
+**判别实验（47K，同一实例）**
+| 配置 | warm 答案 |
+|---|---|
+| 不恢复状态（`KVMEM_PREFIX_SKIP_STATE=1`） | `ductZX-4417-QJ7` |
+| 恢复状态（默认） | `-ZX-4417-QJ7` |
+| 冷跑 | `ZX-4417-QJ7` |
+
+⇒ **状态恢复确实必要**（不恢复更差），但还差一个 token。
+
+**已排除**
+- 适配器记账落后：命中后把 `st.tokens/seq_len` 对齐到封存 frontier（`prefix_book_aligned tokens=23,520`）——答案不变；
+- 把 `st.resume` 钉到封存 frontier 改为在 `(frontier-1)//block` 列恢复状态——答案反而变成 `ductZX`，
+  说明**capture 与 restore 解析出的状态列不一致**（`_state_slot` 的 `_align_mode` 分支）。
+
+**下一步（本轮已写下探针但未生效，需重加）**：在恢复处打印
+`model_state._align_mode`、`frontier_col=(covered-1)//block`、`st.tokens`，
+以及 capture 端同一组值——让两端的列号**同一**；再决定是否需要把引擎后续写入也钉到该列。

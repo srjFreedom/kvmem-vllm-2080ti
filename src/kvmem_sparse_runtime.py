@@ -5621,6 +5621,19 @@ class VllmSparseRuntime:
                 fill = _j.load(fh)
             dest = [int(p) for p in (fill.get("dest") or ())]
             covered = int(fill.get("covered", 0) or 0)
+            # Align the adapter's own book with the engine's: the engine continues from
+            # `num_computed_tokens = covered`, so a runtime that still believes `st.tokens == 0`
+            # drives its per-step view logic one context behind (measured: one stray token before
+            # the right answer, "-ZX-4417-QJ7").
+            try:
+                st_ft = self._state.get(req)
+                if st_ft is not None and int(getattr(st_ft, "tokens", 0) or 0) < int(covered):
+                    st_ft.tokens = int(covered)
+                    st_ft.seq_len = int(covered)
+                    self.log({"kind": "prefix_book_aligned", "req": str(req)[-6:],
+                              "tokens": int(covered)})
+            except Exception:
+                pass
             from kvmem_prefix_cache import shared_cache
             cache = shared_cache()
             record = None
@@ -5682,7 +5695,11 @@ class VllmSparseRuntime:
                           "restorer": bool(self.restore_state is not None)})
             except Exception:
                 pass
-            if getattr(record, "state", None) is not None and self.restore_state is not None:
+            import os as _os_st
+            _skip_state = str(_os_st.environ.get("KVMEM_PREFIX_SKIP_STATE", "0")).strip().lower() in (
+                "1", "true", "yes", "on")
+            if (not _skip_state and getattr(record, "state", None) is not None
+                    and self.restore_state is not None):
                 try:
                     state_ok = bool(self.restore_state(req, record.state))
                 except Exception as exc:
