@@ -76,6 +76,12 @@ class SparseViewCapacityError(RuntimeError):
     """The compacted block-table row cannot address the scheduled attention tokens."""
 
 
+# Process-wide record of "this request was served from a prefix hit, covering N tokens". It must
+# be module level: the fill runs on one runtime object and the compaction gate on another, exactly
+# like the prefix cache itself (measured: an instance-level ledger never reached the gate).
+_HIT_LEDGER = {}
+
+
 class _ReqState:
     # row:      PHYSICAL slot ids written into the block table (what the kernel reads).
     # logical:  logical page id (true token page) occupying each row position, so a written
@@ -5790,6 +5796,10 @@ class VllmSparseRuntime:
                 except Exception as exc:
                     self.log({"kind": "frame_view_error", "req": str(req)[-6:],
                               "error": f"{type(exc).__name__}: {exc}"})
+            try:
+                _HIT_LEDGER[str(req)] = int(covered)
+            except Exception:
+                pass
             self.log({"kind": "prefix_fill_applied", "req": str(req)[-6:],
                       "pages": int(count), "covered": int(covered),
                       "state": bool(state_ok), "mode": _mode})
@@ -5832,7 +5842,10 @@ class VllmSparseRuntime:
             if _ft is None:
                 _ft = self._frontier_trace = {}
             _n = int(_ft.get(str(req), 0))
-            if _n < 4:
+            _st0 = self._state.get(req)
+            _mis = (_st0 is not None
+                    and int(getattr(_st0, "seq_len", -1) or -1) != int(getattr(_st0, "tokens", -1) or 0))
+            if _n < (40 if _mis else 4):
                 _ft[str(req)] = _n + 1
                 _st_t = self._state.get(req)
                 _seq = -1
@@ -5846,6 +5859,8 @@ class VllmSparseRuntime:
                           "adapter_tokens": int(getattr(_st_t, "tokens", -1) or 0),
                           "adapter_seq_len": int(getattr(_st_t, "seq_len", -1) or 0),
                           "n_query": int(n_query_tokens or 0),
+                          "row": len(getattr(_st_t, "row", ()) or ()),
+                          "off_pages": int(getattr(_st_t, "off_pages", -1) or 0),
                           "has_fill": bool(getattr(_st_t, "resume", None) is not None)})
         except Exception:
             pass
@@ -7183,6 +7198,23 @@ class VllmSparseRuntime:
 
     def after_step(self, req, n_new_tokens, prefill=False):
         self._ensure(req)
+        # HIT-REQUEST LENGTH LAW: after a prefix hit the adapter's `seq_len` must stay the
+        # LOGICAL frontier (== tokens), otherwise the compaction selects only the newest pages
+        # (measured: 148 pages / 8,824 tokens on the warm run vs 834 pages / 30,776 cold, because
+        # seq_len had become `tokens - covered`), and the warm answer drifts by one token.
+        try:
+            _hits0 = _HIT_LEDGER
+            if _hits0 and str(req) in _hits0:
+                _st_h = self._state.get(req)
+                if _st_h is not None:
+                    _want = int(getattr(_st_h, "tokens", 0) or 0)
+                    if int(getattr(_st_h, "seq_len", -1) or -1) != _want:
+                        self.log({"kind": "hit_seq_len_fixed", "req": str(req)[-6:],
+                                  "was": int(getattr(_st_h, "seq_len", -1) or -1),
+                                  "now": _want})
+                        _st_h.seq_len = _want
+        except Exception:
+            pass
         # ONE-SHOT PREFIX PUBLICATION (new protocol): fires as soon as this request has executed
         # its whole prompt, which is the only moment a "sealed prefix" exists. The publisher
         # validates everything (not compacted / state present / logical pages complete).
@@ -7703,6 +7735,20 @@ class VllmSparseRuntime:
                                 self.log({"kind": "post_prefill_shrink_error", "req": req,
                                           "error": _tb.format_exc()[-500:]})
                 return st
+            # HIT-REQUEST LENGTH LAW (before the gate reads it): a prefix hit leaves the adapter
+            # with `seq_len == tokens - covered`, which makes the compaction select only the newest
+            # pages (measured: 148 pages / 8,824 tokens vs 834 / 30,776 cold) and the warm answer
+            # drifts by one token. Correct it here, where the gate is about to use it.
+            try:
+                _hits_g = _HIT_LEDGER
+                if _hits_g and str(req) in _hits_g:
+                    if int(getattr(st, "seq_len", -1) or -1) != int(st.tokens):
+                        self.log({"kind": "hit_seq_len_fixed", "req": str(req)[-6:],
+                                  "was": int(getattr(st, "seq_len", -1) or -1),
+                                  "now": int(st.tokens)})
+                        st.seq_len = int(st.tokens)
+            except Exception:
+                pass
             high = self.prefill_high_watermark
             # Hard cap at the comparison itself: the pool ceiling minus one chunk. The watermark is
             # (re)assigned in several places (init, after each compaction), so capping only at the
