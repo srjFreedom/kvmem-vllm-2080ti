@@ -395,6 +395,23 @@ def _state_slot(runner, row, group, frontier):
         return None
 
 
+def _state_geom_log(runner, row, group, frontier, where, req):
+    try:
+        am = getattr(getattr(runner, "model_state", None), "_align_mode", None)
+        slot = _state_slot(runner, row, group, frontier)
+        _append("/tmp/kvmem_sparse.jsonl",
+                {"kind": "state_geom", "where": where, "req": str(req)[-6:],
+                 "align_mode": bool(am) if am is not None else None,
+                 "row": int(row) if row is not None else -1,
+                 "group": int(group), "frontier": int(frontier or 0),
+                 "slot": int(slot) if slot is not None else -1,
+                 "col": int(max(0, (int(frontier or 0) - 1) //
+                                max(1, int(runner.vllm_config.cache_config.block_size))))
+                 if getattr(getattr(runner, "model_state", None), "_align_mode", False) else 0})
+    except Exception:
+        pass
+
+
 def _capture_state_snapshot(runner, runtime, req, frontier=None):
     """Copy this request's recurrent state to RAM (the parked session's RAM tier)."""
     groups = _state_groups(runner)
@@ -405,6 +422,7 @@ def _capture_state_snapshot(runner, runtime, req, frontier=None):
     frontier = int(getattr(st, "tokens", 0) if frontier is None else frontier)
     snap = {}
     for group, tensors in groups.items():
+        _state_geom_log(runner, row, group, frontier, "capture", req)
         slot = _state_slot(runner, row, group, frontier)
         if slot is None or slot < 0:
             return None
@@ -444,6 +462,7 @@ def _restore_state_snapshot(runner, runtime, req, snapshot):
         tensors = groups.get(int(group))
         if not tensors or len(tensors) != len(saved):
             return False
+        _state_geom_log(runner, row, group, frontier, "restore", req)
         dst = _state_slot(runner, row, group, frontier)
         if dst is None or dst < 0:
             return _why("no state slot", group=int(group), dst=dst, frontier=int(frontier))

@@ -5729,6 +5729,31 @@ class VllmSparseRuntime:
                 self._seal_prefix_before_forward(req, row_index)
         except Exception:
             pass
+        # FRONTIER TRACE: compare the engine's own computed book with the adapter's, for the first
+        # few steps of every request. A one-token offset between them is what makes a resumed
+        # request emit one stray token before the cold answer.
+        try:
+            _ft = getattr(self, "_frontier_trace", None)
+            if _ft is None:
+                _ft = self._frontier_trace = {}
+            _n = int(_ft.get(str(req), 0))
+            if _n < 4:
+                _ft[str(req)] = _n + 1
+                _st_t = self._state.get(req)
+                _seq = -1
+                try:
+                    _seq = int(self.view.seq_lens()[int(row_index)]) if row_index is not None else -1
+                except Exception:
+                    _seq = -1
+                self.log({"kind": "frontier_trace", "req": str(req)[-6:],
+                          "step": _n, "row": int(row_index) if row_index is not None else -1,
+                          "engine_seq": int(_seq),
+                          "adapter_tokens": int(getattr(_st_t, "tokens", -1) or 0),
+                          "adapter_seq_len": int(getattr(_st_t, "seq_len", -1) or 0),
+                          "n_query": int(n_query_tokens or 0),
+                          "has_fill": bool(getattr(_st_t, "resume", None) is not None)})
+        except Exception:
+            pass
         try:
             import os as _osp
             if _osp.environ.get('KVMEM_D_POS') == '1':

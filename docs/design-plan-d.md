@@ -6824,3 +6824,22 @@ connector 的形态重写：**一个 restore 入口 + 显式页所有权 + 发�
 所以偏差更可能来自**恢复后第一段 prefill 的调度口径**（引擎 `num_computed_tokens` 与适配器
 `st.tokens/seq_len` 的相互作用，或第一段 prefill 的 chunk 边界）。下一步在同一位置打印
 "引擎 computed / 适配器 tokens / 第一段 prefill 的 token 数"，与冷跑同位置对比。
+
+## 978. Round 833：状态几何验证正确；偏差锁定到 KV 内容
+
+**`state_geom` 探针（47K，同一实例）**
+```
+capture: align_mode=False row=0 group=0 frontier=24576 slot=1
+restore: align_mode=False row=0 group=0 frontier=24576 slot=28
+```
+⇒ `_align_mode` 为 False（列恒为 0），capture 读的是**旧请求的槽**（1/2/3），
+restore 写的是**新请求自己的槽**（28/29/30）——**状态槽几何完全正确**，
+所以那一个 `-` 不是状态错位。
+
+**frontier_trace 也一致**：warm 首步 `engine_seq=28,672`（= 跳过的 24,576 + 首段 4,096），
+`adapter_tokens=24,576`；cold 首步 `engine_seq=4,096, adapter_tokens=0`。
+
+**结论**：偏差只能来自 **KV 内容**（封存时拷贝的页字节与"冷跑同一位置"略有差异）。
+下一轮用指纹对比验证：①封存前记录每页 `mean|layer0|`（写 `/tmp/kvmem_seal_fp.jsonl`）；
+②恢复后记录同一批页的指纹（写 `/tmp/kvmem_fill_fp.jsonl`）；相等则字节无误，
+再转向"恢复后首段 prefill 的注意力口径"。
