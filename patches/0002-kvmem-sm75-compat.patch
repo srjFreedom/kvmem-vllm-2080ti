@@ -61,7 +61,7 @@ index 0000000..5c0d322
 \ No newline at end of file
 diff --git a/local/serve-2080ti-smoke.json b/local/serve-2080ti-smoke.json
 new file mode 100644
-index 0000000..5659482
+index 0000000..8db6708
 --- /dev/null
 +++ b/local/serve-2080ti-smoke.json
 @@ -0,0 +1,55 @@
@@ -72,14 +72,14 @@ index 0000000..5659482
 +  "model_format": "safetensors",
 +  "draft_method": "mtp",
 +  "draft_tokens": 1,
-+  "execution_mode": "eager",
++  "execution_mode": "compiled_graph",
 +  "served_model_name": "kvmem-2080ti",
 +  "host": "127.0.0.1",
 +  "port": 18200,
 +  "max_model_len": 32768,
 +  "max_num_seqs": 1,
 +  "max_num_batched_tokens": 4096,
-+  "gpu_memory_utilization": 0.78,
++  "gpu_memory_utilization": 0.84,
 +  "prefill_chunk_tokens": 1024,
 +  "verify_session_restore": false,
 +  "kvmem": {
