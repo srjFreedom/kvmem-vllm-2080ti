@@ -547,3 +547,43 @@ serve_watch.py req --file REQ.json [--idle-stall 20] [--timeout 3600]
 **当前 dev 定稿**：`execution_mode=compiled_graph`、`gpu_mem=0.84`（池 104,372）、窗口 4,096+2,048、
 `sink/recent=32/32`（1,024/1,024 token）、chunk 1,024、draft 1、CTX 32,768、`mean_k_backend=torch_reference`。
 compiled 首次启动 290s（编译），命中缓存后 **57s**。
+
+## 26. decode 提速：先找 kvmem 侧解法（无），再从 fork 找到 SM75 全图配方
+
+**kvmem-vllm 侧没有专门解法**，但 fork 里已经埋了 SM75 的 spec-decode 全图分支
+（`flashinfer.py::_sm75_spec_prefill_graph_query_len`）。之前它没生效，是因为我们没给
+`cudagraph_capture_sizes`，于是 `get_cudagraph_support()` 返回 `UNIFORM_SINGLE_TOKEN_DECODE`
+（只支持 query_len==1 的图），vLLM 把 `CUDAGraphMode.FULL` 降级为 `FULL_DECODE_ONLY`，
+`enable_cuda_graph=False`，FlashInfer 的融合多步 draft 也就永远关闭。
+
+**配方（全部条件都必须满足，来自源码）**
+| 条件 | 我们的值 |
+|---|---|
+| SM75（CC 7.5） | ✅ 2080Ti |
+| `dtype == torch.float16` | ✅ |
+| `decode_context_parallel_size == 1` | ✅ |
+| `use_non_causal` 关 | ✅ |
+| `VLLM_BATCH_INVARIANT` 未设 | ✅ |
+| `1 ≤ draft_tokens ≤ 7` | 4 |
+| `cudagraph_mode.decode_mode() == FULL` | `execution_mode=full_graph`（`{'mode':0,'cudagraph_mode':'FULL'}`）|
+| **`cudagraph_capture_sizes == {query_len × batch}`（batch=1..max_num_seqs）** | `max_num_seqs=1`、draft 4 ⇒ query_len 5 ⇒ **`[5]`** |
+| `max_cudagraph_capture_size == query_len × max_num_seqs` | 5 |
+
+生效证据（日志）：出现 `SM75 speculative FA2 prefill uses stable metadata buffers for FULL CUDA Graph replay`，
+且 `CUDAGraphMode.FULL is not supported…`（降级）与 `Fused multi-step draft decode is not supported…`
+（退回重建 metadata）两条告警**都为 0**。
+
+**decode 进展（600 token 生成，同一台机器）**
+| 配置 | decode | 备注 |
+|---|---|---|
+| eager，MTP1 | 23.7 tok/s | 基线 |
+| compiled_graph，MTP1 | 42.0 tok/s | **最大单项提升**（图捕获）|
+| compiled_graph，MTP4 | 43.1 tok/s | 融合 draft 未生效（仍重建 metadata）|
+| **full_graph，MTP4，capture_sizes=[5]** | **44.6 tok/s** | 全图 + 融合 draft 都生效，**比 eager +88%** |
+| （参照）旧项目 compiled+MTP4 | ~85 tok/s | 目标 |
+
+**仍差 2× 的原因（下一步）**：实测每步约 50 ms，而 27B FP8 权重分到每卡 ~16 GB，
+按 ~600 GB/s 带宽理论下限约 26 ms/step ⇒ 我们只到理论上限的 ~50%。
+接受长度也只有 2.03–2.33 / 5（约 45%）。候选方向：
+①fp8 KV 在 SM75 上的软件反量化开销；②TP=2 每步 all-reduce；③MTP draft 前向的额外步。
+prefill 在这套配置下是 971 tok/s（比 compiled 的 1,063 略低，因为捕获了 5 宽 batch）。
