@@ -153,3 +153,41 @@ profile：`local/serve-2080ti-smoke.json`（Coder390 FP8-fp8mtp、TP=2、gpu_mem
 **下一步（隔离法）**：在 profile 里分别关掉可能的钩子（`rolling decode`/`original rope`/`packed assembly` 等
 `kvmem` 子项），或用 `--layerwise-*` 开关组合，确认是 **ring hook**、**capture hook** 还是 **assembly**
 导致 hang；同时在 `systemone_worker` 的 forward 入口加一行日志，确认卡在哪个 hook 之内。
+
+## 10. P2 ✅ 完成：上游 kvmem 在双 2080Ti 上成功服务（真实请求）
+
+**之前判断的“卡死”是误判**：warmup（GDN/M-RoPE/Mamba Triton + KV cache 分配 + 连接器初始化）耗时较长，
+超过了我设的等待窗口；实际启动约 90–120 秒完成，**health 200**。
+
+### 实测请求（服务日志与 run-dir 均可复核）
+| 请求 | prompt_tokens | finish | 答案 | 耗时 |
+|---|---|---|---|---|
+| 短（“Reply with exactly: OK-2080TI”） | 63 | stop | `OK-2080TI` ✅ | — |
+| 中（含一次性码，~6.3K 字符） | 1,048 | stop | `ZX-4417-QJ7` ✅ | — |
+| **长（30.9K 字符，超出 select_budget）** | **4,888** | stop | `ZX-4417-QJ7` ✅ | **11.1 s** |
+
+### kvmem 确实在工作（run-dir 证据）
+`/tmp/kvmem-run-smoke/capture/`：
+`archive.json`（`batches: 131`、`completed_requests: 4`、`block_tokens: 16384`）、
+`archive_resources.json`、`cache-geometry.json`（按层的 page_bytes / payload_page_bytes）、
+`bounded_refresh.jsonl`、`scheduled_queries.json`、`model_step_latency.jsonl`（`sequence: 129`，
+每步延迟记录）、`public_work.jsonl`、`progress.json`。
+
+### 生效配置（两层，见 `launch.json`）
+- **kvmem**：`block_tokens=32`、`select_budget=2048`、`gen_budget=2048`、`sink_blocks=1`、
+  `recent_blocks=1`、`archive_backend=cpu`、`session_capacity=8`、`request_planning=true`；
+  策略 `query=meank / pressure=recency / picker=native`，`path=global`
+- **vLLM**：`--dtype float16`、`--kv-cache-dtype fp8_e4m3`、`--tensor-parallel-size 2`、
+  `--gpu-memory-utilization 0.80`、`--max-model-len 16384`、`--enforce-eager`、
+  `--enable-prefix-caching False`、`--scheduler-cls KVMemScheduler`、
+  `--worker-extension-cls SystemOneWorker`、`--kv-transfer-config KVMemConnector`、
+  `--speculative-config {mtp, 1}`
+- 启动命令：`vllm-kvmem serve --config local/serve-2080ti-smoke.json --run-dir /tmp/kvmem-run-smoke`
+
+### 相对上游的 SM75 改动（共 5 处，全部有注释）
+1. `compat_sm75.block_row_count`（block table 形状）
+2. `compat_sm75.optional_runner`（capture runner 晚绑定）
+3. `core/native_pages.py`：`stored_expansions` / `kernel_expansions` 容忍只有设备行的表
+4. `serving/serve.py`：`--dtype` 由 profile 决定（`DEFAULTS` 新增 `dtype`）
+5. `adapters/capture.py`：capture 缓冲 dtype 跟随模型；`serving/capture_runtime.py`：
+   激活 dtype 接受 fp16
