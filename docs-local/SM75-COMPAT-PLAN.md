@@ -385,3 +385,41 @@ session_restored_tokens = 4857      ← turn2 只 prefill 了 4880-4857 = 23 个
 
 **注意**：0.96 时物理显存 21,794 / 22,528 MiB，已经贴近上限；再往上没有空间，
 要更长上下文只能靠"逻辑 CTX + 归档"，而不是更大的池。
+
+## 20. 多会话保留命中（= ninfer 的 `RetainedSessions`）
+
+**对应关系**：ninfer 的 `RetainedSessions` ⇔ 上游的 `session_capacity`（我们现在 = 8）。
+每个条目还受 `session_checkpoint_bytes` 限制（现在 512 MiB）。
+
+**开发用小池 profile**（按用户要求：池贴近 B+R，省时间）
+| 项 | 值 |
+|---|---|
+| `select_budget` + `gen_budget` | 4,096 + 2,048 = **6,144**（B+R）|
+| `sink_blocks` / `recent_blocks` | 32 / 64 → 1,024 / 2,048 token |
+| `gpu_memory_utilization` | **0.74** ⇒ GPU KV 池 **21,845 token**（≈3.5× 窗口）|
+| `max_model_len`（CTX） | **32,768**（= 5.3×B+R，>2× 要求）|
+| `session_capacity` | 8 |
+
+**实测 AⓘB 会话交替（auto-id，无前端 session）**
+
+*情形①：prompt 2,212 token（< 窗口）*
+| 请求 | 耗时 | 答案 |
+|---|---|---|
+| A1 冷 | 2.69 s | `ZX-4417-QJ7` ✅ |
+| B1 冷 | 2.50 s | `QQ-8882-ZZ9` ✅ |
+| **A2（切回 A）** | **0.64 s** | `ZX-4417-QJ7` ✅ |
+| **B2（切回 B）** | **0.59 s** | `QQ-8882-ZZ9` ✅ |
+| **A3（再切回 A）** | **0.63 s** | `ZX-4417-QJ7` ✅ |
+
+`sessions = {entries: 2, hits: 3, misses: 2}`、`restored_tokens = 6,144`
+⇒ **两个会话同时保留在 RAM，来回切换不重新 prefill**（≈4×）。
+
+*情形②：prompt 7,254 token（> 窗口，需要装配/压缩）*
+| 请求 | 耗时 | 命中 |
+|---|---|---|
+| A1 / B1 / A2 / B2 / A3 | 全部 **10.3 s**（≈全量 prefill）| `hits` 不增长 |
+
+⇒ **超过窗口的会话目前不会被恢复**（`misses` 增长、`checkpoint_deferrals=0`，
+说明 checkpoint 已捕获，是 **lookup/import 侧拒绝**）。已在该路径装探针
+（`session_control.lookup` 的三处 miss 分支，日志 `/tmp/kvmem_session_miss.jsonl`，
+代码码：`entry_busy` / `plan_changed` / `capacity_hold`），下一轮跑一次 7K 的 A/B 即可定位。
