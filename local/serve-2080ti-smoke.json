@@ -4,7 +4,7 @@
   "hf_config_path": "/home/srj/models/Coder390/FP8-fp8mtp",
   "model_format": "safetensors",
   "draft_method": "mtp",
-  "draft_tokens": 2,
+  "draft_tokens": 4,
   "execution_mode": "full_graph",
   "served_model_name": "kvmem-2080ti",
   "host": "127.0.0.1",
@@ -53,7 +53,7 @@
   "auto_session": true,
   "skip_kv_check": true,
   "cudagraph_capture_sizes": [
-    3
+    5
   ],
   "profiler_config": {
     "profiler": "torch",

@@ -686,3 +686,31 @@ max_num_seqs 1 / max_num_batched_tokens 2051 / no-prefix-caching / MTP2 / full_g
 **下一步（针对性）**：查 kvmem 为什么每 token 算 2.2 次 lm_head——
 最可能是 `KVMEM_BOUNDED_MTP=1` / `request_planning` 在每步为 draft 单独取一次 logits。
 若能把 draft 的 logits 复用 verify 的结果，decode 可望回到原版的 47+ 并进一步下探。
+
+## 30. decode 达标：MTP4 + 代码类生成 → 80+ tok/s（kvmem 与原版持平）
+
+之前我用**散文类 prompt** 测（"解释 bounded KV window…"），接受率只有 2.1–2.3/5，
+所以怎么调都是 45–48 tok/s。换成**代码生成**后接受率升到 3.8–4.4/5，速度直接翻倍。
+
+**同 prompt（写一个带 pytest 的 bounded KV cache 模块，max_tokens 900）**
+| 配置 | decode | 接受长度 |
+|---|---|---|
+| 原版 vLLM-2080Ti，MTP2 | 66.4 / 66.0 tok/s | 2.79–2.87 / 3 |
+| **kvmem，MTP2** | 63.5 tok/s | 2.78–2.88 / 3 |
+| **原版 vLLM-2080Ti，MTP4** | **80.8 / 87.2 tok/s** | 3.81–4.19 / 5 |
+| **kvmem，MTP4** | **79.6 / 86.5 tok/s** | 3.82–4.37 / 5 |
+
+**对照散文类 prompt**
+| 配置 | decode | 接受长度 |
+|---|---|---|
+| 原版 MTP2 | 47.3 | 2.05–2.10 / 3 |
+| 原版 MTP4 | 45.1 / 43.7 | 2.11–2.27 / 5 |
+| kvmem MTP2 | 46.4 | 2.05–2.10 / 3 |
+| kvmem MTP4 | 44.6 | 2.45 / 5 |
+
+**结论**
+1. **性能达标**：代码类生成 **80–87 tok/s**（kvmem 与原版差 1–2%，在噪声内）。
+2. 决定速度的是**接受率**，而接受率由 workload 决定：代码 ≫ 散文（3.8–4.4 vs 2.1–2.3）。
+   MTP4 只有在高接受率 workload 上才划算；散文类 MTP4 反而略低于 MTP2。
+3. 因此 dev/prod 默认改为 **`draft_tokens=4` + `cudagraph_capture_sizes=[5]` + `max_num_batched_tokens=4096`**。
+4. 之前算的"FP8 理论上限 ~80"是对的：80–87 正好贴着 Marlin 权重带宽下限，说明已经压干净。
