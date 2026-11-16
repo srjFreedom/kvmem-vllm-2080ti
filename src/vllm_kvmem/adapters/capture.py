@@ -123,8 +123,11 @@ def install_persistent_capture(model, names, max_tokens, positions):
         layer = modules[name]
         weight = layer.q_norm.weight
         def allocate(heads):
+            # Follow the model's activation dtype: SM75 runs float16 (bfloat16 needs
+            # compute capability 8.0), and the native projection requires the capture
+            # buffers to match its inputs exactly, dtype included.
             return torch.empty((max_tokens, heads, layer.head_dim),
-                               device=weight.device, dtype=torch.bfloat16)
+                               device=weight.device, dtype=weight.dtype)
         record = CapturedLayer(name, positions, allocate(layer.num_heads),
                                allocate(layer.num_kv_heads), allocate(layer.num_kv_heads))
         layer._kvmem_capture_buffers = record

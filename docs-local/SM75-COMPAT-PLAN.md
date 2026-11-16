@@ -123,3 +123,33 @@ cd /home/srj/src/kvmem-vllm-2080ti
   --config local/serve-2080ti-smoke.json --run-dir /tmp/kvmem-run-smoke
 ```
 profile：`local/serve-2080ti-smoke.json`（Coder390 FP8-fp8mtp、TP=2、gpu_mem 0.80、max_model_len 16384、MTP 1 draft、dtype float16、kvmem 预算 2048/2048）
+
+## 9. P2（续）：已启动到 warmup 完成，卡在 warmup 后第一个 forward
+
+### 又修掉的两个 SM75 定制点
+| 问题 | 根因 | 处理 |
+|---|---|---|
+| `Content capture output must match native projection geometry` | `adapters/capture.py:126` 里 `install_persistent_capture` 把缓冲 dtype **写死 bfloat16**，而我们跑 fp16 ⇒ 形状对、dtype 不符 | 改为 `dtype=weight.dtype`（跟随模型） |
+| profile `dtype` 属未知字段 | `DEFAULTS` 没有该键 | `DEFAULTS` 增加 `'dtype': 'bfloat16'`，本地 profile 设 `float16` |
+
+### 现在能走到的阶段（日志实证）
+- `Injected SystemOneWorker`（两个 rank）
+- `Available KV cache memory: 1.76 GiB` → `GPU KV cache size: 65,536 tokens`（16K 上下文 ×4 并发）
+- `Creating v1 connector with name: KVMemConnector`（两个 rank）
+- `FlashInfer resolved query dtypes: prefill=float16, decode=float16, decode_backend=flashinfer-native`
+  ⇒ **fork 的 FlashInfer 在 SM75 上确实用 fp16 跑起来了**
+- `Warming up Qwen GDN Triton kernels`、`Warmed M-RoPE Triton kernels`、`Warmed Mamba batch_memcpy_kernel` 全部成功
+
+### 当前阻塞
+两个 rank 都停在：
+```
+[kvmem ring] hook entered, enabled=False batch=False
+```
+之后没有输出，60 秒后 EngineCore 报
+`No available shared memory broadcast block found in 60 seconds`（worker 卡住导致）。
+
+`/dev/shm` 有 32G 空闲，**不是 shm 容量问题**；是 warmup 后第一个 forward 卡死。
+
+**下一步（隔离法）**：在 profile 里分别关掉可能的钩子（`rolling decode`/`original rope`/`packed assembly` 等
+`kvmem` 子项），或用 `--layerwise-*` 开关组合，确认是 **ring hook**、**capture hook** 还是 **assembly**
+导致 hang；同时在 `systemone_worker` 的 forward 入口加一行日志，确认卡在哪个 hook 之内。
