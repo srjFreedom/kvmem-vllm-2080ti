@@ -458,3 +458,34 @@ attention 组的 `block_tokens` 等于 **32,768**（CTX 越小它越小，CTX=26
 探针（`entry_busy` / `plan_changed` / `capacity_hold`）在这轮**没有触发**，
 说明 miss 发生在更早的分支：`uncached_sessions` / `entry.phase != 'idle'` / `namespace is None`。
 下一轮把探针补到这些分支（`session_control.lookup` 前 3 个 return None），一次 7K 的 A/B 即可定位。
+
+## 23. 服务看门狗（不再硬等）：`scripts/serve_watch.py`
+
+之前每次实验都用 `sleep 200` 等启动，实际上 **启动只要 54.6 秒**——白等了 2.5 分钟/次。
+新增脚本用**可观测信号**代替固定等待：
+
+\`\`\`bash
+serve_watch.py start   [--config ...] [--run-dir ...] [--timeout 420] [--fresh]
+serve_watch.py stop
+serve_watch.py status
+serve_watch.py req --file REQ.json [--idle-stall 20] [--timeout 3600]
+\`\`\`
+
+| 能力 | 实现 |
+|---|---|
+| 启动就绪 | 每 0.5s 轮询 `/v1/models`（不是固定 sleep）；同时监控进程退出与日志里的致命行（`ValueError/RuntimeError/EngineDeadError/OOM/Traceback`），失败立即返回 |
+| 就绪信息 | 打印 `READY in Xs`、model id、CTX、池大小、以及 skip-check 那行 |
+| 请求完成 | 后台线程发请求，主线程按 0.4s 采样 `nvidia-smi`（util + mem）|
+| 卡死判定 | 请求在飞但 GPU util ≤5% 持续 `--idle-stall` 秒 ⇒ 打印 `STALL`（不阻塞等待）|
+| 结束统计 | wall 时间、prompt/completion tokens、吞吐、GPU 忙的比例、峰值显存、答案 |
+| run-dir 安全 | 只清理"明显是我们生成的"目录（空或只含 `capture/`、`launch.json`），否则要求 `--fresh` |
+
+**实测（当前 dev 配置：池 21,845 / 窗口 6,144 / CTX 32,768）**
+| 指标 | 值 |
+|---|---|
+| 启动到 READY | **54.6 s** |
+| 4,888-token 冷请求 | **7.87 s**（≈621 tok/s prefill+decode），GPU 忙 17/19 采样，无 STALL |
+| 同一请求重复（会话命中） | **2.45 s**（`restored_tokens=4,864`）|
+| 2,212-token 会话切回 | 0.59–0.64 s |
+
+**启动时间构成**（后续优化方向）：模型加载 + FlashInfer/GDN/M-RoPE/Mamba 内核预热 + KV 池分配。
