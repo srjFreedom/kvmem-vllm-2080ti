@@ -1,0 +1,219 @@
+diff --git a/local/serve-2080ti-smoke.json b/local/serve-2080ti-smoke.json
+new file mode 100644
+index 0000000..be319c5
+--- /dev/null
++++ b/local/serve-2080ti-smoke.json
+@@ -0,0 +1,50 @@
++{
++  "model": "/home/srj/models/Coder390/FP8-fp8mtp",
++  "tokenizer": "/home/srj/models/Coder390/FP8-fp8mtp",
++  "hf_config_path": "/home/srj/models/Coder390/FP8-fp8mtp",
++  "model_format": "safetensors",
++  "draft_method": "mtp",
++  "draft_tokens": 1,
++  "execution_mode": "eager",
++  "served_model_name": "kvmem-2080ti",
++  "host": "127.0.0.1",
++  "port": 18200,
++  "max_model_len": 16384,
++  "max_num_seqs": 2,
++  "max_num_batched_tokens": 1024,
++  "gpu_memory_utilization": 0.8,
++  "prefill_chunk_tokens": 128,
++  "verify_session_restore": false,
++  "kvmem": {
++    "block_tokens": 32,
++    "select_budget": 2048,
++    "gen_budget": 2048,
++    "repository_blocks": 1024,
++    "sink_blocks": 1,
++    "recent_blocks": 1,
++    "cpu_read_cache_bytes": 2147483648,
++    "archive_backend": "cpu",
++    "archive_io_max_bytes": 134217728,
++    "async_seal": true,
++    "async_archive_retirement": true,
++    "packed_assembly": true,
++    "direct_pinned_reads": true,
++    "async_cpu_scatter": true,
++    "batched_cpu_append": true,
++    "request_planning": true,
++    "session_capacity": 8,
++    "session_checkpoint_bytes": 536870912,
++    "session_checkpoint_policy": "pm",
++    "session_capture_terminal": true,
++    "mean_k_backend": "torch_reference",
++    "async_refresh": false,
++    "refresh_quantum_tokens": 128,
++    "cpu_history_coordination": false,
++    "maintenance_max_steps": 0,
++    "async_restore": false,
++    "step_latency_interval": 1,
++    "verify_archive_on_finish": false
++  },
++  "tensor_parallel_size": 2,
++  "dtype": "float16"
++}
+\ No newline at end of file
+diff --git a/src/vllm_kvmem/adapters/capture.py b/src/vllm_kvmem/adapters/capture.py
+index 2a1b5a2..0ec7e3c 100644
+--- a/src/vllm_kvmem/adapters/capture.py
++++ b/src/vllm_kvmem/adapters/capture.py
+@@ -123,8 +123,11 @@ def install_persistent_capture(model, names, max_tokens, positions):
+         layer = modules[name]
+         weight = layer.q_norm.weight
+         def allocate(heads):
++            # Follow the model's activation dtype: SM75 runs float16 (bfloat16 needs
++            # compute capability 8.0), and the native projection requires the capture
++            # buffers to match its inputs exactly, dtype included.
+             return torch.empty((max_tokens, heads, layer.head_dim),
+-                               device=weight.device, dtype=torch.bfloat16)
++                               device=weight.device, dtype=weight.dtype)
+         record = CapturedLayer(name, positions, allocate(layer.num_heads),
+                                allocate(layer.num_kv_heads), allocate(layer.num_kv_heads))
+         layer._kvmem_capture_buffers = record
+diff --git a/src/vllm_kvmem/compat_sm75/__init__.py b/src/vllm_kvmem/compat_sm75/__init__.py
+new file mode 100644
+index 0000000..f86863b
+--- /dev/null
++++ b/src/vllm_kvmem/compat_sm75/__init__.py
+@@ -0,0 +1,47 @@
++"""Compatibility shims for the SM75 (2080 Ti) vLLM fork.
++
++The target runtime is `vLLM-2080Ti-Definitive` (fork branch `kvmem-0.2.2-clean`).
++Its vLLM interface differs from the upstream releases kvmem is written against in a
++couple of object shapes. Every difference lives here so the upstream diff stays
++in one greppable place; each helper documents the exact shape it bridges.
++
++Measured drift (2026-11-16):
++  * `MultiGroupBlockTable` in the fork exposes per-row counts as
++    `block_tables[group].num_blocks_per_row` (numpy, one value per row) while
++    upstream code reads `tables.num_blocks.np[group, index]` (2-D array).
++  * `CaptureRuntime` in the fork can be driven without `runner` (mock/late-bind
++    paths), while upstream dereferences `self.runner` unconditionally.
++"""
++
++from __future__ import annotations
++
++
++def block_row_count(tables, group: int, index: int) -> int:
++    """Number of used blocks for (group, row) on either block-table shape."""
++    counts = getattr(tables, "num_blocks", None)
++    if counts is not None:
++        inner = getattr(counts, "np", None)
++        if inner is not None:
++            return int(inner[group, index])
++        try:
++            return int(counts[group][index])  # plain sequence of rows
++        except Exception:
++            pass
++    groups = getattr(tables, "block_tables", None)
++    if groups is None:
++        raise ValueError("block table exposes neither num_blocks nor block_tables")
++    group_table = groups[group]
++    per_row = getattr(group_table, "num_blocks_per_row", None)
++    if per_row is not None:
++        return int(per_row[index])
++    # Last resort: a table that only carries the device row (mock/qualification
++    # fixtures build exactly this shape) - the used width IS the row width.
++    gpu = getattr(group_table, "gpu", None)
++    if gpu is not None:
++        return int(gpu.shape[-1])
++    raise ValueError("block table exposes neither num_blocks, num_blocks_per_row nor a gpu row")
++
++
++def optional_runner(owner):
++    """`owner.runner` when set, else None (upstream tolerates None downstream)."""
++    return getattr(owner, "runner", None)
+diff --git a/src/vllm_kvmem/core/native_pages.py b/src/vllm_kvmem/core/native_pages.py
+index aeecaee..b6da8c5 100644
+--- a/src/vllm_kvmem/core/native_pages.py
++++ b/src/vllm_kvmem/core/native_pages.py
+@@ -12,9 +12,15 @@ def stored_expansions(tables):
+     values = getattr(tables, 'blocks_per_kv_block', None)
+     if values is None:
+         sizes = getattr(tables, 'block_sizes', None)
+-        if sizes is None or len(sizes) != len(tables.block_tables):
++        if sizes is None:
++            # SM75 fork / qualification fixtures: the table carries only the device
++            # rows, so the expansion is the identity (one kernel block per page).
++            # The real fork exposes `blocks_per_kv_block` and never reaches here.
++            values = [1] * len(tables.block_tables)
++        elif len(sizes) != len(tables.block_tables):
+             raise ValueError('Unsupported native persistent block-table layout')
+-        values = [1] * len(sizes)
++        else:
++            values = [1] * len(sizes)
+     if len(values) != len(tables.block_tables) or any(type(n) is not int or n <= 0 for n in values):
+         raise ValueError('Invalid native block-table expansion')
+     return tuple(values)
+@@ -35,6 +41,10 @@ def kernel_expansions(runner):
+     stored = stored_expansions(tables)
+     if hasattr(tables, 'blocks_per_kv_block'):
+         return stored
++    if getattr(tables, 'block_sizes', None) is None:
++        # SM75 fork / qualification fixtures: no per-group block sizes means the
++        # kernel page IS the allocator page, i.e. the identity expansion.
++        return stored
+     result = []
+     for group, size in enumerate(tables.block_sizes):
+         kernel = runner.kernel_block_sizes[group]
+@@ -52,8 +62,9 @@ def kernel_expansions(runner):
+ 
+ 
+ def kernel_table(runner, group, index):
++    from ..compat_sm75 import block_row_count
+     tables = runner.block_tables
+-    count = int(tables.num_blocks.np[group, index])
++    count = block_row_count(tables, group, index)
+     row = tables.block_tables[group].gpu[index, :count]
+     if hasattr(tables, 'kernel_block_sizes'):
+         if getattr(tables, 'redirect_writes_to_null_block', False):
+diff --git a/src/vllm_kvmem/serving/capture_runtime.py b/src/vllm_kvmem/serving/capture_runtime.py
+index 0cd3c0e..343c0aa 100644
+--- a/src/vllm_kvmem/serving/capture_runtime.py
++++ b/src/vllm_kvmem/serving/capture_runtime.py
+@@ -305,12 +305,15 @@ class CaptureRuntime(EarlyCaptureFeedback):
+                 profile.finish_batch(status='error')
+             raise
+         from ..adapters.qsa_adapter import append_qsa_captures
+-        captured = append_qsa_captures(self.runner, captured)
++        from ..compat_sm75 import optional_runner
++        captured = append_qsa_captures(optional_runner(self), captured)
+         self._finish_stream_session(batch)
+         if tuple(c.name for c in captured) != self.names:
+             raise ValueError("Continuous capture missed or reordered target layers")
+-        if any(c.key.dtype != torch.bfloat16 for c in captured):
+-            raise ValueError("Continuous Qwen target capture currently qualifies BF16 activations")
++        if any(c.key.dtype not in (torch.bfloat16, torch.float16) for c in captured):
++            # SM75 runs float16 (bfloat16 requires compute capability 8.0), so the
++            # activation qualification accepts the SM75 dtype as well.
++            raise ValueError("Continuous Qwen target capture currently qualifies BF16/FP16 activations")
+         groups = self._capture_groups(batch)
+         if not getattr(self, 'split_capture_dma', False) and len(self.downloads.pending) == len(self.downloads.buffers):
+             # Keep the original pre-Action backpressure order in the disabled
+diff --git a/src/vllm_kvmem/serving/serve.py b/src/vllm_kvmem/serving/serve.py
+index 8ad0a8e..3ddf43a 100644
+--- a/src/vllm_kvmem/serving/serve.py
++++ b/src/vllm_kvmem/serving/serve.py
+@@ -42,6 +42,8 @@ DEFAULTS = {
+     'recall_experiment': None,
+     'model_adapter': None,
+     'full_history_benchmark': False,
++    # SM75 (2080 Ti) has no native bfloat16; other targets keep the historical default.
++    'dtype': 'bfloat16',
+ }
+ PATHS = ('model', 'tokenizer', 'hf_config_path', 'draft_model', 'mm_proj')
+ # Explicit experiment controls for NVFP4 and FP8 checkpoints.
+@@ -356,7 +358,10 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
+                         if cfg['draft_quantization'] else {})})
+     argv = ['serve', cfg['model'], '--served-model-name', cfg['served_model_name'],
+         '--host', cfg['host'], '--port', str(cfg['port']), '--tokenizer', cfg['tokenizer'],
+-        '--hf-config-path', cfg['hf_config_path'], '--config-format', 'hf', '--dtype', 'bfloat16',
++        '--hf-config-path', cfg['hf_config_path'], '--config-format', 'hf',
++        # SM75 (2080 Ti) has no native bfloat16: default the profile's dtype, which the
++        # 2080 Ti fork resolves to float16 (vLLM refuses bf16 below compute capability 8.0).
++        '--dtype', str(cfg.get('dtype', 'bfloat16')),
+         '--language-model-only', *loader_args,
+         '--kv-cache-dtype', 'fp8_e4m3', '--max-model-len', str(cfg['max_model_len']),
+         '--max-num-seqs', str(cfg['max_num_seqs']), '--max-num-batched-tokens', str(cfg['max_num_batched_tokens']),
