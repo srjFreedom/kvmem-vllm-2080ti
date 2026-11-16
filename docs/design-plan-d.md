@@ -7108,3 +7108,25 @@ prompt digest 与命中时记录的不同（`_prompt_ids[req]` 在重建阶段�
 
 **另一条路（更大）**：帧级命中 + 逆 RoPE 重旋，让 **B 大小的池**也能几秒命中；
 旋转助手 `rotate_k_pages_fp8` / `restore_page(rank=)` 都已存在，当前 `frame` 分支只差接上旋转。
+
+## 991. Round 846：按用户口径去掉"物理池"路线；**几何必须按池反推**
+
+**用户澄清**：不能依赖"池能装下 prompt"；KVMem 的初衷就是**以 B 为物理池边界**（别人机器可能只有 ~40K 池，
+却要 256K 上下文）。因此删掉了"整段 prompt 封存"这条池容依赖路径（`_seal_prefix_before_forward`
+的 whole-prompt 分支与 `_IDS_KEEP` 备份全部移除）。
+
+**在"真 B 池"下的实测（重要）**
+- `GPU_UTIL=0.82` ⇒ 池 **50,176** token；跑 88K（74,948）时 **prefill 卡在 40,960/74,948**，
+  GPU 空闲、看门狗中止；日志出现 `capacity_clamped`、`d_pool_stash tokens=36928`。
+- 原因：当前几何 **B=36,864 + R=16,384 + RESERVE=16,384 + mamba 固定块（约 15 块 ≈ 23,520 token）**
+  合起来已超过 50K 池；池不够时适配器只能 clamp，随后无进展。
+- `GPU_UTIL=0.85` ⇒ 池 90,944，之前的验收都在这一档（≈ B 的 2.5 倍）。
+
+**结论**：要真正做到"B 就是物理池边界"，必须让几何**由池反推**：
+`B ≈ pool − mamba_blocks×block_tokens − RESERVE − R`。
+以 40K 池为例：40,000 − 23,520 − 8,192 − 4,096 ≈ **4K~16K 的 B**（远小于现在固定的 36,864）。
+这不是改一行开关，而是把"B/R/RESERVE/SINK/RECENT"与池容量绑定并由启动脚本计算。
+
+**下一步**：在 launcher/arm_boot 里加"池→几何"推导（读 `view.num_blocks()*page_tokens`，
+扣掉 mamba 固定块与 RESERVE，再分配 B/R），然后在 40K 池上验收 88K/152K 的正确性；
+之后再谈"几秒命中"——那时帧级命中（逆 RoPE 重旋）才是唯一路径，因为整段 prompt 根本无法驻留。
