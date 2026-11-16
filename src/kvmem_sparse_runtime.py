@@ -80,7 +80,10 @@ class SparseViewCapacityError(RuntimeError):
 # be module level: the fill runs on one runtime object and the compaction gate on another, exactly
 # like the prefix cache itself (measured: an instance-level ledger never reached the gate).
 _HIT_LEDGER = {}
-_HIT_PROMPTS = set()  # prompt digests served from a hit (id-independent)
+_HIT_PROMPTS = set()
+# The prompt ledger is cleared at prompt completion (measured: `_prompt_ids[req]` is None on the
+# first decode step), but the whole-prompt seal runs exactly there. Keep a small process-wide copy.
+_IDS_KEEP = {}  # prompt digests served from a hit (id-independent)
 
 
 class _ReqState:
@@ -2502,6 +2505,15 @@ class VllmSparseRuntime:
         """Remember the prompt tokens: they are the resume key and the logical book origin."""
         try:
             self._prompt_ids[req] = tuple(int(t) for t in (ids or ()))
+        except Exception:
+            pass
+        # Process-wide copy for the whole-prompt seal: the per-request ledger is cleared at prompt
+        # completion (measured: None on the first decode step, exactly when the seal runs).
+        try:
+            if ids:
+                if len(_IDS_KEEP) > 32:
+                    _IDS_KEEP.clear()
+                _IDS_KEEP[str(req)] = tuple(int(t) for t in ids)
         except Exception:
             pass
 
@@ -5539,6 +5551,14 @@ class VllmSparseRuntime:
                 "1", "true", "yes", "on"):
             return False
         try:
+            _ids_now = self._prompt_ids.get(req)
+            if _ids_now and str(req) not in _IDS_KEEP:
+                if len(_IDS_KEEP) > 32:
+                    _IDS_KEEP.clear()
+                _IDS_KEEP[str(req)] = tuple(int(t) for t in _ids_now)
+        except Exception:
+            pass
+        try:
             done = getattr(self, "_prefix_sealed", None)
             if done is None:
                 done = self._prefix_sealed = set()
@@ -5548,6 +5568,70 @@ class VllmSparseRuntime:
             if st is None or bool(getattr(st, "compacted_in_prefill", False)):
                 return False
             toks = int(getattr(st, "tokens", 0) or 0)
+            _plen_seal = int(self._prompt_len.get(req, 0) or 0)
+            if _plen_seal > 0 and toks >= _plen_seal:
+                # WHOLE-PROMPT SEAL: an uncompacted prompt has executed every token densely, so
+                # the entire prompt is a sealed prefix and a later identical request can skip all
+                # of its prefill (measured: 47K warm 25s -> few seconds once the seal covers the
+                # prompt instead of stopping at the seal edge).
+                pt_w = max(1, int(self.page_tokens))
+                covered_w = (int(_plen_seal) // pt_w) * pt_w
+                expected_w = covered_w // pt_w
+                row_w = tuple(int(p) for p in (getattr(st, "row", ()) or ()))
+                if expected_w > 0 and len(row_w) >= expected_w and expected_w <= 4096:
+                    state_w = None
+                    try:
+                        state_w = self.capture_state(req, int(covered_w))
+                    except Exception:
+                        state_w = None
+                    if state_w is not None:
+                        done_w = getattr(self, "_prefix_sealed", None)
+                        if done_w is None:
+                            done_w = self._prefix_sealed = set()
+                        if str(req) not in done_w:
+                            done_w.add(str(req))
+                            done_id = None
+                            try:
+                                kvs_w = self.view.paged_kv()
+                                pages_w = {}
+                                for slot in range(expected_w):
+                                    pg_w = int(row_w[slot])
+                                    if pg_w <= 0 or pg_w >= int(kvs_w[0].shape[0]):
+                                        pages_w = {}
+                                        break
+                                    pages_w[int(slot)] = [t[pg_w].detach().to(
+                                        "cpu").clone() for t in kvs_w]
+                                if len(pages_w) == expected_w:
+                                    from kvmem_prefix_cache import shared_cache as _sc_w
+                                    ids_w = (self._prompt_ids.get(req)
+                                             or _IDS_KEEP.get(str(req)))
+                                    _rec_w = _sc_w().publish(
+                                        token_ids=list(ids_w)[:covered_w], block_size=1,
+                                        page_tokens=pt_w, pages=pages_w, state=state_w,
+                                        request_id=str(req), compacted_in_prefill=False)
+                                    import json as _jw2
+                                    import os as _ow2
+                                    _ow2.makedirs("/tmp/kvmem_prefix_cache", exist_ok=True)
+                                    with open("/tmp/kvmem_prefix_cache/%s.json"
+                                              % _rec_w.chain[-1].hex(), "w") as _fw2:
+                                        _jw2.dump({"tail": _rec_w.chain[-1].hex(),
+                                                   "covered": int(_rec_w.covered),
+                                                   "page_tokens": int(_rec_w.page_tokens),
+                                                   "block_size": 1,
+                                                   "engine_block": int(self.kv_block_size),
+                                                   "digest": _rec_w.digest,
+                                                   "pages": int(len(pages_w)),
+                                                   "request": str(req)[-8:]}, _fw2)
+                                    self.log({"kind": "prefix_sealed_whole",
+                                              "req": str(req)[-6:],
+                                              "covered": int(covered_w),
+                                              "pages": int(len(pages_w))})
+                            except Exception as _ew2:
+                                self.log({"kind": "prefix_seal_error",
+                                          "req": str(req)[-6:],
+                                          "error": f"{type(_ew2).__name__}: {_ew2}"})
+                    return True
+                return False
             # `edge` (env-tunable for the experiment) decides how much of the prompt stays
             # un-sealed. If the remainder fits the resident budget, the resuming run does NOT
             # compact where the cold run did, so the two runs see different contexts.
@@ -5631,8 +5715,10 @@ class VllmSparseRuntime:
                       "reason": str(exc)[:140]})
             return False
         except Exception as exc:
+            import traceback as _tb_se
             self.log({"kind": "prefix_seal_error", "req": str(req)[-6:],
-                      "error": f"{type(exc).__name__}: {exc}"})
+                      "error": f"{type(exc).__name__}: {exc}",
+                      "tb": _tb_se.format_exc()[-260:]})
             return False
 
     def _apply_prefix_fill(self, req, row_index=None):
@@ -7211,6 +7297,14 @@ class VllmSparseRuntime:
         # LOGICAL frontier (== tokens), otherwise the compaction selects only the newest pages
         # (measured: 148 pages / 8,824 tokens on the warm run vs 834 pages / 30,776 cold, because
         # seq_len had become `tokens - covered`), and the warm answer drifts by one token.
+        try:
+            _ids_ae = self._prompt_ids.get(req)
+            if _ids_ae and str(req) not in _IDS_KEEP:
+                if len(_IDS_KEEP) > 32:
+                    _IDS_KEEP.clear()
+                _IDS_KEEP[str(req)] = tuple(int(t) for t in _ids_ae)
+        except Exception:
+            pass
         try:
             _hits0 = _HIT_LEDGER
             _law_all = str(__import__("os").environ.get(

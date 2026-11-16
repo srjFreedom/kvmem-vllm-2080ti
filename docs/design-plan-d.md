@@ -7086,3 +7086,25 @@ prompt digest 与命中时记录的不同（`_prompt_ids[req]` 在重建阶段�
 
 **已知边界（不在本轮范围）**：帧级复用（跳过重建本身）需要逆 RoPE 重旋，默认关闭；
 跨重启不保留（KV 在进程内存，epoch 闸门保证不误用）。
+
+## 990. Round 845：用户口径校正 —— 真正的"几秒命中"还差"整段封存"
+
+**用户反馈**：>B 的 1.2–1.6× 不是他要的"前缀命中"，他要的是**几秒**级别的命中。
+
+**本轮实测（关掉窗口压缩 `PREFILL_PRESSURE=0`，池 263K 可容下 prompt）**
+| 用例 | cold | warm | 说明 |
+|---|---|---|---|
+| 47K | 50s | **25s** | 只跳过 34,496 token（封存 edge），其余 12,568 仍要 prefill |
+
+**为什么还没到几秒**：命中只覆盖"封存前缀"（edge=36,864，实际 34,496），
+没有覆盖**整段 prompt**。整段封存已经写进 `_seal_prefix_before_forward`（`prefix_sealed_whole`），
+但实测每次都报 `TypeError: 'NoneType' object is not iterable`：
+在**第一个 decode step**（正是能封存整段 prompt 的时刻）`self._prompt_ids[req]` 已被清空；
+`_IDS_KEEP` 在 worker 侧（`after_step` / 封存入口）也没拿到（TP2 两个 rank 的账本并不同步）。
+
+**下一步（一个聚焦的小改动）**：把 prompt ids 在**预填期间**（`_prompt_ids` 非空时）就落进
+进程级 `_IDS_KEEP`——本轮已在两个位置尝试但未命中真正的填充时机，需要加一条日志确认
+`_prompt_ids` 在 worker 的哪个 step 非空、在哪个 step 被清空，然后把备份点钉在两者之间。
+
+**另一条路（更大）**：帧级命中 + 逆 RoPE 重旋，让 **B 大小的池**也能几秒命中；
+旋转助手 `rotate_k_pages_fp8` / `restore_page(rank=)` 都已存在，当前 `frame` 分支只差接上旋转。
