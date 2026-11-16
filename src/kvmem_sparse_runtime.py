@@ -10167,8 +10167,18 @@ class VllmSparseRuntime:
         # position map below already skips None entries, and the D invariant
         # (row CONTENT ownership by the adapter) makes the length gap normal,
         # not the corrupt-frame signal this guard was written for.
-        if getattr(self, "d_mode", False) and len(old_logical) < len(old_row):
+        # A request running with an INSTALLED VIEW (prefix hit / applied view coordinates) has the
+        # same shape as the D invariant: the row is the full physical window while `logical` names
+        # only the pages that carry history, so the gap is normal - pad with None instead of
+        # refusing (measured at pool 64,288 / B=20,480: row=896 logical=392 made every gate bail
+        # with blockwise_no_logical and the request stalled at 57,344 tokens).
+        if ((getattr(self, "d_mode", False)
+             or bool(getattr(st, "applied_view_coord", False))
+             or int(getattr(st, "off_pages", 0) or 0))
+                and len(old_logical) < len(old_row)):
             old_logical = old_logical + [None] * (len(old_row) - len(old_logical))
+        elif len(old_logical) > len(old_row):
+            old_logical = old_logical[:len(old_row)]
         if not old_row:
             self._last_proposal = None
             try:

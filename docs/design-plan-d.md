@@ -7183,3 +7183,25 @@ runtime_geometry: budget_tokens=12288 gen_reserve=8192 sink_tokens=8192
 
 **下一步**：定位 `blockwise_no_logical` 的判据（大概率是 `st.logical` / `applied_view_coord`
 在该几何下未安装），让小池也走已验证的 rebuild 路径。
+
+## 994. Round 849：blockwise 拒单的两层原因（padding 已修，第二个是**过期提案**）
+
+**已修**：`blockwise_no_logical` —— 压缩入口要求 `len(st.logical) == len(st.row)`，而带视图/偏移的
+请求天然是"行是完整物理窗口、logical 只命名有历史的页"（实测 `row=896 logical=392`）。
+把 padding 条件从"仅 D 模式"扩展到 `d_mode | applied_view_coord | off_pages`（并对反向做截断）。
+
+**第二个阻塞（未修）**：`sched_compact_refused: invalid or non-shrinking TP compaction proposal`。
+条款日志 `/tmp/kvmem_validate_clauses.jsonl` 直接给出失败条款：
+```
+d_mode=false page=32 block=49 logical=57344 selected_n=441 sel_last=1518
+bound=1792 straddler=1791 in_sel=false sorted_ok=true phys_n=441 visible=14112 resident=57344
+```
+⇒ 失败的是 **tail/straddler 条款**（尾部页 1,791 不在选片里），而且 `selected_n=441 / sel_last=1518`
+在 logical 45,056→57,344 的四次门限中**完全不变** ⇒ 提案是**过期的**（缓存了 `_last_proposal`，
+门限再次触发时没有重算），尾部页随时间越跑越远，于是每次都拒。
+
+**下一步**：定位 `_last_proposal` 的缓存/复用点，在压力门每次触发时强制重算提案；
+重算后 tail 页会跟随当前 frontier，straddler 条款即可通过。
+
+**顺带**：`KVMEM_D_NOBLADE=1` 在 baseline 里，会以 `knives suppressed by KVMEM_D_NOBLADE`
+拒单；做小池实验时必须显式关掉（已在本轮 arm 里加 `KVMEM_D_NOBLADE=0`）。
