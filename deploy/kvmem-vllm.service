@@ -1,0 +1,16 @@
+[Unit]
+Description=KVMem vLLM baseline (2x2080Ti, SM75)
+After=network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/home/srj/src/kvmem-vllm-2080ti
+Environment=CONFIG=/home/srj/src/kvmem-vllm-2080ti/local/serve-2080ti-baseline.json
+Environment=RUN_DIR=/var/tmp/kvmem-run-baseline
+ExecStart=/home/srj/src/kvmem-vllm-2080ti/deploy/run-kvmem-vllm.sh start
+ExecStop=/home/srj/src/kvmem-vllm-2080ti/deploy/run-kvmem-vllm.sh stop
+TimeoutStartSec=900
+
+[Install]
+WantedBy=multi-user.target
