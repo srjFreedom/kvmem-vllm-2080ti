@@ -423,3 +423,38 @@ session_restored_tokens = 4857      ← turn2 只 prefill 了 4880-4857 = 23 个
 说明 checkpoint 已捕获，是 **lookup/import 侧拒绝**）。已在该路径装探针
 （`session_control.lookup` 的三处 miss 分支，日志 `/tmp/kvmem_session_miss.jsonl`，
 代码码：`entry_busy` / `plan_changed` / `capacity_hold`），下一轮跑一次 7K 的 A/B 即可定位。
+
+## 21. 池只需要装 B+R（修正一处会计口径），sink/recent 调成 1,024/1,024
+
+**用户问题：为什么 B+R 是 4,096 + 2,048？**
+老实说：**那是我随手挑的**，没有推导依据（目标只是"窗口小、调试快、2K 的 prompt 能整段落在窗口里"）。
+真正的约束只有三条（`core/config.py`）：`select_budget`/`gen_budget` 能被 `block_tokens` 整除、
+`sink+recent ≤ select_budget/block_tokens`、`repository_blocks × block_tokens ≥ select+gen`。
+
+**本轮改动**
+| 项 | 值 | 说明 |
+|---|---|---|
+| `sink_blocks` / `recent_blocks` | **32 / 32**（= **1,024 / 1,024 token**）| 按你的要求 |
+| `gpu_memory_utilization` | 0.74 | 池 **21,845 token**（窗口 6,144 的 3.5 倍）|
+| CTX | 32,768 | > 2×B+R |
+
+**关键发现：引擎的原生 KV 页是 32,768 token，不是 32**
+`cache-geometry.json`：4 个 cache group（3 个 attention 各 16 层、1 个 GDN 17 层），
+attention 组的 `block_tokens` 等于 **32,768**（CTX 越小它越小，CTX=262,144 时就是 262,144！）。
+但 KVMem 用 `guided_block_tokens = 32` 指导分配。`capacity.py` 的 `_demand()` 原来按**原生大页**算，
+于是"一个最坏请求"被算成每 group 一整页 ⇒ 池必须 ≥ 组数 × CTX，池永远压不下来。
+
+**修正**：`_demand()` 改为按 `guided_block_tokens` 计费（没有则退回 `manager.block_size`），
+并由 launcher 导出 `KVMEM_WINDOW_TOKENS = select_budget + gen_budget`。
+→ 最坏驻留请求 = **B+R**，与 CTX 无关。
+
+**验证**
+- 池 21,845 token（0.74）能启动，CTX 32,768 照常（skip-check 仍在用）
+- 小 prompt（2,212 token）多会话：A1 2.68s / B1 2.49s → **A2 0.64s / B2 0.59s / A3 0.63s** ✅
+- 大 prompt（7,254 token，>窗口）：C1/D1 10.3s（冷）→ **C2/D2/C3 仍 10.3s（未命中）**
+
+## 22. 仍未解决：超过窗口的会话不被恢复
+
+探针（`entry_busy` / `plan_changed` / `capacity_hold`）在这轮**没有触发**，
+说明 miss 发生在更早的分支：`uncached_sessions` / `entry.phase != 'idle'` / `namespace is None`。
+下一轮把探针补到这些分支（`session_control.lookup` 前 3 个 return None），一次 7K 的 A/B 即可定位。

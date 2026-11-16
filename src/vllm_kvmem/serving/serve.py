@@ -448,6 +448,11 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
         env['KVMEM_PREFILL_CHUNK_TOKENS'] = str(cfg['prefill_chunk_tokens'])
     # KVMem bounds the GPU window by select+gen, so max_model_len is a logical
     # context bound: let the engine start even when it exceeds the KV pool.
+    # The resident worst case is the KVMem window, so the page-pool admission check
+    # must size against B+R instead of the logical context limit.
+    _kv = cfg.get('kvmem') or {}
+    if isinstance(_kv, dict) and _kv.get('select_budget') and _kv.get('gen_budget'):
+        env['KVMEM_WINDOW_TOKENS'] = str(int(_kv['select_budget']) + int(_kv['gen_budget']))
     env['KVMEM_SKIP_KV_CHECK'] = '1' if cfg.get('skip_kv_check') else '0'
     env['KVMEM_AUTO_SESSION'] = '1' if cfg.get('auto_session') else '0'
     # Unset = hash the whole conversation opening (distinct tasks must not share a namespace).

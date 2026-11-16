@@ -66,15 +66,36 @@ class ReservedKVCacheManager:
         self.restore_admission = None
         self.prefill_refresh_control = None
         self.refresh_control_allocations = {}
-        if self._demand(native.max_model_len) > native.block_pool.get_num_free_blocks():
-            raise ValueError("GPU page pool cannot fit one worst-case KVMem request")
+        # The worst-case RESIDENT request is the KVMem window (select + gen), not the
+        # logical context limit: history beyond the window lives in the CPU archive and is
+        # selected back in. KVMEM_WINDOW_TOKENS carries that window from the launcher, so a
+        # pool sized for B+R is enough even when max_model_len (CTX) is much larger.
+        import os as _os_win
+        try:
+            _window = int(_os_win.environ.get("KVMEM_WINDOW_TOKENS", "0") or 0)
+        except Exception:
+            _window = 0
+        _admission = min(int(native.max_model_len), _window) if _window > 0 else int(native.max_model_len)
+        self.admission_tokens = int(_admission)
+        if self._demand(_admission) > native.block_pool.get_num_free_blocks():
+            raise ValueError(
+                "GPU page pool cannot fit one worst-case KVMem request "
+                f"(admission tokens={_admission}, window={_window}, max_model_len={native.max_model_len})")
 
     def __getattr__(self, name):
         return getattr(self.native, name)
 
     def _demand(self, tokens):
-        return sum(self.static_blocks[index] if index in self.static_blocks else
-                   (min(tokens, manager.capacity) + manager.block_size - 1) // manager.block_size
+        # KVMem guides allocation in `guided_block_tokens` units (the selection grid, 32),
+        # while the native cache spec keeps its own huge page size (32,768 for this hybrid
+        # model). Charging the native page would demand one full context page per group and
+        # make a pool sized for B+R impossible; charge the units we actually allocate.
+        def blocks(index, manager):
+            if index in self.static_blocks:
+                return self.static_blocks[index]
+            unit = int(getattr(manager, 'guided_block_tokens', 0) or 0) or int(manager.block_size)
+            return (min(tokens, manager.capacity) + unit - 1) // unit
+        return sum(blocks(index, manager)
                    for index, manager in enumerate(self.groups))
 
     def _owned(self, request_id):
