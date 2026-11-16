@@ -21,11 +21,21 @@
 
 ⇒ 结论：**Python API 大面积兼容，但少量形状假设有漂移**，需要一层薄的 `compat` 适配。
 
-## 3. 真正的硬约束：SM75 与上游 GPU 路径不兼容
+## 3. 修正：SM75 不是硬约束 —— fork 已经提供所需的一切（2026-11-16 复核）
 
-- 上游 `native_attention_sources.json` 固定的是 **FlashInfer FA2 + XQA**（`mha_sm90.cu`、`mla_sm120.cu` 等），support matrix 明确测试机型是 **Blackwell（SM120）与 A800（SM80）**，并要求 **FP8 E4M3 KV 原生布局**。
-- 2080Ti = **SM75**：没有 FP8 张量核心，也没有 FA2/XQA 内核。
-⇒ 上游的 “attention + KV 存储” 两层必须换成 SM75 可用实现；**宿主核心（选择/归档/规划器）可原样使用**。
+原先我把它写成“硬约束”，是把上游的**可选加速路径**当成了必需路径。复核结论：
+
+| 上游组件 | 依赖 | SM75 可行性 |
+|---|---|---|
+| `native_attention_sources.json`（FA2 / XQA / `mha_sm90.cu` / `mla_sm120.cu`） | 只有 `action_attention` 特性用 | **默认关闭**（`core/config.py: action_attention = False`），且 `serving/action_attention.py:937` 注释明确有“**without the architecture-specific kernels**”的通用路径 ⇒ 不需要 |
+| `adapters/assembly.py`（页装配/恢复） | `vllm.triton_utils` 的 Triton kernel | ✅ Triton 支持 SM75 |
+| `adapters/_fused_capture.py`（K/Q 捕获） | Triton | ✅ |
+| `capture.py` 的 `torch.ops.kvmem.capture_projection` | `csrc/qw3_mean_k*.cu` JIT | ✅ 源码里**没有** `__nv_fp8`/`cp.async`/`wgmma`/`ldmatrix` 等架构敏感特性，nvcc 可编 sm75 |
+| FP8 KV | `adapters/fp8_compat.py`：`software_fp8` / `fp8_storage` | ✅ 上游本身就是**软件量化**路径；fork 也支持 `kv_cache_dtype="fp8_e4m3"`（uint8 存储） |
+| 模型执行（注意力） | vLLM 后端 | ✅ fork 的 FlashInfer 明确保留 SM75：`supports_compute_capability >= DeviceCapability(7,5)` |
+| 权重 FP8 | — | ✅ fork 用 MarlinFP8 / modelopt（cc>=7.5）在 Turing 上做 w8a16 |
+
+⇒ **不需要重写注意力，也不需要移植内核**。SM75 上要做的只是：两个 API 漂移兼容层 + 保持 `action_attention=False` + 用 fork 的 FlashInfer/FP8 KV。
 
 ## 4. 分阶段计划
 
@@ -43,11 +53,11 @@
   b) **FP8 按字节存储 + 软件量化/反量化**（旧适配器已验证可行：页 KV 以 uint8 fp8 字节保存，`_quantize/_dequant` 走软件路径，旋转也在该字节域完成）。
 - 建议先 (a) 打通正确性，再切 (b) 拿显存。
 
-**P3 attention 路径（SM75）**（3–5 轮，最重）
-- 禁用上游 FA2/XQA JIT 内核（`native_attention_sources.json` 那条链），改为：
-  - 用 fork 自带的 SM75 可用 attention（FlashAttention-2 的 SM75 分支 / Triton 后端）；
-  - KV 页的“选中视图”安装 + RoPE 相位处理沿用旧适配器验证过的做法（页按 rank 旋转、稠密索引）。
-- 关键契约（已从上游 `core/memory.py` 抄到）：帧必须是**有序稠密**、`history_end == checkpoint.position`、**K 和 V 都要重载**、GDN/draft 状态必须一起恢复。
+**P3 attention 路径（SM75）**（1–2 轮，已大幅简化）
+- 保持 `action_attention=False`（默认值）：走 `action_attention.py:937` 的通用 prefill + fork 的 FlashInfer。
+- KV 页安装/恢复用上游 Triton 的 `adapters/assembly.py`，相位按 rank 旋转、稠密索引。
+- 关键契约（上游 `core/memory.py`）：帧必须**有序稠密**、`history_end == checkpoint.position`、**K 和 V 都要重载**、GDN/draft 状态一起恢复。
+- 若以后要 `action_attention` 的性能优势，才需要把 XQA 移植到 sm75 —— 那是独立立项，不进 P3。
 
 **P4 端到端**（2–3 轮）
 - 目标模型：`Qwen3.8-27B-Coder390-FP8-MTP`（与上游测试的 Qwen hybrid GDN 27B 同族）。
