@@ -73,3 +73,25 @@
 1. KV 编解码先走 **BF16（稳）** 还是直接 **FP8 字节（省显存）**？建议先 BF16。
 2. 目标模型确认是 `Coder390-FP8-MTP` 吗？（上游只对 Qwen hybrid GDN 27B 有资格记录）
 3. 新项目是否也建一个**私有远端**仓库？
+
+## 7. P1 完成（2026-11-16）：API 漂移兼容层落地
+
+新增 `src/vllm_kvmem/compat_sm75/__init__.py`，把 fork 与上游的**形状差异**集中到一处：
+- `block_row_count(tables, group, index)`：兼容 `tables.num_blocks.np[g,i]`（上游）
+  与 fork 的 `block_tables[g].num_blocks_per_row[i]`，以及只有设备行的 fixture（取行宽）。
+- `optional_runner(owner)`：`owner.runner` 未绑定时返回 None（上游下游容忍 None）。
+
+改动点（保持最小、可 grep）：
+| 文件 | 改动 |
+|---|---|
+| `core/native_pages.py` | `kernel_table()` 用 `block_row_count` |
+| `core/native_pages.py` | `stored_expansions()` 在表只有设备行时按恒等扩展 |
+| `core/native_pages.py` | `kernel_expansions()` 在无 `block_sizes` 时返回恒等扩展 |
+| `serving/capture_runtime.py` | `append_qsa_captures(optional_runner(self), ...)` |
+
+**测试基线（本机，fork venv，CPU-only）**
+- `tests/test_action_{attention,metadata,profile}.py` ⇒ **40 passed**
+- 20 个核心 CPU 测试文件 ⇒ **257 passed / 1 failed**
+- 该失败 `test_historical_compact_index.py::test_authority_sealed_sums_release_with_native_gc_and_live_partial_tail`
+  是**上游既有失败**（已用 `git stash` 在未改动的树上复现同样失败）：`memory_storage.py:1264`
+  `self.tier` 为 None，属环境/上游问题，不是 P1 引入。

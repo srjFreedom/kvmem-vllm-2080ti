@@ -12,9 +12,15 @@ def stored_expansions(tables):
     values = getattr(tables, 'blocks_per_kv_block', None)
     if values is None:
         sizes = getattr(tables, 'block_sizes', None)
-        if sizes is None or len(sizes) != len(tables.block_tables):
+        if sizes is None:
+            # SM75 fork / qualification fixtures: the table carries only the device
+            # rows, so the expansion is the identity (one kernel block per page).
+            # The real fork exposes `blocks_per_kv_block` and never reaches here.
+            values = [1] * len(tables.block_tables)
+        elif len(sizes) != len(tables.block_tables):
             raise ValueError('Unsupported native persistent block-table layout')
-        values = [1] * len(sizes)
+        else:
+            values = [1] * len(sizes)
     if len(values) != len(tables.block_tables) or any(type(n) is not int or n <= 0 for n in values):
         raise ValueError('Invalid native block-table expansion')
     return tuple(values)
@@ -35,6 +41,10 @@ def kernel_expansions(runner):
     stored = stored_expansions(tables)
     if hasattr(tables, 'blocks_per_kv_block'):
         return stored
+    if getattr(tables, 'block_sizes', None) is None:
+        # SM75 fork / qualification fixtures: no per-group block sizes means the
+        # kernel page IS the allocator page, i.e. the identity expansion.
+        return stored
     result = []
     for group, size in enumerate(tables.block_sizes):
         kernel = runner.kernel_block_sizes[group]
@@ -52,8 +62,9 @@ def kernel_expansions(runner):
 
 
 def kernel_table(runner, group, index):
+    from ..compat_sm75 import block_row_count
     tables = runner.block_tables
-    count = int(tables.num_blocks.np[group, index])
+    count = block_row_count(tables, group, index)
     row = tables.block_tables[group].gpu[index, :count]
     if hasattr(tables, 'kernel_block_sizes'):
         if getattr(tables, 'redirect_writes_to_null_block', False):

@@ -305,7 +305,8 @@ class CaptureRuntime(EarlyCaptureFeedback):
                 profile.finish_batch(status='error')
             raise
         from ..adapters.qsa_adapter import append_qsa_captures
-        captured = append_qsa_captures(self.runner, captured)
+        from ..compat_sm75 import optional_runner
+        captured = append_qsa_captures(optional_runner(self), captured)
         self._finish_stream_session(batch)
         if tuple(c.name for c in captured) != self.names:
             raise ValueError("Continuous capture missed or reordered target layers")
