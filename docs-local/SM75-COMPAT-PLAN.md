@@ -714,3 +714,48 @@ max_num_seqs 1 / max_num_batched_tokens 2051 / no-prefix-caching / MTP2 / full_g
    MTP4 只有在高接受率 workload 上才划算；散文类 MTP4 反而略低于 MTP2。
 3. 因此 dev/prod 默认改为 **`draft_tokens=4` + `cudagraph_capture_sizes=[5]` + `max_num_batched_tokens=4096`**。
 4. 之前算的"FP8 理论上限 ~80"是对的：80–87 正好贴着 Marlin 权重带宽下限，说明已经压干净。
+
+## 31. 修复：超过窗口的会话续写不命中 —— 根因是会话模式选错
+
+**诊断过程**：在 `session_control.lookup` 的 10 个 miss 分支全部插探针（`_session_miss_probe`，
+写 `/tmp/kvmem_session_miss.jsonl`，码 `miss01..miss10`），一次 7.2K 的 A1/A2 就把原因钉死：
+
+```
+{"code":"miss04","prompt":7280,"history":7168,"window":4352,"phase":"idle","prompt_history":0}
+```
+
+`miss04` = `needs_p` 为真但没有可用 P checkpoint 的分支。而 `prompt_history` 来自
+`prompt_checkpoints._capture_install()` 里保留到 `pool.prompts[namespace]` 的旧快照，
+那条保留只在 `preserve` 为真时发生：
+
+```python
+preserve = self.retain_prompt and terminal and previous is not None and previous.kind == 'P'
+retain_prompt = (session_checkpoint_policy == 'pm')     # session_worker.py:111
+```
+
+我们原来是 `sealed` + `freeze_prompt`（frozen-P 会话）⇒ `retain_prompt=False` ⇒ `prompts[]` 恒空
+⇒ `prompt_history` 恒 0 ⇒ **凡是需要 P 重放的续写（即真正被压缩过的会话）必然 miss**。
+`sealed/frozen-P` 模式本来就只支持"同前缀的独立提问"，不支持多轮续写。
+
+**修复（纯配置，无代码改动）**
+```json
+"session_checkpoint_policy": "pm",     // 同时保留 P 与 M checkpoint
+"session_capture_terminal": true,      // pm 模式要求
+"session_freeze_prompt": false         // pm 与 frozen-P 互斥
+```
+
+**实测（修前 → 修后）**
+| 场景 | 修前 | 修后 |
+|---|---|---|
+| 7,254 token 会话续写（>窗口） | 10.45 s（全量重 prefill）| **0.40 s（26×）** |
+| 同上第三轮 | — | **0.40 s** |
+| 第二个会话（7,254）续写 | 10.3 s | **0.40 s** |
+| 2,212 token 会话续写（<窗口） | 0.59–0.64 s | **0.25–0.26 s（9.5×）** |
+| A/B 会话交替（小 prompt） | 0.64 / 0.59 / 0.63 s | **0.26 / 0.25 / 0.25 s** |
+
+`sessions.hits=6, entries=3`，`session_restored_tokens=26,259`。
+回归：答案全部正确（`ZX-4417-QJ7` / `QQ-8882-ZZ9`）。
+
+**副作用/代价**：pm 模式会额外保留终端（M）checkpoint ⇒ 每会话 payload 更大
+（实测 3 个会话 236 MB）；容量仍由 `session_capacity=8` × `session_checkpoint_bytes` 约束，
+不够时调大后者或减小窗口。

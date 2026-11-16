@@ -229,6 +229,23 @@ class _Entry:
         return self._fingerprint
 
 
+def _session_miss_probe(code, request, entry=None):
+    """Append one line to KVMEM_SESSION_MISS_LOG explaining a retained-session miss."""
+    import json as _json, os as _os
+    try:
+        path = _os.environ.get('KVMEM_SESSION_MISS_LOG', '/tmp/kvmem_session_miss.jsonl')
+        prompt = request.prompt_token_ids
+        record = {'code': code, 'req': str(getattr(request, 'request_id', ''))[-8:],
+                  'prompt': len(prompt) if prompt is not None else None}
+        if entry is not None:
+            record.update({'history': entry.history, 'window': entry.window, 'phase': entry.phase,
+                           'prompt_history': entry.prompt_history})
+        with open(path, 'a') as handle:
+            handle.write(_json.dumps(record) + '\n')
+    except Exception:
+        pass
+
+
 class SessionLedger:
     def __init__(self, capacity, block_tokens, prepare_import, abort_import, commit_import, *, terminal_capture=False,
                  select_budget=None, gen_budget=None, checkpoint_policy='sealed',memory_config=None,
@@ -299,6 +316,7 @@ class SessionLedger:
         if owner is not None:
             if owner == request.request_id:
                 return 0
+            _session_miss_probe('miss01', request, locals().get('entry') or locals().get('saved_entry'))
             self.waits += 1
             return None
         entry = self.entries.get(namespace)
@@ -307,13 +325,7 @@ class SessionLedger:
                 raise ValueError('Native request repeated session lookup after allocation')
             return entry.history
         if entry is not None and entry.phase != 'idle':
-            import json as _jsm, os as _osm
-            try:
-                with open(os.environ.get('KVMEM_SESSION_MISS_LOG', '/tmp/kvmem_session_miss.jsonl'), 'a') as _fm:
-                    _fm.write(_jsm.dumps({'code': 'entry_busy', 'req': str(request.request_id)[-8:],
-                                          'prompt': len(request.prompt_token_ids)}) + '\n')
-            except Exception:
-                pass
+            _session_miss_probe('miss02', request, locals().get('entry') or locals().get('saved_entry'))
             self.waits += 1
             return None
         if release:
@@ -324,6 +336,7 @@ class SessionLedger:
                 # Wait for the existing generation's history, model snapshot
                 # and resident GPU leases to retire through the normal path.
                 self._evict(entry)
+                _session_miss_probe('miss03', request, locals().get('entry') or locals().get('saved_entry'))
                 self.waits += 1
                 return None
             # Keep namespace serialization through the tiny close request,
@@ -371,6 +384,7 @@ class SessionLedger:
                         self.validate_plan_capacity(request, effective)
                         self.set_plan(request,effective)
                     self._evict(saved_entry)
+                    _session_miss_probe('miss04', request, locals().get('entry') or locals().get('saved_entry'))
                     self.waits += 1
                     return None
             if changed:
@@ -384,13 +398,7 @@ class SessionLedger:
                 self.validate_plan_capacity(request, effective)
                 self.set_plan(request,effective)
                 self._evict(saved_entry)
-                import json as _jsm, os as _osm
-                try:
-                    with open(os.environ.get('KVMEM_SESSION_MISS_LOG', '/tmp/kvmem_session_miss.jsonl'), 'a') as _fm:
-                        _fm.write(_jsm.dumps({'code': 'plan_changed', 'req': str(request.request_id)[-8:],
-                                              'prompt': len(request.prompt_token_ids)}) + '\n')
-                except Exception:
-                    pass
+                _session_miss_probe('miss05', request, locals().get('entry') or locals().get('saved_entry'))
                 self.waits += 1
                 return None
             if self.guided_options is not None:
@@ -460,6 +468,7 @@ class SessionLedger:
                 raise
             return entry.history
         if self.prefix_images is not None and self._start_prefix_import(request, namespace):
+            _session_miss_probe('miss06', request, locals().get('entry') or locals().get('saved_entry'))
             self.waits += 1
             return None
         self.cold_plan(request)
@@ -467,13 +476,7 @@ class SessionLedger:
             if self.preserve_history and not self.idle_lru_eviction:
                 # The caller must explicitly finish/release a session. Neither
                 # LRU eviction nor uncached execution preserves its history.
-                import json as _jsm, os as _osm
-                try:
-                    with open(os.environ.get('KVMEM_SESSION_MISS_LOG', '/tmp/kvmem_session_miss.jsonl'), 'a') as _fm:
-                        _fm.write(_jsm.dumps({'code': 'capacity_hold', 'req': str(request.request_id)[-8:],
-                                              'prompt': len(request.prompt_token_ids)}) + '\n')
-                except Exception:
-                    pass
+                _session_miss_probe('miss07', request, locals().get('entry') or locals().get('saved_entry'))
                 self.waits += 1
                 return None
             # Entries are reinserted when they turn idle: the first idle entry
@@ -488,14 +491,17 @@ class SessionLedger:
                 if not (self.idle_lru_eviction and
                         any(e.phase == 'evicting' for e in self.entries.values())):
                     self._evict(idle)
+                _session_miss_probe('miss08', request, locals().get('entry') or locals().get('saved_entry'))
                 self.waits += 1
                 return None
             if self.idle_lru_eviction and any(e.phase == 'evicting' for e in self.entries.values()):
+                _session_miss_probe('miss09', request, locals().get('entry') or locals().get('saved_entry'))
                 self.waits += 1
                 return None
             if self.require_owned or self.preserve_history:
                 # Graph identities cannot degrade to temporary request IDs
                 # when all owned checkpoint slots are currently leased.
+                _session_miss_probe('miss10', request, locals().get('entry') or locals().get('saved_entry'))
                 self.waits += 1
                 return None
             # All cache slots are in use. A new session may still run normally;
