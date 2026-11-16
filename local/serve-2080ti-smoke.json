@@ -12,7 +12,7 @@
   "max_model_len": 262144,
   "max_num_seqs": 1,
   "max_num_batched_tokens": 1024,
-  "gpu_memory_utilization": 0.96,
+  "gpu_memory_utilization": 0.88,
   "prefill_chunk_tokens": 128,
   "verify_session_restore": false,
   "kvmem": {
