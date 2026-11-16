@@ -9230,6 +9230,17 @@ class VllmSparseRuntime:
                        or getattr(self, "pages_per_block", 1) or 1))
         block_tokens = q * pt
         tokens = int(st.tokens)
+        # FRONTIER AGREEMENT (measured at pool 64,288 / B=20,480): the selection was built from the
+        # LOCAL book while the proposal stamped `logical_frontier` from the sender's engine frontier,
+        # one chunk ahead - Core then refused every proposal at the straddler clause
+        # ("invalid or non-shrinking", sel_last 1518 vs frontier 1792) and the request stalled at
+        # 57,344 tokens. Select against the same frontier the proposal advertises.
+        try:
+            _dsp = getattr(self, "_d_sender", None)
+            if _dsp and int(_dsp[0]) > tokens:
+                tokens = int(_dsp[0])
+        except Exception:
+            pass
         n_pages = -(-tokens // pt)
         n_blocks = -(-n_pages // q)
         budget_blocks = max(2, int(self.budget_tokens) // block_tokens)

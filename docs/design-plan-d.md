@@ -7270,3 +7270,24 @@ NOADOPT/NOINSTALL/NORESTORE/NOSKIP/POS/REBAKE/REBAKE_INV/ROPE/SLIDE/STORELOG`。
 **仍剩**：`d_mode` 读取 63 处（`src/kvmem_sparse_runtime.py`）、plugin 13 处、reconstruction 16 处。
 它们现在都是"恒假条件"，下一批按同样的方式整块删除；删完后再把 `d_mode` 参数/属性从
 `VllmSparseRuntime`、`validate_quiescent_compaction`、runner 配置里移除。
+
+## 998. Round 853：小池压缩提案仍被 straddler 条款拒 —— frontier 修正无效，需定位真正产提案的路径
+
+**本轮改动**：在 `_reselect_blockwise` 的选片入口把 `tokens` 与提案 stamp 的 frontier 对齐
+（若 `self._d_sender[0]` 更大就用它），依据是：条款日志里 `sel_last=1518`（48,576 token）而
+`logical=57344`，说明"选择用的本地账本"落后于"提案声称的 frontier"。
+
+**实测结果（池 64,288 / B=20,480 / R=8,192，88K 冷跑）**：仍然卡死，
+`/tmp/kvmem_validate_clauses.jsonl` 的最后一条**与修正前完全一致**：
+```
+logical=57344 selected_n=441 sel_last=1518 bound=1792 straddler=1791 in_sel=false visible=14112
+```
+⇒ 修正没有影响真正的提案来源：要么 `_d_sender` 在该路径为 None，要么提案由**另一个函数**
+（`_reselect_remobilize` 或 Core 侧 `_quiescent_compaction` 的 blockwise 分支）产生。
+
+**已知**：`kept` 里确实有 `kept.add((n_pages - 1) // q)` 的尾部强制，但最终 441 页的
+`sel_last` 只到 1,518 ⇒ 尾部块在 `kept → logical_pages` 之间被丢掉（或 `n_pages` 本身是 1,519）。
+**下一步（精确观测点）**：在 `_rebuild_view` 调用前打一行 `kept/n_pages/budget_blocks/q`，
+在**小池 + 压力门**这一刻运行一次即可判定：
+- 若 `n_pages≈1519` ⇒ 本地账本落后（继续修 frontier 来源）；
+- 若 `n_pages≈1792` 但 `kept` 不含块 36 ⇒ 尾部块被后续截断/填充挤掉（修 `kept` 收尾逻辑）。
