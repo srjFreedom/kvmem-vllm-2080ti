@@ -9,10 +9,10 @@
   "served_model_name": "kvmem-2080ti-oldequiv",
   "host": "127.0.0.1",
   "port": 18200,
-  "max_model_len": 131072,
+  "max_model_len": 65536,
   "max_num_seqs": 1,
   "max_num_batched_tokens": 1024,
-  "gpu_memory_utilization": 0.88,
+  "gpu_memory_utilization": 0.93,
   "prefill_chunk_tokens": 128,
   "verify_session_restore": false,
   "kvmem": {

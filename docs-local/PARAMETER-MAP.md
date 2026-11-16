@@ -57,3 +57,24 @@
 `select_budget=36,864`、`gen_budget=16,384`、`sink_blocks=256`、`recent_blocks=64`、
 `repository_blocks=16,384`、`max_model_len=131,072`、`gpu_memory_utilization=0.88`。
 工作窗口变为 `36,864 + 16,384 = 53,248` token（旧的 B+R 同上），GPU 池 198,817 足够。
+
+## 五、实测：旧等效参数能跑，但**窗口变大要挤 KV 池**
+
+`local/serve-2080ti-oldequiv.json`（`select=36,864`、`gen=16,384`、`sink_blocks=256`=8,192 token、
+`recent_blocks=64`=2,048 token、`repository_blocks=16,384`）：
+
+| gpu_mem | max_model_len | 结果 |
+|---|---|---|
+| 0.88 | 131,072 | ❌ 可用 KV 仅 0.67 GiB（kvmem 窗口 53,248 已占去约 2.9 GiB），需要 2.29 GiB |
+| 0.93 | 98,304 | ❌ 可用 1.77 GiB，边界差一点 |
+| **0.93** | **65,536** | ✅ 启动成功（GPU KV **92,842** token），4,888-token needle 答对 `ZX-4417-QJ7` |
+
+**结论**：kvmem 的工作窗口（`select_budget + gen_budget`）会从 vLLM 的 KV 池里预留显存，
+所以窗口越大，能支持的 `max_model_len` 越小。三者关系（本机 2×22G、FP8 27B）：
+
+| kvmem 窗口 | gpu_mem | 可用 KV | 可持续的 max_model_len |
+|---|---|---|---|
+| 2,048 + 2,048 = 4,096 | 0.88 | ≈3.5 GiB（198,817 token） | 131,072 ✅ |
+| 36,864 + 16,384 = 53,248 | 0.93 | ≈1.77 GiB（92,842 token） | 65,536 ✅ / 98,304 ❌ |
+
+想同时要"大窗口 + 长上下文"，只能提高显存（更大显存的卡），或减小窗口。
