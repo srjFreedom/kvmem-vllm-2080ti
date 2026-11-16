@@ -191,3 +191,17 @@ profile：`local/serve-2080ti-smoke.json`（Coder390 FP8-fp8mtp、TP=2、gpu_mem
 4. `serving/serve.py`：`--dtype` 由 profile 决定（`DEFAULTS` 新增 `dtype`）
 5. `adapters/capture.py`：capture 缓冲 dtype 跟随模型；`serving/capture_runtime.py`：
    激活 dtype 接受 fp16
+
+## 11. 删掉引擎侧的实验改动（页环 + 按页滑动双账本）
+
+判断依据：那次提交里的东西**默认都不生效**（\`KVMEM_RING_CLEAN\` 未开，钩子只打印；
+双账本只在 \`plan_d\` 下才走），而它带来的只是额外的 import 与打印。
+
+处理：在 fork 里 \`git revert 175950def3\` → \`3b871c663f\`（\`kvmem_ring.py\` 删除，scheduler/model_runner 复位）。
+回滚后重启服务验证：
+- health 200，日志里 \`kvmem ring\` 行 **0 条**，无异常
+- 短请求 \`OK-2080TI\` ✅
+- 4,888-token needle \`ZX-4417-QJ7\` ✅，耗时 **9.5s**（回滚前 11.1s，删掉反而更快）
+
+⇒ 引擎侧现在**不需要任何额外补丁**，只要 \`kvmem-0.2.2-clean\` 分支本身。
+补丁集随之只剩 \`patches/0002-kvmem-sm75-compat.patch\`。
