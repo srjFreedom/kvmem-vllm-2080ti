@@ -1,6 +1,12 @@
 # SM75（双 2080Ti）补丁集
 
-## 引擎侧：**原版，无任何补丁**
+## 引擎侧：一个最小补丁（允许 max_model_len 超出物理池）
+
+`0001-engine-skip-kv-check.patch`：`vllm/v1/core/kv_cache_utils.py` 里加 `KVMEM_SKIP_KV_CHECK` 守卫，
+跳过"max_model_len ≤ KV 池容量"的启动检查（KVMem 的物理池 = `select_budget + gen_budget` 工作窗口，
+与逻辑上下文上限无关）。应用后引擎 HEAD = `01506a5471`。
+
+## 其余：**原版，无补丁**
 
 运行时 = `/home/srj/vLLM-2080Ti-Definitive` 分支 **`sm75-post3-clean`** @ `93c9013e375b1ecbf2da88179d2a31175a0d5c99`
 （= 上游 `v0.2.2-post3` 标签本体，**post3 之上 0 个提交**）。
@@ -44,5 +50,7 @@ uv pip install --python /home/srj/vLLM-2080Ti-Definitive/.venv/bin/python \
 | 短（OK-2080TI） | 63 | `OK-2080TI` ✅ | — |
 | 长 needle（1× select_budget 之上） | 4,888 | `ZX-4417-QJ7` ✅ | 9.5 s |
 | **会话续写（同 session_id）** | 4,880 | `ZX-4417-QJ7` ✅ | **0.60 s**（turn1 7.40 s，**12.4×**） |
+| **超过物理池**（CTX 262,144 / 池 205,752） | **218,220** | `ZX-4417-QJ7` ✅ | 8 m 18 s |
+| 同上，重复（前缀命中） | 218,220 | `ZX-4417-QJ7` ✅ | **1.36 s**（约 365×） |
 
 会话命中证据：`scheduler_resources.json → sessions.hits=2`、`archive.json → session_restored_tokens=4857`。
