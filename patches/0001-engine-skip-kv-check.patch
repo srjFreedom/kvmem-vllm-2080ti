@@ -1,0 +1,37 @@
+From 01506a5471a432412eb8eaaa66a7f6babcb85ec5 Mon Sep 17 00:00:00 2001
+From: srj <dev@kvmem.local>
+Date: Mon, 16 Nov 2026 18:12:43 +0800
+Subject: [PATCH] allow max_model_len beyond the kv pool when KVMem bounds the
+ window
+
+---
+ vllm/v1/core/kv_cache_utils.py | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/vllm/v1/core/kv_cache_utils.py b/vllm/v1/core/kv_cache_utils.py
+index 81bd6eb237..44f685ce4c 100644
+--- a/vllm/v1/core/kv_cache_utils.py
++++ b/vllm/v1/core/kv_cache_utils.py
+@@ -893,6 +893,19 @@ def _check_enough_kv_cache_memory(
+ 
+     needed_memory = get_needed_memory()
+ 
++    # KVMem keeps only a bounded working window on the GPU (select + gen budget) and the
++    # full history in its CPU archive, so `max_model_len` is a LOGICAL context bound and is
++    # unrelated to how much KV the pool can hold. With KVMEM_SKIP_KV_CHECK=1 the startup
++    # rejection below is skipped and the engine starts even when max_model_len > pool.
++    import os as _os_kvskip
++    if (_os_kvskip.environ.get("KVMEM_SKIP_KV_CHECK", "0") in ("1", "true", "yes", "on")
++            and needed_memory > available_memory):
++        import logging as _mod_kvskip
++        _mod_kvskip.getLogger(__name__).warning(
++            "KVMem: skipping the KV capacity check (max_model_len=%s needs %s GiB, pool has %s GiB)",
++            max_model_len, format_gib(needed_memory), format_gib(available_memory))
++        return
++
+     if needed_memory > available_memory:
+         estimated_max_len = estimate_max_model_len(available_memory)
+         estimated_msg = ""
+-- 
+2.53.0
+
