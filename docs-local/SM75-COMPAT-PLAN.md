@@ -587,3 +587,44 @@ compiled 首次启动 290s（编译），命中缓存后 **57s**。
 接受长度也只有 2.03–2.33 / 5（约 45%）。候选方向：
 ①fp8 KV 在 SM75 上的软件反量化开销；②TP=2 每步 all-reduce；③MTP draft 前向的额外步。
 prefill 在这套配置下是 971 tok/s（比 compiled 的 1,063 略低，因为捕获了 5 宽 batch）。
+
+## 27. decode 50ms/step 的逐 kernel 分解（torch profiler，无 ncu 权限）
+
+**方法**：profile 里加 `profiler_config={'profiler':'torch','torch_profiler_dir':...}`（launcher 已支持），
+启动后 `POST /start_profile` → 发请求 → `POST /stop_profile`，worker 会落
+`rank0/rank1.*.pt.trace.json.gz`（注意要等文件大小稳定，否则 gzip 截断）。
+
+**64 token 请求，rank0 GPU 时间 1,679 ms**
+| 占比 | kernel | 判读 |
+|---|---|---|
+| **51.9%** | `marlin::Marlin`（FP8 权重 GEMM）| 权重带宽下限，≈30 ms/step；`w8a16`，MarlinFP8ScaledMM |
+| **18.2%** | `gemvx::kernel<int,int,__half,…>` | MTP draft 头 GEMV，≈10 ms/step |
+| 5.0% | `cutlass_75_wmma_tensorop_f16` | 小矩阵（部分层回退）|
+| 3.3% | `direct_copy_kernel`（fp16 拷贝）| KV 装配/拷贝 |
+| 2.0% | `cross_device_reduce_1stage` | **TP all-reduce 只占 2%** |
+| 2.0% | `fused_sigmoid_gating_delta_rule_update` | GDN 状态更新 |
+| 1.9% | `reduce_kernel MeanOps` | kvmem 打分的 mean-K |
+| ~7% | 各种 elementwise/copy/rsqrt/pow | 归一化与逐元素 |
+
+**两个假设的判决实验（裸 vLLM，full_graph + MTP4 + capture[5]，同一切）**
+| 变量 | decode |
+|---|---|
+| `kv-cache-dtype float16` | 47.8 tok/s |
+| `kv-cache-dtype fp8_e4m3` | **48.4 tok/s** |
+
+⇒ ①**fp8 反量化没有可测成本**（48.4 ≈ 47.8）；②**TP all-reduce 不是瓶颈**（2%）；
+③kvmem 相对裸引擎只慢 **8%**（44.6 vs 48.4）。
+
+**MTP 草稿数扫描（kvmem，full_graph，capture=[K+1]）**
+| K | decode | 接受长度 |
+|---|---|---|
+| 1 | 42.0（compiled）| — |
+| 2 | **46.4** | 2.05–2.10 / 3（68%）|
+| 4 | 44.6 | 2.45 / 5（49%）|
+
+⇒ 定稿 `draft_tokens=2`、`cudagraph_capture_sizes=[3]`。
+
+**结论**：本机 decode 的现实上限 ≈ **48 tok/s**（裸引擎），主要由 **Marlin w8a16 GEMM（52%）+ MTP draft GEMV（18%）**
+构成，两者都是权重带宽问题；旧项目的 85 tok/s 对应 ≈26 ms/step（等于满带宽），
+本配置只到 ≈51 ms/step。要继续追，需要动 fork 的 Marlin/SM75 kernel 选择（`linear_backend_per_quant`
+只覆盖 `fp8_w8a8`/`nvfp4_w4a4`，我们的 `w8a16` 没有可选后端），属于独立内核优化项目。
