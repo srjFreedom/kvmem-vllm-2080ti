@@ -61,7 +61,7 @@ index 0000000..5c0d322
 \ No newline at end of file
 diff --git a/local/serve-2080ti-smoke.json b/local/serve-2080ti-smoke.json
 new file mode 100644
-index 0000000..43636e8
+index 0000000..5659482
 --- /dev/null
 +++ b/local/serve-2080ti-smoke.json
 @@ -0,0 +1,55 @@
@@ -78,9 +78,9 @@ index 0000000..43636e8
 +  "port": 18200,
 +  "max_model_len": 32768,
 +  "max_num_seqs": 1,
-+  "max_num_batched_tokens": 1024,
-+  "gpu_memory_utilization": 0.74,
-+  "prefill_chunk_tokens": 128,
++  "max_num_batched_tokens": 4096,
++  "gpu_memory_utilization": 0.78,
++  "prefill_chunk_tokens": 1024,
 +  "verify_session_restore": false,
 +  "kvmem": {
 +    "block_tokens": 32,
