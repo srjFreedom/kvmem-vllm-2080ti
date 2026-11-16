@@ -316,3 +316,29 @@ session_restored_tokens = 4857      ← turn2 只 prefill 了 4880-4857 = 23 个
 ⇒ 复用总开销 ≈ `session_capacity × session_checkpoint_bytes` + archive authority 余量；
 另有 `cpu_read_cache_bytes`（CPU 读缓存总预算）、`repository_blocks`（历史页数）两个上限。
 两个参数必须**同时**非零（`options.py:1011` 会拒绝只设一个）。
+
+## 17. 大上下文实测（原版引擎，双 2080Ti）
+
+**配置调整**（都记在 `local/serve-2080ti-smoke.json`）
+| 项 | 值 | 原因 |
+|---|---|---|
+| `max_model_len` | 131,072 | 262,144 被 vLLM 拒绝：需要 4.42 GiB KV，当时只有 1.74 GiB |
+| `gpu_memory_utilization` | 0.88 | 换到 **GPU KV pool = 198,817 tokens**（131K 请求 1.52 并发） |
+| `kvmem.repository_blocks` | 16,384 | 1024 装不下长 prompt，实测报 `BufferError: Authority capacity exhausted` |
+| `kvmem.cpu_read_cache_bytes` | 4 GiB | 长历史在 CPU archive 的读缓存 |
+
+**请求结果（同一服务实例，单请求）**
+| prompt_tokens | 耗时 | finish | 答案 |
+|---|---|---|---|
+| 4,888 | 9.5 s | stop | `ZX-4417-QJ7` ✅ |
+| 65,496 | 2 m 06 s | stop | `ZX-4417-QJ7` ✅ |
+| 86,532（冷） | **2 m 49 s** | stop | `ZX-4417-QJ7` ✅ |
+| **86,532（同前缀，重复）** | **0.85 s** | stop | `ZX-4417-QJ7` ✅ |
+
+⇒ 大上下文前缀命中 **约 200×**；证据 `sessions.hits=1`、`session_restored_tokens=86,528`。
+
+**边界（诚实记录）**
+- 256K（262,144）在本机不可达：vLLM 要求 KV ≥ 4.42 GiB，而 2×22G 在装下 FP8 27B 权重（约 32G）后
+  最多给到约 3.5 GiB ⇒ 目前上限 131,072（实际跑通 86.5K）。
+- 本轮所有大 prompt 都是「prompt >> 工作窗口（select 2048 + gen 2048）」：65K/86K 的 KV 大部分在 CPU
+  archive，正是 KVMem 的目标场景。
