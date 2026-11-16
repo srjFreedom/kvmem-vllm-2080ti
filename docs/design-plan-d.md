@@ -7130,3 +7130,29 @@ prompt digest 与命中时记录的不同（`_prompt_ids[req]` 在重建阶段�
 **下一步**：在 launcher/arm_boot 里加"池→几何"推导（读 `view.num_blocks()*page_tokens`，
 扣掉 mamba 固定块与 RESERVE，再分配 B/R），然后在 40K 池上验收 88K/152K 的正确性；
 之后再谈"几秒命中"——那时帧级命中（逆 RoPE 重旋）才是唯一路径，因为整段 prompt 根本无法驻留。
+
+## 992. Round 847：几何参数（B/R）的生效链查清了一半，先记录阻塞点
+
+**用户口径**：B 是用户配置项，池小就把 B 调小（`R == RESERVE`，同一个概念）。
+
+**本轮实测**
+| 配置 | 池 | 88K 结果 |
+|---|---|---|
+| `GPU_UTIL=0.83`，B=36,864/R=16,384 | 64,288 | **卡死**：prefill 57,344 后 GPU 空闲，`quiescent_compact_empty`、`d_pool_stash tokens=57408` |
+| `GPU_UTIL=0.83`，B=20,480/R=8,192（写入 /etc/default 后重启） | 64,288 | 仍卡死；**压缩门的 `high=1,229 页`、`bt=29,088` 与 B=36,864 时完全一样** ⇒ B 未生效 |
+
+**查清的链路**
+1. `arm_boot.sh` 每次调用会**先用 `/tmp/kvmem_env_baseline` 覆盖 `/etc/default/kvmem-vllm`**，
+   所以几何键必须写进 baseline 或写在 arm_boot 的参数里，否则会被抹掉；
+2. `BUDGET → B`（`start-kvmem-vllm.sh:22`）、`RESERVE → R`，再经
+   `deploy/run-kvmem-vllm.sh:148` / `deploy/run-kvmem-gateway.sh:34` 传给
+   `--kvmem-budget / --kvmem-gen-reserve`；两个 deploy 脚本自带回退默认值（B=65,536/R=32,768），
+   但被导出的 B/R 会覆盖它们；
+3. **未解**：`BUDGET=20,480` 写进 `/etc/default` 并重启后，运行时仍是 `B_eff=37,280`
+   （`bt = B−8,192 = 29,088`）。说明链路上还有一处把 B 重新推导成 37,280，
+   下一轮要在 `deploy/run-kvmem-vllm.sh` 与 `backends/vllm/worker.py` 里定位该推导，
+   并加一行启动日志打印**最终生效的 B/R/SINK/RECENT**，作为几何口径的唯一真相。
+
+**结论（对目标的直接影响）**：在池 64,288（0.83）上，B=36,864 的几何放不下；
+要按用户口径"B 大了就调小"，必须先让 B 真正生效并能被验证。这一步完成前，
+"以 B 为物理池边界"的验收无法进行，更谈不上几秒命中。
