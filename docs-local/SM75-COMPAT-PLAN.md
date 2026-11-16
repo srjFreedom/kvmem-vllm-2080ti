@@ -520,3 +520,30 @@ serve_watch.py req --file REQ.json [--idle-stall 20] [--timeout 3600]
 **当前 dev 定稿配置**：`select=4,096`、`gen=2,048`（窗口 6,144）、`sink/recent=32/32`（1,024/1,024 token）、
 `chunk=1,024`、`draft=1`、`eager`、`gpu_mem=0.78`（池 61,895）、`CTX=32,768`。
 启动经看门狗实测 **54.1s**。
+
+## 25. 纠正吞吐口径 + 提速清扫结果（compiled 是真正的杠杆）
+
+**先纠正我上一条的错误**：我之前用 `prompt_tokens / 整个 wall` 当 prefill 速率，把 decode 也算进了分母，
+所以报出 622 tok/s。正确做法：`max_tokens=1` 且用**全新（未命中）**的 prompt 测。重测后：
+
+| 配置 | 4.1K 冷 prefill | 600-token decode |
+|---|---|---|
+| kvmem，eager，torch_reference | **1,021 tok/s** | 23.7 tok/s |
+| kvmem，eager，qw3_cuda（CUDA 内核） | 1,024 tok/s | 24.0 tok/s |
+| kvmem，**compiled_graph** | **1,063 tok/s** | **40–42 tok/s** |
+| 裸 vLLM（无 kvmem），eager | 1,226 tok/s | 16.9 tok/s |
+| 裸 vLLM（无 kvmem），**compiled** | **1,312 tok/s** | — |
+
+**结论**
+1. **compile 是关键杠杆，而且主要加速 decode**：kvmem decode 23.7 → **40–42 tok/s（+70%）**；
+   prefill 只 1,021 → 1,063（+4%）。裸 vLLM 上同样是 prefill 1,226 → 1,312（+7%）。
+2. 裸 vLLM compiled 的 **1,312 tok/s** 正好落在用户说的 1300–1600 区间 ⇒ 硬件没问题。
+3. kvmem 相对裸引擎在 prefill 上仍有 **约 19% 开销**（1,063 vs 1,312）：不在 `prefill_chunk_tokens`
+   （128→1024 无变化）、也不在 `mean_k_backend`（torch_reference vs qw3_cuda 无差别），
+   而在 prefill 期间的 KVMem 侧工作（bounded-target 刷新/装配/统计），需要 profile 逐步耗时才能定位。
+4. MTP 目前收益有限（`draft_tokens` 4 只 +11%），根因是 `FLASHINFER` 不支持融合多步 draft、
+   每步重建 attention metadata、接受率仅 2.07–2.32/4。
+
+**当前 dev 定稿**：`execution_mode=compiled_graph`、`gpu_mem=0.84`（池 104,372）、窗口 4,096+2,048、
+`sink/recent=32/32`（1,024/1,024 token）、chunk 1,024、draft 1、CTX 32,768、`mean_k_backend=torch_reference`。
+compiled 首次启动 290s（编译），命中缓存后 **57s**。
