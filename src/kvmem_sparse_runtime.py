@@ -9736,9 +9736,6 @@ class VllmSparseRuntime:
         return (_row479, [int(p) for p in ordered], _pairs479, [], q)
 
     def _reselect_remobilize(self, req, pressure=False):
-        if getattr(self, "d_mode", False) and __import__("os").environ.get(
-                "KVMEM_D_NOBLADE", "") in ("1", "true", "yes"):
-            return self._state.get(req)
         """THE FINAL PROTOCOL: a view expressed as PHYSICAL BLOCKS the engine really holds.
 
         Three measured truths forced this shape:
@@ -10060,20 +10057,6 @@ class VllmSparseRuntime:
                 "FUNC-ENTER id=%s state=%s\n" % (id(self), len(self._state)))
         except Exception:
             pass
-        # ABLATION SWITCHES (design 102/104):
-        # KVMEM_D_NOKNIFE=1  - question knife (final lane) no-op
-        # KVMEM_D_NOBLADE=1  - BOTH lanes no-op: the request runs the
-        #   whole D model (harvest/store/tables plumbing) but the view
-        #   never compacts. Answers whether ANY knife-installed view
-        #   (or the override chain it arms) breaks the needle answer,
-        #   versus the D execution model itself being innocent.
-        if getattr(self, "d_mode", False) and (
-                (__import__("os").environ.get("KVMEM_D_NOBLADE", "")
-                 in ("1", "true", "yes"))
-                or (not bool(pressure)
-                    and __import__("os").environ.get("KVMEM_D_NOKNIFE", "")
-                    in ("1", "true", "yes"))):
-            return self._state.get(req)
         """The NO-MOVE block view - the only view this engine's kernel table can express.
 
         The scheduler feeds the attention kernel a list of FULL blocks and the gather expands

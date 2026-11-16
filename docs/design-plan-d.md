@@ -7205,3 +7205,28 @@ bound=1792 straddler=1791 in_sel=false sorted_ok=true phys_n=441 visible=14112 r
 
 **顺带**：`KVMEM_D_NOBLADE=1` 在 baseline 里，会以 `knives suppressed by KVMEM_D_NOBLADE`
 拒单；做小池实验时必须显式关掉（已在本轮 arm 里加 `KVMEM_D_NOBLADE=0`）。
+
+## 995. Round 850：删掉 `KVMEM_D_NOBLADE`（它还误伤生产），并盘点剩余 D 开关
+
+**`KVMEM_D_NOBLADE` 是什么**：Plan D 时代的**消融开关**（design 104），本意是"把两条 knife 通道都
+关掉，只跑 D 的其余管线"，用来二分"是 knife 装错了视图，还是 D 执行模型本身坏了"。
+问题在于 `validate_quiescent_compaction()` 里那处检查是**无条件**的（不管 `d_mode`），
+所以本轮小池实验里它把**生产路径的压缩提案**也一并拒掉了：
+`sched_compact_refused: knives suppressed by KVMEM_D_NOBLADE`。
+
+**本轮删除**
+- `src/kvmem_reconstruction.py`：无条件 NOBLADE 拒单块（含 `/tmp/kvmem_suppress_log` 写盘）；
+- `src/kvmem_sparse_runtime.py`：`_reselect_remobilize` 与 knife 入口里的两处 NOBLADE/NOKNIFE 消融；
+- `plugin/vllm_kvmem_plugin.py`：`_quiescent_compaction` 的 NOBLADE 提前返回；
+- 配置：`/etc/default/kvmem-vllm` 与 `/tmp/kvmem_env_baseline` 里的 `KVMEM_D_NOBLADE` 行。
+`KVMEM_D_NOBLADE` / `KVMEM_D_NOKNIFE` 现在在仓库里**零引用**；arm 里也不再需要 `KVMEM_D_NOBLADE=0`。
+
+**回归**：47K cold 80s / warm 66s，均 10 token `ZX-4417-QJ7` ✓（生产路径未被影响）。
+
+**剩余 D 开关清单（17 个，读点分布）**：`KVMEM_D_APPLY/HEADVIEW/IDVIEW/INPLACE/KNIFE/META/NOACT/
+NOADOPT/NOINSTALL/NORESTORE/NOSKIP/POS/REBAKE/REBAKE_INV/ROPE/SLIDE/STORELOG`。
+读点集中在 `_apply_selection_d`、`_d_reset_row`（纯 D）、以及 `before_step`/`sync_row_from_engine`/
+`_adopt_session`（共享路径里读但未设置时走生产分支 = 死开关）。
+**下一步**：按"折叠到生产分支"的方式逐个删除——共享路径里的开关直接删掉 env 读与非默认分支；
+纯 D 的函数（`_apply_selection_d`/`_d_reset_row`/knife 家族）连同其调用点一起删，
+并用 47K/88K 冷+暖回归守住。
