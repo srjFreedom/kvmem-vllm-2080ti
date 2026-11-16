@@ -651,3 +651,38 @@ prefill 在这套配置下是 971 tok/s（比 compiled 的 1,063 略低，因为
 **当前生效（launcher 已默认导出）**：`VLLM_SM75_SPEC_SYNC_MODE=nosync`、
 `VLLM_ALLOW_MAMBA_SPEC_FULL_CUDAGRAPH=1`、`execution_mode=full_graph`、`draft_tokens=2`、
 `cudagraph_capture_sizes=[3]`。
+
+## 29. 原版 vLLM-2080Ti vs 我们的补丁版本：速度 + 逐 kernel 对照
+
+同一台机器、同一 checkpoint、**完全相同的引擎参数**（TP2 / fp16 / fp8_e4m3 KV / max_model_len 32768 /
+max_num_seqs 1 / max_num_batched_tokens 2051 / no-prefix-caching / MTP2 / full_graph / capture [3] /
+`VLLM_SM75_SPEC_SYNC_MODE=nosync` / `VLLM_ALLOW_MAMBA_SPEC_FULL_CUDAGRAPH=1`）。
+唯一区别：我们版本多挂 kvmem 插件（`--scheduler-cls KVMemScheduler` + KVMemConnector）。
+
+**速度**
+| | 冷 prefill 4.1K | 600-token decode |
+|---|---|---|
+| 原版 vLLM-2080Ti | **1,174 tok/s** | **47.3 tok/s** |
+| 我们（kvmem） | 1,021–1,063 tok/s | 46.4 tok/s |
+
+**逐 kernel（同样 64 token 请求，rank0 GPU 总时间）**
+| kernel | 原版 | kvmem | 差 |
+|---|---|---|---|
+| `marlin::Marlin`（主体 FP8 GEMM）| 787.2 ms (54.9%) × 8,517 | 871.7 ms (52.0%) × 9,399 | **+84 ms / +882 次** |
+| **`gemvx`（lm_head，fp16 GEMV）** | **145.5 ms (10.1%) × 67** | **306.5 ms (18.3%) × 141** | **+161 ms / +74 次（2.1×）** |
+| `cross_device_reduce_1stage`（all-reduce）| 96.6 ms (6.7%) × 4,455 | 34.3 ms (2.0%) × 4,935 | **−62 ms** |
+| `cutlass_75_wmma`（fp16 小 GEMM）| 78.8 ms (5.5%) | 84.5 ms (5.0%) | +6 ms |
+| `direct_copy` | 48.4 ms (3.4%) | 54.8 ms (3.3%) | +6 ms |
+| `reduce_kernel MeanOps`（kvmem 打分）| 25.0 ms (1.7%) | 31.4 ms (1.9%) | +6 ms |
+| **GPU 总时间** | **1,434 ms** | **1,676 ms** | **+242 ms（+17%）** |
+
+**结论（可执行）**
+1. 原版每 token 只算 **1.05 次 lm_head**（67 次 / 64 token）；我们算 **2.2 次**（141 / 64）
+   ⇒ kvmem 让 lm_head 的调用次数翻倍，仅此一项就多 **161 ms / 64 token ≈ 2.5 ms/token**。
+2. 主体 Marlin 多 882 次调用（+84 ms），来自 kvmem 的窗口内额外前向（选片/刷新）。
+3. all-reduce 我们反而更少（帧更小）。
+4. 因此 kvmem 的 decode 开销 ≈ 总 +17% GPU 时间，其中 **lm_head 重复计算占 2/3**。
+
+**下一步（针对性）**：查 kvmem 为什么每 token 算 2.2 次 lm_head——
+最可能是 `KVMEM_BOUNDED_MTP=1` / `request_planning` 在每步为 draft 单独取一次 logits。
+若能把 draft 的 logits 复用 verify 的结果，decode 可望回到原版的 47+ 并进一步下探。
