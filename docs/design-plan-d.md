@@ -7252,3 +7252,21 @@ NOADOPT/NOINSTALL/NORESTORE/NOSKIP/POS/REBAKE/REBAKE_INV/ROPE/SLIDE/STORELOG`。
 
 **剩余工作**：`d_mode` 分支（66 处）现在是恒假死代码，可整体删除；`_apply_selection_d`、
 `_d_reset_row`、ring/knife 家族函数随之删除。删完后 `KVMEM_D_` 在仓库里只剩注释/文档提及。
+
+## 997. Round 852：删除 D 轨死代码第一批（499 行不可达函数 + 启动分支）
+
+**依据**：`d_mode` 现在恒为 False（`d_knife` 已钉死、`KVMEM_PLAN_D` 读取归零），所以
+"仅 D 可执行"的代码是不可达的。
+
+**本轮删除**
+- `_apply_selection_d()`（**499 行**）：唯一调用点位于 `if (getattr(self,"d_mode",False) and False ...)`
+  的死块里；连同该调用块一起删除（含 `d_view_at_prefill_end` 探针）。
+- `worker.py` 的 Plan D 启动分支（1357 字符，会强制关掉 `prefill_pressure`）。
+- 删除过程中产生一处悬空 `try:`（`except Exception as _e706` 的壳），已修掉。
+
+**回归（重启后同一实例）**：47K cold 80s / warm 66s（均 10 `ZX-4417-QJ7`）；
+88K cold 115s（10 `ZX-4417-QJ7`）✓ 生产路径无变化。
+
+**仍剩**：`d_mode` 读取 63 处（`src/kvmem_sparse_runtime.py`）、plugin 13 处、reconstruction 16 处。
+它们现在都是"恒假条件"，下一批按同样的方式整块删除；删完后再把 `d_mode` 参数/属性从
+`VllmSparseRuntime`、`validate_quiescent_compaction`、runner 配置里移除。
