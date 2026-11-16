@@ -50,6 +50,10 @@ DEFAULTS = {
     'auto_session_chars': None,
     # KVMEM_SKIP_KV_CHECK: max_model_len (logical CTX) may exceed what the KV pool holds.
     'skip_kv_check': False,
+    # VLLM_SM75_SPEC_SYNC_MODE=auto|safe|nosync; nosync removes speculative-graph syncs.
+    'sm75_spec_sync_mode': 'nosync',
+    # Keep FULL CUDA graph replay for the hybrid Mamba/GDN decode path.
+    'allow_mamba_spec_full_cudagraph': True,
 }
 PATHS = ('model', 'tokenizer', 'hf_config_path', 'draft_model', 'mm_proj')
 # Explicit experiment controls for NVFP4 and FP8 checkpoints.
@@ -453,6 +457,12 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
     _kv = cfg.get('kvmem') or {}
     if isinstance(_kv, dict) and _kv.get('select_budget') and _kv.get('gen_budget'):
         env['KVMEM_WINDOW_TOKENS'] = str(int(_kv['select_budget']) + int(_kv['gen_budget']))
+    # Performance switches proven on this 2080Ti fork (mechanism stays KVMem):
+    #   nosync  = no extra stream synchronization inside the speculative graph;
+    #   mamba   = keep FULL CUDA graph replay for the hybrid Mamba/GDN decode path.
+    env['VLLM_SM75_SPEC_SYNC_MODE'] = str(cfg.get('sm75_spec_sync_mode') or 'nosync')
+    if cfg.get('allow_mamba_spec_full_cudagraph', True):
+        env['VLLM_ALLOW_MAMBA_SPEC_FULL_CUDAGRAPH'] = '1'
     env['KVMEM_SKIP_KV_CHECK'] = '1' if cfg.get('skip_kv_check') else '0'
     env['KVMEM_AUTO_SESSION'] = '1' if cfg.get('auto_session') else '0'
     # Unset = hash the whole conversation opening (distinct tasks must not share a namespace).

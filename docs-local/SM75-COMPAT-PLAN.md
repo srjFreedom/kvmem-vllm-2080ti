@@ -628,3 +628,26 @@ prefill 在这套配置下是 971 tok/s（比 compiled 的 1,063 略低，因为
 构成，两者都是权重带宽问题；旧项目的 85 tok/s 对应 ≈26 ms/step（等于满带宽），
 本配置只到 ≈51 ms/step。要继续追，需要动 fork 的 Marlin/SM75 kernel 选择（`linear_backend_per_quant`
 只覆盖 `fp8_w8a8`/`nvfp4_w4a4`，我们的 `w8a16` 没有可选后端），属于独立内核优化项目。
+
+## 28. 性能对齐 vllm-2080ti：把 fork 的 fast 档开关逐个验证（结论：已全部接上，天花板 ≈50）
+
+策略定为「**机制用 kvmem-vllm，性能用 vllm-2080ti**」。旧项目的 85 tok/s 配置来自 fork 的
+`launcher.sh --mode fast` + `VLLM_TURBOQUANT_*` 体系，逐个验证结果：
+
+| fork 的性能开关 | 作用 | 接入后 decode |
+|---|---|---|
+| `execution_mode=full_graph` + `cudagraph_capture_sizes=[K+1]` | SM75 全图 + 融合多步 draft | **42.0 → 46.4**（最大单项） |
+| `VLLM_SM75_SPEC_SYNC_MODE=nosync`（fast/aggressive 档默认）| 去掉投机图内额外流同步 | 无变化（46.4）|
+| `VLLM_ALLOW_MAMBA_SPEC_FULL_CUDAGRAPH=1`（fast 档默认）| GDN/Mamba 保留 FULL 图 | 无变化；本配置 `min_cg_support` 已是 UNIFORM_BATCH，未触发该分支 |
+| `draft_tokens` 2 vs 4 | 草稿数 | 46.4（接受 2.05–2.10/3）vs 44.6（2.45/5）|
+| `--kv-cache-dtype turboquant_k8v4` + `VLLM_TURBOQUANT_*` 全家桶（**裸 vLLM**）| TQK8V4 KV 路线 | 50.7 tok/s（对照 fp8 48.4，仅 +5%）|
+| `--kv-cache-dtype float16`（裸 vLLM）| 排除反量化成本 | 47.8 tok/s |
+
+**结论：fork 的 fast 档性能开关已全部接上，本机 decode 上限 ≈ 47–51 tok/s（裸引擎 50.7，kvmem 46.4）。**
+85 tok/s 需要的每步 ~26 ms 与实测 ~51 ms（Marlin w8a16 GEMM 30 ms + MTP draft GEMV 10 ms + 拷贝/逐元素）
+之间是**内核效率**差距，不是配置开关差距；且 kvmem 只接受 `fp8_e4m3/float16/bfloat16`，
+`turboquant_k8v4` 这条 fork 最快的 KV 路线与 KVMem 的 KV 格式约束不兼容（除非 kvmem 支持该格式）。
+
+**当前生效（launcher 已默认导出）**：`VLLM_SM75_SPEC_SYNC_MODE=nosync`、
+`VLLM_ALLOW_MAMBA_SPEC_FULL_CUDAGRAPH=1`、`execution_mode=full_graph`、`draft_tokens=2`、
+`cudagraph_capture_sizes=[3]`。
