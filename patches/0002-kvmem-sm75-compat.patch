@@ -61,7 +61,7 @@ index 0000000..5c0d322
 \ No newline at end of file
 diff --git a/local/serve-2080ti-smoke.json b/local/serve-2080ti-smoke.json
 new file mode 100644
-index 0000000..7722df4
+index 0000000..399a57b
 --- /dev/null
 +++ b/local/serve-2080ti-smoke.json
 @@ -0,0 +1,55 @@
@@ -79,7 +79,7 @@ index 0000000..7722df4
 +  "max_model_len": 262144,
 +  "max_num_seqs": 1,
 +  "max_num_batched_tokens": 1024,
-+  "gpu_memory_utilization": 0.96,
++  "gpu_memory_utilization": 0.88,
 +  "prefill_chunk_tokens": 128,
 +  "verify_session_restore": false,
 +  "kvmem": {
@@ -398,3 +398,49 @@ index 8ad0a8e..10ec579 100644
      if cfg['reasoning_end_str'] is not None:
          argv += ['--reasoning-config',json.dumps({'reasoning_end_str':cfg['reasoning_end_str']})]
      if cfg['execution_mode'] in ('full_graph', 'compiled_graph'):
+diff --git a/src/vllm_kvmem/serving/session_control.py b/src/vllm_kvmem/serving/session_control.py
+index df4640a..19a4ad8 100644
+--- a/src/vllm_kvmem/serving/session_control.py
++++ b/src/vllm_kvmem/serving/session_control.py
+@@ -307,6 +307,13 @@ class SessionLedger:
+                 raise ValueError('Native request repeated session lookup after allocation')
+             return entry.history
+         if entry is not None and entry.phase != 'idle':
++            import json as _jsm, os as _osm
++            try:
++                with open(os.environ.get('KVMEM_SESSION_MISS_LOG', '/tmp/kvmem_session_miss.jsonl'), 'a') as _fm:
++                    _fm.write(_jsm.dumps({'code': 'entry_busy', 'req': str(request.request_id)[-8:],
++                                          'prompt': len(request.prompt_token_ids)}) + '\n')
++            except Exception:
++                pass
+             self.waits += 1
+             return None
+         if release:
+@@ -377,6 +384,13 @@ class SessionLedger:
+                 self.validate_plan_capacity(request, effective)
+                 self.set_plan(request,effective)
+                 self._evict(saved_entry)
++                import json as _jsm, os as _osm
++                try:
++                    with open(os.environ.get('KVMEM_SESSION_MISS_LOG', '/tmp/kvmem_session_miss.jsonl'), 'a') as _fm:
++                        _fm.write(_jsm.dumps({'code': 'plan_changed', 'req': str(request.request_id)[-8:],
++                                              'prompt': len(request.prompt_token_ids)}) + '\n')
++                except Exception:
++                    pass
+                 self.waits += 1
+                 return None
+             if self.guided_options is not None:
+@@ -453,6 +467,13 @@ class SessionLedger:
+             if self.preserve_history and not self.idle_lru_eviction:
+                 # The caller must explicitly finish/release a session. Neither
+                 # LRU eviction nor uncached execution preserves its history.
++                import json as _jsm, os as _osm
++                try:
++                    with open(os.environ.get('KVMEM_SESSION_MISS_LOG', '/tmp/kvmem_session_miss.jsonl'), 'a') as _fm:
++                        _fm.write(_jsm.dumps({'code': 'capacity_hold', 'req': str(request.request_id)[-8:],
++                                              'prompt': len(request.prompt_token_ids)}) + '\n')
++                except Exception:
++                    pass
+                 self.waits += 1
+                 return None
+             # Entries are reinserted when they turn idle: the first idle entry
