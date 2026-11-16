@@ -6,7 +6,7 @@
 set -euo pipefail
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 VENV=/home/srj/vLLM-2080Ti-Definitive/.venv/bin
-CONFIG=${CONFIG:-$REPO/local/serve-2080ti-baseline.json}
+CONFIG=${CONFIG:-$REPO/local/serve-2080ti-default.json}
 RUN_DIR=${RUN_DIR:-/var/tmp/kvmem-run-baseline}
 exec "$VENV/python" "$REPO/scripts/serve_watch.py" "${1:-start}" \
   --config "$CONFIG" --run-dir "$RUN_DIR" ${2:-}

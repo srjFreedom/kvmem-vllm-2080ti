@@ -115,3 +115,35 @@ checkpoint = 4 × 60–80 MB      （共 512 MiB 够用；超了只是不命中�
 ```
 想「4 个会话都能各放 256K」⇒ `cpu_read_cache_bytes ≥ 9 GiB/rank`、主机 ~17–20 GiB；
 想「4 个会话共享 ~256K 总量」⇒ `cpu_read_cache_bytes = 5 GiB`、主机 ~13–16 GiB。
+
+## 6. 默认配置（对外，保守）与变体
+
+**默认 profile**：`local/serve-2080ti-default.json`（`deploy/run-kvmem-vllm.sh` 与 systemd 单元默认指向它）
+
+| 项 | 值 | 为什么保守 |
+|---|---|---|
+| `max_model_len`（CTX）| **32,768** | 位置表上限 262,144，但默认要能在 22 GB 卡上安稳启动 |
+| `gpu_memory_utilization` | **0.80** | 池 45,511 token；实际占用 17.7/22.5 GB，留 ~4.7 GB 余量 |
+| B + R | 4,096 + 2,048 = 6,144 | 窗口小 ⇒ 单步快、显存确定 |
+| `cpu_read_cache_bytes` | **4 GiB/rank** | 主机 62 GB 的机器上留给其余服务；可容纳 246K token 历史 |
+| `session_capacity` | **4** | **4 × 32,768 = 131,072 token ⇒ 2.12 GiB/rank**，预算 4 GiB ⇒ **1.88× 余量** |
+| `session_checkpoint_bytes` | 512 MiB（合计）| 实测每会话 60–80 MB ⇒ 4 会话 ≈ 240–320 MB |
+| 执行 | `full_graph` + `draft_tokens=4` + `capture=[5,10,15]` + `max_num_seqs=3` | 代码类生成 80–87 tok/s |
+| 会话 | `pm` + `capture_terminal=true` | 多轮续写能命中（`sealed/frozen-P` 不行）|
+| 自动会话 | `auto_session=true` | 客户端不需要传 `session_id` |
+
+**一致性规则（改配置时必查）**
+```
+会话数 × CTX ≤ cpu_read_cache_bytes / 17,408          # 每 rank，否则新会话会一直排队
+会话数 × 80 MB ≤ session_checkpoint_bytes             # 否则 checkpoint 静默跳过（下轮不命中）
+```
+
+**变体**
+| 文件 | CTX | 会话 | `cpu_read_cache_bytes` | 每 rank 需要 | 主机 RAM 建议 |
+|---|---|---|---|---|---|
+| `serve-2080ti-default.json` | 32,768 | 4 | 4 GiB | 2.12 GiB | ≥ 12 GiB |
+| `serve-2080ti-128k.json` | 131,072 | 1 | 5 GiB | 2.12 GiB | ≥ 14 GiB |
+| `serve-2080ti-256k.json` | 262,144 | 1 | 6 GiB | 4.25 GiB | ≥ 16 GiB |
+
+**注意**：默认假设 2×22 GB（TP=2）。单卡用户需要改 `tensor_parallel_size` 并降 `gpu_memory_utilization`
+（27B FP8 权重约 32 GB，单卡 22 GB 装不下）。
