@@ -3351,11 +3351,23 @@ def register():
                         #   computed = view (the frame), offset = prompt - view.
                         # Booking computed = prompt-1 instead made the scheduler compute
                         # `prompt - computed` new tokens and assert `num_new_tokens > 0`/dead-engine.
+                        # scheduler.py:941 computes `_book = num_logical_tokens` when the
+                        # request is resident and `num_new_tokens = num_tokens_with_spec - _book`;
+                        # :1648 then asserts `num_new_tokens > 0`. Booking logical == prompt made
+                        # that exactly 0 (measured: EngineDeadError in 5s). Leave ONE served token
+                        # so the step is a 1-token prefill whose logical position
+                        # (prompt-1) maps into the LAST frame slot via the offset; the decode then
+                        # continues on the frame.
                         _served = int(getattr(request, "num_prompt_tokens", 0) or 0)
-                        request.num_logical_tokens = int(_served)
-                        request.num_computed_tokens = max(1, int(view_tokens))
-                        request.num_kvmem_offset = int(_served) - int(view_tokens)
-                        request.kvmem_session_resume = True
+                        _logical = max(1, _served - 1)
+                        request.num_logical_tokens = int(_logical)
+                        request.num_computed_tokens = int(view_tokens)
+                        request.num_kvmem_offset = int(_logical) - int(view_tokens)
+                        # NOT the legacy resume flag: that path (`_complete_resume`) demands
+                        # visible == hit and raises "compressed session checkpoint lacks a valid
+                        # Mamba state cursor" for a frame (visible = frame, hit = prompt). The
+                        # frame install runs through the fill file instead.
+                        request.kvmem_session_resume = False
                         _append(_sched_cfg(scheduler).get("probe_log")
                                 or "/tmp/kvmem_sparse.jsonl",
                                 {"kind": "frame_hit", "req": str(rid)[-6:],

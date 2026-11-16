@@ -7324,3 +7324,27 @@ logical=57344 selected_n=441 sel_last=1518 bound=1792 straddler=1791 in_sel=fals
 `_book / num_tokens_with_spec / num_output_placeholders / token_budget / input_budget /
 request_prefill_remaining / prefill_frontier_step`，确认是哪一个把它们算成 0，
 再决定帧命中应走的"直接 decode"入口（fork 需要有 zero-prefill 的调度分支）。
+
+## 1000. Round 855：帧命中端到端跑通（10s、无崩溃），但**选片视图不能用常数偏移寻址**
+
+**本轮修掉的两个引擎级阻塞**
+1. `scheduler.py:1648 assert num_new_tokens > 0`：`scheduler.py:941` 的 `_book = num_logical_tokens`
+   （resident 时），我们原来订 `logical = prompt` ⇒ new=0。改为**留 1 个已服务 token**
+   （`logical = prompt-1`，`computed = view`，`offset = logical - view`）后断言消失。
+2. `RuntimeError: compressed session checkpoint lacks a valid Mamba state cursor`：这是**我们自己的**
+   `_complete_resume` 抛的（`visible != hit`）。帧命中不该走旧 resume：插件不再设
+   `request.kvmem_session_resume`，且 `_complete_resume` 在视图已安装时直接 stand down。
+
+**实测（47K，帧命中开启）**：cold 80s `ZX-4417-QJ7`（10）｜warm **5–10s**，输出
+`ductductduct…`（63 token，退化）。`frame_phase_rotated pages=834`、`frame_view_installed` 均触发。
+
+**关键结论（几何）**：无论是否加旋转，结果都是 `ductduct…` ⇒ 问题不在相位，而在**寻址**。
+fork 的 slot 映射是 `pos // block_size -> row[pos // block_size]`（连续窗口），而帧是**选片视图**：
+视图槽位 i 与逻辑页 `logical[i]` 之间没有常数关系。我们用的 `offset = prompt - view` 只能服务
+"连续前缀"，对**选片**永远算错 ⇒ 注意力读到错位的页。
+
+**正确的形状（原版的解）**：把帧当作**新的 prompt**（重建子请求）：让引擎的 prompt 变成
+"选中的 token 序列"（view_tokens 个），`num_computed_tokens = view_tokens - 1`，把帧页装进这个
+子请求的 row —— 于是位置 0..view 稠密、slot 映射成立，只需要 prefill 最后 1 个 token。
+这条路径的**投递机制已经存在**（`queue_kvmem_reconstruction` 会以同一 request id 重新入队子请求），
+缺的只是"入队后不重新 prefill，而是从帧缓存恢复 KV+状态"。

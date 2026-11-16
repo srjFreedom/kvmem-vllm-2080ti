@@ -3374,6 +3374,12 @@ class VllmSparseRuntime:
         """
         entry, hit_tokens, visible_tokens = st.resume
         if int(visible_tokens) != int(hit_tokens):
+            # A FRAME resume has visible = frame length and hit = prompt length by construction -
+            # the frame fill installs it, so this path must stand down instead of killing the
+            # engine (measured: RuntimeError -> EngineDeadError on every frame hit).
+            if bool(getattr(st, "applied_view_coord", False)) or bool(
+                    getattr(st, "view_installed", False)):
+                return False
             raise RuntimeError("compressed session checkpoint lacks a valid Mamba state cursor")
         orch = self._orch.get(req)
         if orch is None:
@@ -5232,7 +5238,9 @@ class VllmSparseRuntime:
             # install crashed with `assert num_new_tokens > 0`, or answered empty).
             # Rotate each restored page once, from its logical page to its view rank:
             # delta = (rank - logical) * page_tokens.
-            if _mode == "frame" and not _skip_fill and _logical:
+            _frame_phase = str(__import__("os").environ.get(
+                "KVMEM_FRAME_PHASE", "none")).strip().lower()
+            if _mode == "frame" and not _skip_fill and _logical and _frame_phase == "rotate":
                 try:
                     from kvmem_sparse_rope import rotate_k_pages_fp8, rotary_inv_freq
                     _cfg_f = self.view.runner.model_config.hf_config
