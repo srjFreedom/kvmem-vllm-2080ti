@@ -489,3 +489,34 @@ serve_watch.py req --file REQ.json [--idle-stall 20] [--timeout 3600]
 | 2,212-token 会话切回 | 0.59–0.64 s |
 
 **启动时间构成**（后续优化方向）：模型加载 + FlashInfer/GDN/M-RoPE/Mamba 内核预热 + KV 池分配。
+
+## 24. 提速评估：图模式无效、MTP 有限、prefill 是硬件上限（附裸 vLLM 基线）
+
+**① 关掉 eager（`execution_mode=full_graph`）**
+- 能启动（`--compilation-config {"mode":0,"cudagraph_mode":"FULL"}`，`READY in 54.6s`）
+- **但没有提速**：4,888-token 请求 full_graph **7.86s** vs eager **7.87s**；600-token 生成
+  full_graph **24.0 tok/s** vs eager **23.7 tok/s**（差 1%）
+- 原因：kvmem 每步改写 KV 块表/窗口，图基本按 eager 走；日志也没有 "Capturing cudagraph" 的实质捕获记录
+
+**② MTP 草稿数（`draft_tokens` 1 → 4）**
+- eager+MTP4：600 token **26.4 tok/s**（MTP1 是 23.7）⇒ 仅 +11%
+- 日志给出根因：`Fused multi-step draft decode is not supported by attention backend(s) FLASHINFER;
+  falling back to rebuilding attention metadata`，且 `Mean acceptance length: 2.07–2.32 / 4`
+  ⇒ 草稿接受率约 50–58%，且每步要重建 metadata，收益被吃掉
+
+**③ prefill chunk（128 → 1024）**：4,888 token 冷跑 **622 → 627 tok/s**，**基本无变化**
+（`prefill_chunk_tokens` 必须 32 对齐且 < `gen_budget`；改成 2048 会要求 `gen_budget ≥ 8192`）
+
+**④ 裸 vLLM 基线（不带 kvmem，同模型/TP/精度/eager）**
+| 负载 | 裸 vLLM | kvmem | 差 |
+|---|---|---|---|
+| 4,888-token prefill | **653 tok/s** | 627 tok/s | kvmem 开销 ≈ **4%** |
+| 600-token 生成 | **16.9 tok/s** | 23.7–26.4 tok/s | kvmem **反而更快**（窗口 4K，注意力更便宜）|
+
+⇒ **结论：慢在硬件/内核上限**（27B FP8、2×2080Ti、SM75、eager ≈ 650 tok/s prefill、17–26 tok/s decode），
+不是 KVMem 的开销。旧项目记录里的 46/85 tok/s 是它那套 fork 补丁（MTP4+compiled+自有图集成）的成绩，
+本机要接近它，得单独做"SM75 上的 MTP 融合 draft + 有效图捕获"，属于独立性能项目。
+
+**当前 dev 定稿配置**：`select=4,096`、`gen=2,048`（窗口 6,144）、`sink/recent=32/32`（1,024/1,024 token）、
+`chunk=1,024`、`draft=1`、`eager`、`gpu_mem=0.78`（池 61,895）、`CTX=32,768`。
+启动经看门狗实测 **54.1s**。
