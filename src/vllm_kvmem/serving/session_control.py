@@ -307,6 +307,13 @@ class SessionLedger:
                 raise ValueError('Native request repeated session lookup after allocation')
             return entry.history
         if entry is not None and entry.phase != 'idle':
+            import json as _jsm, os as _osm
+            try:
+                with open(os.environ.get('KVMEM_SESSION_MISS_LOG', '/tmp/kvmem_session_miss.jsonl'), 'a') as _fm:
+                    _fm.write(_jsm.dumps({'code': 'entry_busy', 'req': str(request.request_id)[-8:],
+                                          'prompt': len(request.prompt_token_ids)}) + '\n')
+            except Exception:
+                pass
             self.waits += 1
             return None
         if release:
@@ -377,6 +384,13 @@ class SessionLedger:
                 self.validate_plan_capacity(request, effective)
                 self.set_plan(request,effective)
                 self._evict(saved_entry)
+                import json as _jsm, os as _osm
+                try:
+                    with open(os.environ.get('KVMEM_SESSION_MISS_LOG', '/tmp/kvmem_session_miss.jsonl'), 'a') as _fm:
+                        _fm.write(_jsm.dumps({'code': 'plan_changed', 'req': str(request.request_id)[-8:],
+                                              'prompt': len(request.prompt_token_ids)}) + '\n')
+                except Exception:
+                    pass
                 self.waits += 1
                 return None
             if self.guided_options is not None:
@@ -453,6 +467,13 @@ class SessionLedger:
             if self.preserve_history and not self.idle_lru_eviction:
                 # The caller must explicitly finish/release a session. Neither
                 # LRU eviction nor uncached execution preserves its history.
+                import json as _jsm, os as _osm
+                try:
+                    with open(os.environ.get('KVMEM_SESSION_MISS_LOG', '/tmp/kvmem_session_miss.jsonl'), 'a') as _fm:
+                        _fm.write(_jsm.dumps({'code': 'capacity_hold', 'req': str(request.request_id)[-8:],
+                                              'prompt': len(request.prompt_token_ids)}) + '\n')
+                except Exception:
+                    pass
                 self.waits += 1
                 return None
             # Entries are reinserted when they turn idle: the first idle entry
