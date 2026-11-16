@@ -7348,3 +7348,25 @@ fork 的 slot 映射是 `pos // block_size -> row[pos // block_size]`（连续�
 子请求的 row —— 于是位置 0..view 稠密、slot 映射成立，只需要 prefill 最后 1 个 token。
 这条路径的**投递机制已经存在**（`queue_kvmem_reconstruction` 会以同一 request id 重新入队子请求），
 缺的只是"入队后不重新 prefill，而是从帧缓存恢复 KV+状态"。
+
+## 1001. Round 856：帧子请求已投递（`frame_child_queued`），但 KV 没落到子请求自己的行
+
+**本轮实现**（按 §1000 的结论）：帧命中不再用"父请求 + 常数偏移"寻址，而是
+1. 用帧的 `logical` 页把 prompt 还原成**选中 token 序列**（`view_tokens` 个）；
+2. 走现成的重建通道 `queue_kvmem_reconstruction(rid, frame_ids)` 以**同一 request id**
+   重新入队（默认 `_engine_rid = request_id`，fill 文件键能对上）；
+3. 仍写 `mode=frame` 的 fill（含 dest/logical/tail），期望子请求直接吃这份 KV。
+
+**实测（47K，帧命中开）**：cold 81s `ZX-4417-QJ7`（10）；warm **5s**，输出仍
+`ductductduct…`（63）。日志：`frame_child_queued ok=True`、`frame_view_installed`、`frame_hit`。
+
+**结论**：子请求确实入队了，但**帧 KV 没有落到子请求自己的行**：
+- 我们分配 dest 块并写 `attn_manager.req_to_blocks[rid]` 是在**父请求**还活着时做的；
+- 子请求入队后由调度器重新分配自己的 row（代码里也提到 `kvmem_pack_map` 正是为
+  "pack 区不被新分配挤占" 设计的），于是 fill 的目标页与子请求实际读的行不是同一组。
+
+**下一步（两点，缺一不可）**
+1. 子请求入队后，取其**实际 row**（`attn_manager.req_to_blocks[child]`）作为 fill 的 dest，
+   或先 `kvmem_pack_map` 占位再让子请求复用该区；
+2. 给子请求设 `num_computed_tokens = view_tokens - 1`（否则它会重新 prefill 26,688 token，
+   实测 5s 说明它连 prefill 都没做，books 与行同时不对）。

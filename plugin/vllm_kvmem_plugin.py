@@ -3358,11 +3358,49 @@ def register():
                         # so the step is a 1-token prefill whose logical position
                         # (prompt-1) maps into the LAST frame slot via the offset; the decode then
                         # continues on the frame.
-                        _served = int(getattr(request, "num_prompt_tokens", 0) or 0)
-                        _logical = max(1, _served - 1)
-                        request.num_logical_tokens = int(_logical)
-                        request.num_computed_tokens = int(view_tokens)
-                        request.num_kvmem_offset = int(_logical) - int(view_tokens)
+                        # FRAME AS A NEW PROMPT (the only addressable shape): the engine's slot
+                        # map is `pos // block_size -> row[pos // block_size]`, i.e. a CONTIGUOUS
+                        # window. A selected frame is not contiguous in logical pages, so no
+                        # constant offset can address it (measured: 5s warm runs answering
+                        # "ductductduct..." with and without phase rotation). Re-admit the SAME
+                        # request with the frame's own token sequence - the existing rebuild
+                        # channel - and restore the KV instead of re-prefilling it.
+                        _logical = [int(x) for x in (record.get("logical") or ())]
+                        _frame_ids = []
+                        for _lp in _logical:
+                            _lo = int(_lp) * page_tokens
+                            _hi = _lo + page_tokens
+                            if _lo >= len(ids) or _hi > len(ids):
+                                break
+                            _frame_ids.extend(int(t) for t in ids[_lo:_hi])
+                        _queued = False
+                        try:
+                            _qn = getattr(scheduler, "queue_kvmem_reconstruction", None)
+                            if callable(_qn) and _frame_ids and len(_frame_ids) < len(ids):
+                                _res = _qn(rid, _frame_ids)
+                                _queued = bool(isinstance(_res, dict) and _res.get("ok"))
+                                _append(_sched_cfg(scheduler).get("probe_log")
+                                        or "/tmp/kvmem_sparse.jsonl",
+                                        {"kind": "frame_child_queued", "req": str(rid)[-6:],
+                                         "ok": _queued, "tokens": len(_frame_ids),
+                                         "detail": str(_res)[:180]})
+                        except Exception as _eq:
+                            _append(_sched_cfg(scheduler).get("probe_log")
+                                    or "/tmp/kvmem_sparse.jsonl",
+                                    {"kind": "frame_child_error", "req": str(rid)[-6:],
+                                     "error": traceback.format_exc()[-240:]})
+                        if _queued:
+                            # the child runs dense over the frame; its KV comes from the fill
+                            # file (already written above), one token is left to compute.
+                            request.num_computed_tokens = 0
+                            request.num_logical_tokens = 0
+                            request.num_kvmem_offset = 0
+                        else:
+                            _served = int(getattr(request, "num_prompt_tokens", 0) or 0)
+                            _logical_n = max(1, _served - 1)
+                            request.num_logical_tokens = int(_logical_n)
+                            request.num_computed_tokens = int(view_tokens)
+                            request.num_kvmem_offset = int(_logical_n) - int(view_tokens)
                         # NOT the legacy resume flag: that path (`_complete_resume`) demands
                         # visible == hit and raises "compressed session checkpoint lacks a valid
                         # Mamba state cursor" for a frame (visible = frame, hit = prompt). The
