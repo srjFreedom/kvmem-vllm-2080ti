@@ -342,3 +342,27 @@ session_restored_tokens = 4857      ← turn2 只 prefill 了 4880-4857 = 23 个
   最多给到约 3.5 GiB ⇒ 目前上限 131,072（实际跑通 86.5K）。
 - 本轮所有大 prompt 都是「prompt >> 工作窗口（select 2048 + gen 2048）」：65K/86K 的 KV 大部分在 CPU
   archive，正是 KVMem 的目标场景。
+
+## 18. CTX 与物理池解耦：`max_model_len` 不再受池容量约束（**超池 218K 命中 1.36s**）
+
+**用户口径**：物理池是 `B+R`（工作窗口），`max_model_len`（= 逻辑上下文上限 CTX）与它无关，
+所以启动时不该做"max_model_len ≤ 池容量"的校验，也不该和模型最大长度绑定。
+
+**实现（两处）**
+1. **引擎**（`vllm/v1/core/kv_cache_utils.py`，提交 `01506a5471`）：`KVMEM_SKIP_KV_CHECK=1` 时跳过
+   `_check_enough_kv_cache_memory`，并打印
+   `KVMem: skipping the KV capacity check (max_model_len=… needs … GiB, pool has … GiB)`。
+2. **kvmem**（`serve.py`）：`DEFAULTS` 新增 `skip_kv_check`，导出环境变量；profile 设 `true`。
+
+**实测（CTX=262,144，池 205,752 token，kvmem 窗口仍 2,048+2,048）**
+| 请求 | prompt_tokens | 耗时 | 答案 |
+|---|---|---|---|
+| 4,888 | 4,888 | 9 s 级 | `ZX-4417-QJ7` ✅ |
+| **超过池** | **218,220** | **8 m 18 s** | `ZX-4417-QJ7` ✅ |
+| **同上，重复（前缀命中）** | 218,220 | **1.36 s** | `ZX-4417-QJ7` ✅ |
+
+⇒ 这是 KVMem 的目标形态：**prompt 比物理池大 6%，靠归档+选择跑通；第二次请求 1.36 s（约 365×）**。
+证据：`sessions.hits=1`、`session_restored_tokens=218,112`。
+
+**注意**：跳过校验只去掉"启动拒绝"，不改变显存事实——池仍是 205,752 token，工作窗口仍是 4,096 token；
+超长 prompt 的 KV 存在 CPU archive（`repository_blocks=16,384` × 32 = 524,288 token 上限）。

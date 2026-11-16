@@ -48,6 +48,8 @@ DEFAULTS = {
     # prefix reuse works without frontend changes (see http_sessions.auto_session_id).
     'auto_session': False,
     'auto_session_chars': None,
+    # KVMEM_SKIP_KV_CHECK: max_model_len (logical CTX) may exceed what the KV pool holds.
+    'skip_kv_check': False,
 }
 PATHS = ('model', 'tokenizer', 'hf_config_path', 'draft_model', 'mm_proj')
 # Explicit experiment controls for NVFP4 and FP8 checkpoints.
@@ -444,6 +446,9 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
         env['KVMEM_FULL_HISTORY_BENCHMARK'] = '1'
     if cfg['prefill_chunk_tokens']:
         env['KVMEM_PREFILL_CHUNK_TOKENS'] = str(cfg['prefill_chunk_tokens'])
+    # KVMem bounds the GPU window by select+gen, so max_model_len is a logical
+    # context bound: let the engine start even when it exceeds the KV pool.
+    env['KVMEM_SKIP_KV_CHECK'] = '1' if cfg.get('skip_kv_check') else '0'
     env['KVMEM_AUTO_SESSION'] = '1' if cfg.get('auto_session') else '0'
     # Unset = hash the whole conversation opening (distinct tasks must not share a namespace).
     if cfg.get('auto_session_chars') is not None:

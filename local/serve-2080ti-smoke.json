@@ -9,7 +9,7 @@
   "served_model_name": "kvmem-2080ti",
   "host": "127.0.0.1",
   "port": 18200,
-  "max_model_len": 131072,
+  "max_model_len": 262144,
   "max_num_seqs": 1,
   "max_num_batched_tokens": 1024,
   "gpu_memory_utilization": 0.88,
@@ -50,5 +50,6 @@
   },
   "tensor_parallel_size": 2,
   "dtype": "float16",
-  "auto_session": true
+  "auto_session": true,
+  "skip_kv_check": true
 }
