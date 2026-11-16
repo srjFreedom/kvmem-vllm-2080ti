@@ -94,3 +94,24 @@
                        repository_blocks × 32 )
 会话 checkpoint 总量 ≤ session_checkpoint_bytes（所有会话合计）
 ```
+
+### 5.4 场景：CTX=256K、`session_capacity=4` 会怎样
+
+| 层面 | 结果 |
+|---|---|
+| 逻辑上限 | 每个会话都可用到 **262,144 token**（`max_model_len`；fork 位置表上限正好 262,144）|
+| GPU | 窗口仍是 `B+R=6,144`，与 CTX 无关；池只需要能装下窗口（靠 `KVMEM_SKIP_KV_CHECK` 解耦）|
+| 单请求耗时 | 256K 冷 prefill ≈ **4–5 分钟**（实测 ~1,000 tok/s）；命中后 ≈ 1–2 s |
+| **历史 RAM（共享池）** | 4 个会话**共用**一个 arena：若都跑到 256K ⇒ 1,048,576 token ⇒ **8.5 GiB/rank、17 GiB 主机** ⇒ 需 `cpu_read_cache_bytes ≥ 9 GiB/rank` |
+| 若只给 5 GiB/rank | 共享池 ≈ **308K token 总量**：例如「1 个 256K + 1 个 50K」；**再多会撞归档上限（硬失败，不是跳过）** |
+| **会话 checkpoint（另一个池）** | 实测每会话 **60–80 MB**（窗口快照+模型状态为主，与上下文长度弱相关）⇒ 4 会话 ≈ 240–320 MB，`session_checkpoint_bytes=512 MiB` **够** |
+| checkpoint 超预算时 | **优雅跳过**（`_capture_not_admitted`，`checkpoint_deferrals+1`），本次照常出结果，只是下轮不命中 |
+| 归档超预算时 | **不是优雅降级**：`BufferError: Authority capacity exhausted`（实测会让引擎 core 报错）⇒ 归档池必须按"最大单会话"给足 |
+
+**结论**：CTX=256K + 4 会话 **可以配，但要分开算两笔账**：
+```
+历史归档 = 4 × 每会话实际历史   （共享池，必须 ≥ 最大单会话，否则硬失败）
+checkpoint = 4 × 60–80 MB      （共 512 MiB 够用；超了只是不命中）
+```
+想「4 个会话都能各放 256K」⇒ `cpu_read_cache_bytes ≥ 9 GiB/rank`、主机 ~17–20 GiB；
+想「4 个会话共享 ~256K 总量」⇒ `cpu_read_cache_bytes = 5 GiB`、主机 ~13–16 GiB。
