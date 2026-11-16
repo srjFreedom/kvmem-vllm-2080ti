@@ -43,3 +43,6 @@ uv pip install --python /home/srj/vLLM-2080Ti-Definitive/.venv/bin/python \
 |---|---|---|---|
 | 短（OK-2080TI） | 63 | `OK-2080TI` ✅ | — |
 | 长 needle（1× select_budget 之上） | 4,888 | `ZX-4417-QJ7` ✅ | 9.5 s |
+| **会话续写（同 session_id）** | 4,880 | `ZX-4417-QJ7` ✅ | **0.60 s**（turn1 7.40 s，**12.4×**） |
+
+会话命中证据：`scheduler_resources.json → sessions.hits=2`、`archive.json → session_restored_tokens=4857`。

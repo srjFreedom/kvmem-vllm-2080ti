@@ -224,3 +224,30 @@ profile：`local/serve-2080ti-smoke.json`（Coder390 FP8-fp8mtp、TP=2、gpu_mem
 
 ⇒ 结论：**kvmem 逻辑完全在插件层**，引擎保持 2080Ti fork 的原样即可（与上游 `vllm>=0.30` 的插件设计一致）。
 补丁集只剩 kvmem 侧的 `0002-kvmem-sm75-compat.patch`。
+
+## 13. 会话命中（RAM 缓存）在原版引擎上验证通过：**12.4×**
+
+旧项目那 20 个引擎提交里有 kv-offload（RAM KV 层）与引擎侧账本；上游把「会话复用」做在**插件层**
+（`session_capacity` / `session_checkpoint_bytes` / `session_checkpoint_policy` + `http_sessions` 中间件
++ `archive` 的 CPU 后端）。在原版 post3 引擎上实测：
+
+| 请求 | prompt_tokens | 耗时 | 答案 |
+|---|---|---|---|
+| turn1（4,848 token，冷） | 4,848 | **7.40 s** | `ZX-4417-QJ7` ✅ |
+| turn2（同 session 续写，4,880 token） | 4,880 | **0.60 s** | `ZX-4417-QJ7` ✅ |
+
+**提速 12.4×**。运行目录证据（`capture/scheduler_resources.json` / `archive.json`）：
+```
+sessions     = {entries: 4, hits: 2, misses: 7, waits: 11}
+session_views: ns ['', 'sess-time-1']  history 4889  window 2073  prefix_sha256 ...
+session_checkpoints   = 4
+session_restored_tokens = 4857      ← turn2 只 prefill 了 4880-4857 = 23 个 token
+```
+
+### 复现配方（三个要点，缺一不成）
+1. **同一 `session_id`**（可选 `cache_salt`）；不同会话必须换 id。
+2. **请求要带完整累计历史**：turn2 = turn1 的 prompt + `assistant` 的**精确输出** + 新回合。
+   手工改写的 assistant 文本会因重新分词导致前缀不匹配（实测：漏掉开头两个换行 ⇒ 仍 miss）。
+3. 短回答要 `chat_template_kwargs.enable_thinking=false`，否则 `max_tokens` 被思考吃光、`content` 为空。
+
+会话结束用上游的 close 协议（`kv_transfer_params.kvmem_release_session`，1 token 输入/输出）。
