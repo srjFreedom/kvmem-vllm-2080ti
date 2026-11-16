@@ -1,9 +1,9 @@
 diff --git a/local/serve-2080ti-smoke.json b/local/serve-2080ti-smoke.json
 new file mode 100644
-index 0000000..be319c5
+index 0000000..f6a8385
 --- /dev/null
 +++ b/local/serve-2080ti-smoke.json
-@@ -0,0 +1,50 @@
+@@ -0,0 +1,54 @@
 +{
 +  "model": "/home/srj/models/Coder390/FP8-fp8mtp",
 +  "tokenizer": "/home/srj/models/Coder390/FP8-fp8mtp",
@@ -40,8 +40,8 @@ index 0000000..be319c5
 +    "request_planning": true,
 +    "session_capacity": 8,
 +    "session_checkpoint_bytes": 536870912,
-+    "session_checkpoint_policy": "pm",
-+    "session_capture_terminal": true,
++    "session_checkpoint_policy": "sealed",
++    "session_capture_terminal": false,
 +    "mean_k_backend": "torch_reference",
 +    "async_refresh": false,
 +    "refresh_quantum_tokens": 128,
@@ -49,10 +49,14 @@ index 0000000..be319c5
 +    "maintenance_max_steps": 0,
 +    "async_restore": false,
 +    "step_latency_interval": 1,
-+    "verify_archive_on_finish": false
++    "verify_archive_on_finish": false,
++    "session_freeze_prompt": true,
++    "session_capture_decode": false,
++    "query_history": false
 +  },
 +  "tensor_parallel_size": 2,
-+  "dtype": "float16"
++  "dtype": "float16",
++  "auto_session": true
 +}
 \ No newline at end of file
 diff --git a/src/vllm_kvmem/adapters/capture.py b/src/vllm_kvmem/adapters/capture.py
@@ -192,20 +196,101 @@ index 0cd3c0e..343c0aa 100644
          groups = self._capture_groups(batch)
          if not getattr(self, 'split_capture_dma', False) and len(self.downloads.pending) == len(self.downloads.buffers):
              # Keep the original pre-Action backpressure order in the disabled
+diff --git a/src/vllm_kvmem/serving/http_sessions.py b/src/vllm_kvmem/serving/http_sessions.py
+index f712268..1e0f99d 100644
+--- a/src/vllm_kvmem/serving/http_sessions.py
++++ b/src/vllm_kvmem/serving/http_sessions.py
+@@ -34,6 +34,48 @@ def validate_session_payload(payload, header):
+         raise ValueError('kvmem_share_prefix requires a session and a positive integer token position')
+ 
+ 
++def auto_session_id(payload, prefix_chars):
++    """Derive a stable session namespace from the request's prompt prefix.
++
++    SM75 deployments often have clients that cannot send a session id, while KVMem's
++    reusable unit IS the token prefix: the ledger matches on exact token identity, so a
++    namespace label derived from the prefix text is safe (identical text -> identical
++    tokens -> a real hit; different text -> a different namespace -> no false hit).
++
++    Release (`kvmem_release_session`) and prefix sharing (`kvmem_share_prefix`) talk about
++    an explicit conversation/image, so they never auto-derive.
++    """
++    params = payload.get('kv_transfer_params')
++    if isinstance(params, dict) and (params.get('kvmem_release_session')
++                                     or params.get('kvmem_share_prefix') is not None):
++        return None
++    messages = payload.get('messages')
++    if isinstance(messages, list):
++        parts = []
++        for message in messages:
++            if isinstance(message, dict):
++                content = message.get('content')
++                if isinstance(content, str):
++                    parts.append(content)
++                elif isinstance(content, list):
++                    parts.extend(part.get('text') or '' for part in content
++                                 if isinstance(part, dict))
++        material = '\x00'.join(parts)
++    else:
++        prompt = payload.get('prompt')
++        if isinstance(prompt, str):
++            material = prompt
++        elif isinstance(prompt, list) and prompt and all(isinstance(t, int) for t in prompt):
++            material = ',' + ','.join(str(t) for t in prompt) + ','
++        else:
++            return None
++    if not material:
++        return None
++    import hashlib
++    limit = max(64, int(prefix_chars))
++    return 'auto-' + hashlib.sha256(material[:limit].encode()).hexdigest()[:24]
++
++
+ def normalize_query_plan(payload, session_header=None):
+     if not isinstance(payload, dict):
+         return False  # Preserve native request-schema errors.
+@@ -105,8 +147,23 @@ async def validate_prompt_session(request, call_next):
+             pass  # Preserve native malformed-JSON responses.
+         else:
+             try:
++                mutated = False
++                if os.environ.get('KVMEM_AUTO_SESSION', '0') == '1':
++                    header = request.headers.get('X-Session-ID')
++                    extras = payload.get('vllm_xargs')
++                    owned = (payload.get('session_id') or header
++                             or (extras.get('session_id')
++                                 if isinstance(extras, dict) else None))
++                    if not owned:
++                        derived = auto_session_id(
++                            payload, os.environ.get('KVMEM_AUTO_SESSION_PREFIX_CHARS', '8192'))
++                        if derived:
++                            payload['session_id'] = derived
++                            mutated = True
+                 validate_session_payload(payload, request.headers.get('X-Session-ID'))
+                 if normalize_query_plan(payload,request.headers.get('X-Session-ID')):
++                    mutated = True
++                if mutated:
+                     request._body = json.dumps(payload).encode()
+                     request._json = payload
+             except ValueError as error:
 diff --git a/src/vllm_kvmem/serving/serve.py b/src/vllm_kvmem/serving/serve.py
-index 8ad0a8e..3ddf43a 100644
+index 8ad0a8e..ec1212d 100644
 --- a/src/vllm_kvmem/serving/serve.py
 +++ b/src/vllm_kvmem/serving/serve.py
-@@ -42,6 +42,8 @@ DEFAULTS = {
+@@ -42,6 +42,12 @@ DEFAULTS = {
      'recall_experiment': None,
      'model_adapter': None,
      'full_history_benchmark': False,
 +    # SM75 (2080 Ti) has no native bfloat16; other targets keep the historical default.
 +    'dtype': 'bfloat16',
++    # Derive a session namespace from the prompt prefix when the client sends none, so
++    # prefix reuse works without frontend changes (see http_sessions.auto_session_id).
++    'auto_session': False,
++    'auto_session_chars': None,
  }
  PATHS = ('model', 'tokenizer', 'hf_config_path', 'draft_model', 'mm_proj')
  # Explicit experiment controls for NVFP4 and FP8 checkpoints.
-@@ -356,7 +358,10 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
+@@ -356,7 +362,10 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
                          if cfg['draft_quantization'] else {})})
      argv = ['serve', cfg['model'], '--served-model-name', cfg['served_model_name'],
          '--host', cfg['host'], '--port', str(cfg['port']), '--tokenizer', cfg['tokenizer'],
@@ -217,3 +302,13 @@ index 8ad0a8e..3ddf43a 100644
          '--language-model-only', *loader_args,
          '--kv-cache-dtype', 'fp8_e4m3', '--max-model-len', str(cfg['max_model_len']),
          '--max-num-seqs', str(cfg['max_num_seqs']), '--max-num-batched-tokens', str(cfg['max_num_batched_tokens']),
+@@ -435,6 +444,9 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
+         env['KVMEM_FULL_HISTORY_BENCHMARK'] = '1'
+     if cfg['prefill_chunk_tokens']:
+         env['KVMEM_PREFILL_CHUNK_TOKENS'] = str(cfg['prefill_chunk_tokens'])
++    env['KVMEM_AUTO_SESSION'] = '1' if cfg.get('auto_session') else '0'
++    if cfg.get('auto_session_chars'):
++        env['KVMEM_AUTO_SESSION_PREFIX_CHARS'] = str(cfg['auto_session_chars'])
+     if cfg['reasoning_end_str'] is not None:
+         argv += ['--reasoning-config',json.dumps({'reasoning_end_str':cfg['reasoning_end_str']})]
+     if cfg['execution_mode'] in ('full_graph', 'compiled_graph'):
