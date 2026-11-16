@@ -205,3 +205,22 @@ profile：`local/serve-2080ti-smoke.json`（Coder390 FP8-fp8mtp、TP=2、gpu_mem
 
 ⇒ 引擎侧现在**不需要任何额外补丁**，只要 \`kvmem-0.2.2-clean\` 分支本身。
 补丁集随之只剩 \`patches/0002-kvmem-sm75-compat.patch\`。
+
+## 12. 引擎回到**原版 post3**：那 20 个旧补丁全部不需要
+
+**判断依据**：新项目源码对 fork 专有字段的引用数全为 **0**
+（`num_logical_tokens` / `kvmem_view_lens` / `kvmem_rope_offset` / `kvmem_true_computed` /
+`num_kvmem_offset` / `kvmem_slot_offset`）。那 20 个提交只改 Python（45 文件 +2407/−147，无 C/CUDA），
+所以切分支不需要重编译。
+
+**操作**：新建并切到 `sm75-post3-clean` @ `v0.2.2-post3`（**post3 之上 0 个提交**）。
+旧的 `kvmem-0.2.2-clean`（post3 + 20）仅作历史参考，运行时不再使用。
+
+**验证（原版引擎，实测）**
+| 请求 | prompt_tokens | 答案 | 耗时 |
+|---|---|---|---|
+| 短 | 63 | `OK-2080TI` ✅ | — |
+| 长 needle | 4,888 | `ZX-4417-QJ7` ✅ | **9.5 s** |
+
+⇒ 结论：**kvmem 逻辑完全在插件层**，引擎保持 2080Ti fork 的原样即可（与上游 `vllm>=0.30` 的插件设计一致）。
+补丁集只剩 kvmem 侧的 `0002-kvmem-sm75-compat.patch`。
