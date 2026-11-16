@@ -148,42 +148,46 @@ checkpoint = 4 × 60–80 MB      （共 512 MiB 够用；超了只是不命中�
 **注意**：默认假设 2×22 GB（TP=2）。单卡用户需要改 `tensor_parallel_size` 并降 `gpu_memory_utilization`
 （27B FP8 权重约 32 GB，单卡 22 GB 装不下）。
 
-## 7. 默认配置：B=32K / R=8K / CTX=256K / 0.96（实测可行域）
+## 7. 默认配置（最终）：B=32K / R=16K / CTX=256K / 0.96
 
-**用户目标**：B=32K、R=16K、`session_capacity=1`、CTX=256K、`gpu_memory_utilization=0.96`。
-实测 **R=16K 在这张 22 GB 卡上放不下**，原因已定位：
+**用户口径的两点已核实**
 
-**GPU 内存账（0.96 ⇒ 20.63 GiB 目标，实测 free 21.12 GiB）**
-| 配置 | 权重+非 torch | 峰值激活 | 剩给 KV | 池 token | 结果 |
-|---|---|---|---|---|---|
-| B=32K, **R=16K** | **18.42 GiB** | 2.06 GiB | **0.15 GiB** | 7,363 | ❌ 需求 147,456（3×48K）|
-| B=32K, **R=8K** | 16.60 GiB | 1.05 GiB | 2.95 GiB | **166,417** | ✅ 需求 122,880（1.35×）|
-| B=24K, R=8K | 16.60 GiB | 1.12 GiB | — | 166,417 | ✅ |
-| B=16K, R=8K | 16.60 GiB | 1.12 GiB | — | 163,471 | ✅ |
+1. **`gpu_memory_utilization` 的语义**：它是"向驱动申请多少显存"的比例，vLLM 在这额度内分配
+   权重 + 峰值激活 + CUDA graph + KV 池，**剩下不申请的部分是留给同卡其他进程的冗余**。
+   所以越大越好（只要不 OOM）；0.96 时实测占用 21,074 MiB / 22,528 MiB ⇒ 余量 1.45 GiB，安全。
+2. **"KV 看起来是我们的 3.5 倍"的根因：`query_replay_budget` 默认等于 `gen_budget`（R）**。
+   旧 ninfer 的对应项是固定小值（`CAPTURE_TOKENS=512`），所以它的内存只随 B+R 增长；
+   我们 R=16K 时 replay 也被拉到 16,384，多占约 3 GiB 缓冲区，把池挤到 7,363 token。
 
-**结论：额外占显存的是 R，不是 B** —— B 从 16K 增到 32K 占用不变（16.60 GiB），
-R 从 8K 增到 16K 多花 **1.82 GiB**（≈227 KiB / R-token，MTP 草稿+生成预留缓冲）。
-同时"最坏请求"按 `3 × (B+R)` 预留（3 个 attention 组），所以 R 越大两头都吃亏。
+**实测三组（B=32K、CTX=256K、gpu=0.96）**
+| `gen_budget` R | `query_replay_budget` | 权重+非torch | 池 token | 结果 |
+|---|---|---|---|---|
+| 16,384 | **16,384（默认=R）** | 18.42 GiB | 7,363 | ❌ 需要 147,456 |
+| 16,384 | **2,048** | 15.45 GiB | **270,980** | ✅ 1.84× |
+| 16,384 | **4,096（默认值）** | 15.77 GiB | **240,053** | ✅ 1.63× |
 
-**R 不限制输出长度**：实测 `max_tokens=12000` 的长输出请求跑完 **~11K token @ 84 tok/s**。
-`gen_budget` 只是窗口里的生长预留；vLLM 侧仍按 `max_model_len` 校验 prompt+output
-（`http_sessions.py:137` 的 "Single-turn output must remain within G" 只在带
-`kvmem_request_plan` 的显式规划路径生效）。
+成本经验值：**replay 每 token 约 180 KiB**（ranged 150–190）。所以 replay 应显式给一个
+"够用的固定值"，不要跟着 R 走。
 
 **最终默认（`local/serve-2080ti-default.json`）**
 ```
-B=32,768  R=8,192 窗口=40,960      CTX=262,144      gpu_memory_utilization=0.96
-session_capacity=1   cpu_read_cache_bytes=6 GiB   session_checkpoint_bytes=1 GiB
-sink/recent = 4,096/2,048 token    max_num_seqs=1   capture=[5]   draft=4   full_graph
+B=32,768  R=16,384 窗口=49,152     CTX=262,144     gpu_memory_utilization=0.96
+query_replay_budget=4,096          session_capacity=1
+cpu_read_cache_bytes=6 GiB         session_checkpoint_bytes=1 GiB
+sink/recent=4,096/2,048            max_num_seqs=1  capture=[5]  draft=4  full_graph
 ```
 
-**验证（默认配置）**
+**验证（最终默认）**
 | 项 | 结果 |
 |---|---|
-| 启动 | 57 s，池 166,417 token，占用 20.5/22.5 GB |
+| 启动 | 56 s，池 **240,053** token，占用 21,074/22,528 MiB |
+| 代码生成 | **79.5–79.8 tok/s** ✅ |
+| 会话续写（7.2K > 窗口）| 7.51 s → **0.33 s** ✅ |
 | 4,888 needle | `ZX-4417-QJ7` ✅ |
-| 代码生成 | **86.3 tok/s** ✅ |
-| 会话续写（7.2K，>窗口）| 7.57 s → **0.34 s / 0.28 s** ✅ |
-| 长输出 | `max_tokens=12000` 生成 ~11K token @ **84 tok/s** ✅ |
+| 长输出 | `max_tokens=12000` ⇒ ~11K token @ 84 tok/s ✅ |
+| 归档预算 | 1 会话 × 256K = **4.25 GiB/rank**，预算 6 GiB（1.41×）|
 
-**要 R=16K 的前提**：换 24 GB+ 的卡（+2.4 GiB 可用），或把 `gpu_memory_utilization` 提到 >1（不可行）。
+**replay 的语义边界**：`http_sessions.py:124` 的检查是
+`plan.replay_end - plan.replay_begin > query_replay_budget ⇒ 拒绝`，只对**显式带
+`kvmem_request_plan` 的客户端**生效；auto-session 路径（我们的默认）不传 plan，
+所以 replay 只当"缓冲区大小"，设 4,096 不会限制提问长度。

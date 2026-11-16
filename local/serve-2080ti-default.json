@@ -18,7 +18,7 @@
   "kvmem": {
     "block_tokens": 32,
     "select_budget": 32768,
-    "gen_budget": 8192,
+    "gen_budget": 16384,
     "repository_blocks": 16384,
     "sink_blocks": 128,
     "recent_blocks": 64,
@@ -54,5 +54,6 @@
   "skip_kv_check": true,
   "cudagraph_capture_sizes": [
     5
-  ]
+  ],
+  "query_replay_budget": 4096
 }
