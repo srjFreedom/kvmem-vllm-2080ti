@@ -759,3 +759,40 @@ retain_prompt = (session_checkpoint_policy == 'pm')     # session_worker.py:111
 **副作用/代价**：pm 模式会额外保留终端（M）checkpoint ⇒ 每会话 payload 更大
 （实测 3 个会话 236 MB）；容量仍由 `session_capacity=8` × `session_checkpoint_bytes` 约束，
 不够时调大后者或减小窗口。
+
+## 32. 并发实测：池子按 2×(B+R) 给到了，但请求被**串行调度**
+
+**配置（按用户口径：并发2 = 2 倍窗口）**
+| 项 | 值 |
+|---|---|
+| 窗口 B+R | 4,096 + 2,048 = **6,144** |
+| 并发倍数 | `max_num_seqs=3`（给退役中的请求留 1 个名额）|
+| `cudagraph_capture_sizes` | `[5, 10, 15]`（query_len 5 × batch 1..3）|
+| 池 | `gpu_mem=0.82` ⇒ **60,074 token**（≈3 组 × 2 并发 × 6,144 = 36.9K 之上）|
+
+**实测结果**
+| 场景 | 结果 |
+|---|---|
+| 两个极小 prompt（~20 token）并发 | **0.30 s 两个都完成** ⇒ 批量调度本身是通的 |
+| 两个 2,214 token（不同会话）并发 | 墙钟 **4.34 s**（单个约 2.2 s）⇒ 完全串行 |
+| 两个 7,254 token（超窗口）并发 | 墙钟 **21.0 s**（单个约 10.5 s）⇒ 完全串行 |
+| 准入计数 | `authority_limit=3`、`rejections=0`、`waits=0` ⇒ **不是容量/准入限制** |
+| 每步并发请求数 | 27 步 1 个请求、**仅 2 步有 2 个** ⇒ 调度器基本一次只跑一个 |
+
+**排除过的原因**
+- 池容量不足：不是（把池从 30K 加到 60K，`rejections` 归零后依然串行）
+- 退役名额：不是（`max_num_seqs` 3 后 `retirement_or_active_limit=0`）
+- MTP 草稿契约：不是唯一原因（`draft_tokens=1` 时 2 并发步数从 1 增到 4，墙钟不变）
+- `request_planning`：是 bounded target 的前置，关掉直接启动失败
+  （`Bounded target batch budget must fit an aligned block and admitted G headroom`）
+
+**结论**：并发瓶颈在 **kvmem 的有界窗口执行路径**——一次只为一个请求建立选片帧/查询捕获流，
+与上游 `docs/design-native-control-plane.md` 的说明一致（capacity reservation、bounded execution、
+MTP draft contract、archive/window 路径都要求"同步单批"执行）。**用户的容量模型（2×B+R）是对的**，
+但当前插件还没把它用于并行，只用于排队。
+
+**要在本机拿到真正并发**，需要插件层改造（不属于配置）：
+1. 每请求一个选片帧/查询捕获流（现在共享单流）；
+2. 容量记账按"活跃帧数"而不是"单活跃请求"；
+3. 归档/恢复的 staged import 支持多请求并行。
+这是架构级改动，需先与你确认再做。

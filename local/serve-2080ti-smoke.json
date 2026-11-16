@@ -10,9 +10,9 @@
   "host": "127.0.0.1",
   "port": 18200,
   "max_model_len": 32768,
-  "max_num_seqs": 1,
+  "max_num_seqs": 3,
   "max_num_batched_tokens": 4096,
-  "gpu_memory_utilization": 0.84,
+  "gpu_memory_utilization": 0.82,
   "prefill_chunk_tokens": 1024,
   "verify_session_restore": false,
   "kvmem": {
@@ -53,7 +53,9 @@
   "auto_session": true,
   "skip_kv_check": true,
   "cudagraph_capture_sizes": [
-    5
+    5,
+    10,
+    15
   ],
   "profiler_config": {
     "profiler": "torch",
