@@ -52,3 +52,45 @@
 2. **prefix image（多任务共享前缀并行）**：上游限制 TP=1，本机 TP=2 不可用。
 3. **256K+ 上下文**：受主机 RAM（`cpu_read_cache_bytes`）与位置表（262,144）约束。
 4. 服务化：systemd 单元已写但未安装（`systemctl --user`/system 需你确认后安装）。
+
+## 5. 容量口径（实测 + 源码核对）
+
+### 5.1 每 token 的归档字节
+
+`adapters/cache_manifest.py::archive_bytes_per_token` 只统计 **full-attention 层**：
+
+```
+每层每 token（每 rank）= (num_kv_heads / TP) × head_dim × 2      # K+V 各 fp8 1 字节
+本模型：(4/2) × 256 × 2 = 1,024 B；full_attention 16 层 + MTP 1 层 ⇒ 17,408 B/token/rank
+```
+与 `cache-geometry.json` 的 `cpu_archive_bytes_per_token = 17,408` 完全一致。
+**linear_attention（GDN，48 层）不存按 token 的 KV**（其循环状态是"每请求一份"），
+这是与旧 ninfer 口径的关键差异（旧口径按 64 层算 = 65,536 B/token）。
+
+### 5.2 CTX → 主机内存（TP=2 有两个 archive）
+
+| CTX | 每 rank | 主机合计（TP2）| 建议 `cpu_read_cache_bytes` | 主机规划 |
+|---|---|---|---|---|
+| 32,768 | 0.53 GiB | 1.06 GiB | 1 GiB | ~4 GiB |
+| 131,072 | 2.12 GiB | 4.25 GiB | 3 GiB | ~8 GiB |
+| **262,144** | **4.25 GiB** | **8.50 GiB** | **5 GiB** | **13–16 GiB** |
+| 524,288 | 8.50 GiB | 17.0 GiB | 9 GiB | ≥24 GiB |
+
+### 5.3 多会话（`session_capacity` / 旧 RetainedSessions）**共享**一个 RAM 历史池
+
+- 历史池是**进程级共享 arena**（`core/storage.py::make_shared_archive`：
+  "One process-wide arena; each admitted authority has a lifetime partition"）。
+- 名义容量 = `repository_blocks × (max_requests + session_capacity)`，
+  再被**字节预算**夹住：`capacity = min(nominal, cpu_read_cache_bytes ÷ record_bytes)`。
+- ⇒ **会话不会自动获得独立的 CTX 预算**；N 个会话各自保留 H token 的历史，
+  就共同消耗 1 个池的 N×H。8 会话各 256K ⇒ 需要 8 × 4.25 GiB/rank（超出会在准入时被拒）。
+- 会话 checkpoint 是**另一个池**：`session_checkpoint_bytes` 是**所有会话合计**预算
+  （`PromptCheckpointPool.payload_bytes` 累计），实测 3 个会话（2.2K+2.2K+7.2K）= 236 MB。
+
+**配置公式**
+```
+历史 token 上限 = min( CTX,
+                       cpu_read_cache_bytes / 17,408 ,        # 每 rank，且被所有会话共享
+                       repository_blocks × 32 )
+会话 checkpoint 总量 ≤ session_checkpoint_bytes（所有会话合计）
+```
