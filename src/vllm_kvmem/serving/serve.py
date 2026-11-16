@@ -42,6 +42,8 @@ DEFAULTS = {
     'recall_experiment': None,
     'model_adapter': None,
     'full_history_benchmark': False,
+    # SM75 (2080 Ti) has no native bfloat16; other targets keep the historical default.
+    'dtype': 'bfloat16',
 }
 PATHS = ('model', 'tokenizer', 'hf_config_path', 'draft_model', 'mm_proj')
 # Explicit experiment controls for NVFP4 and FP8 checkpoints.
@@ -356,7 +358,10 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
                         if cfg['draft_quantization'] else {})})
     argv = ['serve', cfg['model'], '--served-model-name', cfg['served_model_name'],
         '--host', cfg['host'], '--port', str(cfg['port']), '--tokenizer', cfg['tokenizer'],
-        '--hf-config-path', cfg['hf_config_path'], '--config-format', 'hf', '--dtype', 'bfloat16',
+        '--hf-config-path', cfg['hf_config_path'], '--config-format', 'hf',
+        # SM75 (2080 Ti) has no native bfloat16: default the profile's dtype, which the
+        # 2080 Ti fork resolves to float16 (vLLM refuses bf16 below compute capability 8.0).
+        '--dtype', str(cfg.get('dtype', 'bfloat16')),
         '--language-model-only', *loader_args,
         '--kv-cache-dtype', 'fp8_e4m3', '--max-model-len', str(cfg['max_model_len']),
         '--max-num-seqs', str(cfg['max_num_seqs']), '--max-num-batched-tokens', str(cfg['max_num_batched_tokens']),

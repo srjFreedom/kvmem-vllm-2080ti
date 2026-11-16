@@ -95,3 +95,31 @@
 - 该失败 `test_historical_compact_index.py::test_authority_sealed_sums_release_with_native_gc_and_live_partial_tail`
   是**上游既有失败**（已用 `git stash` 在未改动的树上复现同样失败）：`memory_storage.py:1264`
   `self.tier` 为 None，属环境/上游问题，不是 P1 引入。
+
+## 8. P2 进行中：服务已能启动到 worker 初始化，卡在 capture 投影几何
+
+### 已修（都是 SM75/本机定制点）
+| 问题 | 现象 | 处理 |
+|---|---|---|
+| venv 里残留**旧适配器**的插件注册 | `ModuleNotFoundError: No module named 'vllm_kvmem_plugin'`（该模块随旧项目目录一起删了，但 dist-info/入口点还在） | `uv pip uninstall vllm-kvmem-plugin`（旧包：`vllm_kvmem_plugin-0.1.0`，入口点 `vllm.general_plugins kvmem = vllm_kvmem_plugin:register`） |
+| KV 类型被写死 | `serve.py` 硬编码 `--kv-cache-dtype fp8_e4m3`；`capture_runtime.py:115`、`window_assembly.py:443` 非 fp8 直接 `raise` | **结论：KV 必须 fp8_e4m3**（这是*存储格式*，SM75 上走软件量化/反量化，fork 支持 uint8 存储）。原计划的 BF16 KV 需改 3 处 + fp8 数学，暂不做 |
+| 模型 dtype | `Bfloat16 ... requires compute capability >= 8.0`（2080Ti=7.5） | `serve.py` 的 `--dtype` 改为**profile 可配**（`DEFAULTS` 新增 `dtype: bfloat16`），本地 profile 设 `dtype: float16`；`capture_runtime.py:311` 的“BF16 activations”断言放宽为 bf16/fp16 |
+| profile 字段 | `KernelConfig.linear_backend_per_quant 意外关键字` | 该字段可选，从 profile 移除 |
+
+### 当前阻塞（下一轮从这里开始）
+`ValueError: Content capture output must match native projection geometry`
+（`adapters/_fused_capture.py:267`，由 `capture.py:80` 的 `torch.ops.kvmem.capture_projection` 触发）
+
+断言内容：`raw_q/raw_k` 的形状必须等于 `(n_tokens, heads*head_dim)`。
+**待查**：调用方分配的 `raw_q_output/raw_k_output` 形状/device 与 native 不一致——高度怀疑是
+**TP=2 下 KV/Q 头被切分**（fork 暴露每 rank 的头数，而上游按全局头数分配）。
+下一步：在 `capture.py:80` 附近打印 `n_tokens / num_q_heads / num_kv_heads / head_dim / raw_* 形状`
+与 `attn` 模块的 `num_heads/num_kv_heads`，判定是“头数口径”还是“dtype/连续性问题”。
+
+### 启动命令（可复现）
+```bash
+cd /home/srj/src/kvmem-vllm-2080ti
+/home/srj/vLLM-2080Ti-Definitive/.venv/bin/vllm-kvmem serve \
+  --config local/serve-2080ti-smoke.json --run-dir /tmp/kvmem-run-smoke
+```
+profile：`local/serve-2080ti-smoke.json`（Coder390 FP8-fp8mtp、TP=2、gpu_mem 0.80、max_model_len 16384、MTP 1 draft、dtype float16、kvmem 预算 2048/2048）

@@ -310,8 +310,10 @@ class CaptureRuntime(EarlyCaptureFeedback):
         self._finish_stream_session(batch)
         if tuple(c.name for c in captured) != self.names:
             raise ValueError("Continuous capture missed or reordered target layers")
-        if any(c.key.dtype != torch.bfloat16 for c in captured):
-            raise ValueError("Continuous Qwen target capture currently qualifies BF16 activations")
+        if any(c.key.dtype not in (torch.bfloat16, torch.float16) for c in captured):
+            # SM75 runs float16 (bfloat16 requires compute capability 8.0), so the
+            # activation qualification accepts the SM75 dtype as well.
+            raise ValueError("Continuous Qwen target capture currently qualifies BF16/FP16 activations")
         groups = self._capture_groups(batch)
         if not getattr(self, 'split_capture_dma', False) and len(self.downloads.pending) == len(self.downloads.buffers):
             # Keep the original pre-Action backpressure order in the disabled
