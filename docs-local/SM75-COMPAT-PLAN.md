@@ -279,3 +279,40 @@ session_restored_tokens = 4857      ← turn2 只 prefill 了 4880-4857 = 23 个
 
 **边界**：派生命名空间会随不同前缀增长，需配 `session_capacity`（当前 8）与
 `KVMEM_SESSION_IDLE_LRU_EVICTION`；同一前缀的并发请求会被串行化（上游"同会话串行"语义）。
+
+## 15. auto-id 修正：命名空间 = 会话开头（完整 hash），多轮续写稳定命中且任务隔离
+
+**上一版的缺陷（用户指出）**：用"截断前缀（8192 字符）"做 hash ⇒ 同一 agent 的 system prompt+工具定义
+相同，所有任务落进**同一命名空间**；而上游账本"每个会话只保留一个 prompt checkpoint"、
+"同会话请求串行化" ⇒ 不同任务互相覆盖/串行。实测证据：第二个任务把第一个会话挤掉（`entries: 1`）。
+
+**修正**：命名空间 = `sha256(system 文本 + **第一条 user 消息**（完整、不截断）)`
+- 会话内部：每一轮的开头都不变 ⇒ 命名空间稳定 ⇒ 续写永远命中
+- 不同任务：第一条 user 消息不同 ⇒ 命名空间不同 ⇒ 不撞车
+- 不再需要"每次续写后改 id"：下一轮的历史在本次应答结束时已确定，而前缀匹配由账本自身完成
+
+**实测（全程不带 `session_id`）**
+| 请求 | 耗时 | 说明 |
+|---|---|---|
+| A 第1轮 | 7.66 s | 冷 |
+| A 第2轮（续写） | **1.08 s** | 命中 |
+| B 第1轮（不同任务，同样 system 前缀） | 7.17 s | **冷**，答案 `200` ✅（另一问题） |
+| A 第3轮（B 之后） | **1.08 s** | **仍命中**（A 未被 B 挤掉） |
+
+`restored_tokens=9216`（两次恢复），`hits=2`。
+
+## 16. 复用容量由两个参数共同决定（用户提问的确认）
+
+| 参数 | 含义 | 我们的值 |
+|---|---|---|
+| `session_capacity` | 保留多少个可复用会话（**条目数**） | 8 |
+| `session_checkpoint_bytes` | **单个** checkpoint 的 payload 字节上限 | 512 MiB |
+
+上游原文（`docs/prompt-sessions.md`）：
+> Entry count and retained checkpoint payload bytes are bounded.
+> Shared archive capacity includes an additional `session_capacity` authority allowance.
+> The checkpoint byte limit … is not a whole-process RAM quota.
+
+⇒ 复用总开销 ≈ `session_capacity × session_checkpoint_bytes` + archive authority 余量；
+另有 `cpu_read_cache_bytes`（CPU 读缓存总预算）、`repository_blocks`（历史页数）两个上限。
+两个参数必须**同时**非零（`options.py:1011` 会拒绝只设一个）。

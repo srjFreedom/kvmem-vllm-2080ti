@@ -35,45 +35,63 @@ def validate_session_payload(payload, header):
 
 
 def auto_session_id(payload, prefix_chars):
-    """Derive a stable session namespace from the request's prompt prefix.
+    """Derive a STABLE per-conversation namespace from the conversation's first content.
 
-    SM75 deployments often have clients that cannot send a session id, while KVMem's
-    reusable unit IS the token prefix: the ledger matches on exact token identity, so a
-    namespace label derived from the prefix text is safe (identical text -> identical
-    tokens -> a real hit; different text -> a different namespace -> no false hit).
+    Why the first message and not a prefix of the whole prompt: KVMem reuses state only
+    inside one session namespace (same-namespace requests serialize, and one prompt
+    checkpoint is retained per session), so the namespace must stay constant across the
+    whole conversation. The conversation's opening (system prompt plus the first user
+    message) is exactly that: stable for every turn, different between independent tasks
+    even when all of them share the same system prompt and tool definitions.
 
-    Release (`kvmem_release_session`) and prefix sharing (`kvmem_share_prefix`) talk about
-    an explicit conversation/image, so they never auto-derive.
+    Continuations then hit upstream's "same session + exact token prefix" rule for free,
+    because turn N+1's prompt starts with turn N's history. `prefix_chars` bounds how much
+    of that opening is hashed (default 8192 characters ~ the system prompt and tools).
+
+    Release (`kvmem_release_session`) and prefix sharing (`kvmem_share_prefix`) describe an
+    explicit conversation or image, so they never auto-derive.
     """
     params = payload.get('kv_transfer_params')
     if isinstance(params, dict) and (params.get('kvmem_release_session')
                                      or params.get('kvmem_share_prefix') is not None):
         return None
+    # 0 (or negative) means "hash the whole opening": truncation would map two tasks that
+    # share a long identical head (system prompt + pasted document) to one namespace, and the
+    # ledger keeps only one prompt checkpoint per namespace - the second task would evict the
+    # first (measured: a second task sharing the first 8 KiB replaced the first session).
+    limit = int(prefix_chars or 0)
+    if limit <= 0:
+        limit = None
+    material = None
     messages = payload.get('messages')
-    if isinstance(messages, list):
-        parts = []
+    if isinstance(messages, list) and messages:
+        opening = []
         for message in messages:
-            if isinstance(message, dict):
-                content = message.get('content')
-                if isinstance(content, str):
-                    parts.append(content)
-                elif isinstance(content, list):
-                    parts.extend(part.get('text') or '' for part in content
-                                 if isinstance(part, dict))
-        material = '\x00'.join(parts)
+            if not isinstance(message, dict):
+                continue
+            content = message.get('content')
+            if isinstance(content, str):
+                text = content
+            elif isinstance(content, list):
+                text = ''.join(part.get('text') or '' for part in content
+                               if isinstance(part, dict))
+            else:
+                text = ''
+            opening.append(text)
+            if message.get('role') == 'user' and text:
+                break          # the first user message closes the opening
+        material = '\x00'.join(opening)
     else:
         prompt = payload.get('prompt')
         if isinstance(prompt, str):
             material = prompt
         elif isinstance(prompt, list) and prompt and all(isinstance(t, int) for t in prompt):
             material = ',' + ','.join(str(t) for t in prompt) + ','
-        else:
-            return None
     if not material:
         return None
     import hashlib
-    limit = max(64, int(prefix_chars))
-    return 'auto-' + hashlib.sha256(material[:limit].encode()).hexdigest()[:24]
+    text = material if limit is None else material[:max(64, limit)]
+    return 'auto-' + hashlib.sha256(text.encode()).hexdigest()[:24]
 
 
 def normalize_query_plan(payload, session_header=None):

@@ -445,7 +445,8 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
     if cfg['prefill_chunk_tokens']:
         env['KVMEM_PREFILL_CHUNK_TOKENS'] = str(cfg['prefill_chunk_tokens'])
     env['KVMEM_AUTO_SESSION'] = '1' if cfg.get('auto_session') else '0'
-    if cfg.get('auto_session_chars'):
+    # Unset = hash the whole conversation opening (distinct tasks must not share a namespace).
+    if cfg.get('auto_session_chars') is not None:
         env['KVMEM_AUTO_SESSION_PREFIX_CHARS'] = str(cfg['auto_session_chars'])
     if cfg['reasoning_end_str'] is not None:
         argv += ['--reasoning-config',json.dumps({'reasoning_end_str':cfg['reasoning_end_str']})]
