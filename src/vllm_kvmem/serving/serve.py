@@ -44,6 +44,10 @@ DEFAULTS = {
     'full_history_benchmark': False,
     # SM75 (2080 Ti) has no native bfloat16; other targets keep the historical default.
     'dtype': 'bfloat16',
+    # Derive a session namespace from the prompt prefix when the client sends none, so
+    # prefix reuse works without frontend changes (see http_sessions.auto_session_id).
+    'auto_session': False,
+    'auto_session_chars': None,
 }
 PATHS = ('model', 'tokenizer', 'hf_config_path', 'draft_model', 'mm_proj')
 # Explicit experiment controls for NVFP4 and FP8 checkpoints.
@@ -440,6 +444,9 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
         env['KVMEM_FULL_HISTORY_BENCHMARK'] = '1'
     if cfg['prefill_chunk_tokens']:
         env['KVMEM_PREFILL_CHUNK_TOKENS'] = str(cfg['prefill_chunk_tokens'])
+    env['KVMEM_AUTO_SESSION'] = '1' if cfg.get('auto_session') else '0'
+    if cfg.get('auto_session_chars'):
+        env['KVMEM_AUTO_SESSION_PREFIX_CHARS'] = str(cfg['auto_session_chars'])
     if cfg['reasoning_end_str'] is not None:
         argv += ['--reasoning-config',json.dumps({'reasoning_end_str':cfg['reasoning_end_str']})]
     if cfg['execution_mode'] in ('full_graph', 'compiled_graph'):

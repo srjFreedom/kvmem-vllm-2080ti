@@ -34,8 +34,8 @@
     "request_planning": true,
     "session_capacity": 8,
     "session_checkpoint_bytes": 536870912,
-    "session_checkpoint_policy": "pm",
-    "session_capture_terminal": true,
+    "session_checkpoint_policy": "sealed",
+    "session_capture_terminal": false,
     "mean_k_backend": "torch_reference",
     "async_refresh": false,
     "refresh_quantum_tokens": 128,
@@ -43,8 +43,12 @@
     "maintenance_max_steps": 0,
     "async_restore": false,
     "step_latency_interval": 1,
-    "verify_archive_on_finish": false
+    "verify_archive_on_finish": false,
+    "session_freeze_prompt": true,
+    "session_capture_decode": false,
+    "query_history": false
   },
   "tensor_parallel_size": 2,
-  "dtype": "float16"
+  "dtype": "float16",
+  "auto_session": true
 }

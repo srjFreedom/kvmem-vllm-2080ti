@@ -251,3 +251,31 @@ session_restored_tokens = 4857      ← turn2 只 prefill 了 4880-4857 = 23 个
 3. 短回答要 `chat_template_kwargs.enable_thinking=false`，否则 `max_tokens` 被思考吃光、`content` 为空。
 
 会话结束用上游的 close 协议（`kv_transfer_params.kvmem_release_session`，1 token 输入/输出）。
+
+## 14. 前缀命中零前端改动：auto-session + P 边界冻结（**8.7×**）
+
+**背景**：上游有两条命中路径 —— 会话命中（按 `session_id` 命名空间 + 精确 token 前缀）和共享前缀
+（`prefix image`，键是 `(model, cache_salt, sha256(tokens[:P]))`，与 session 无关，但**明确拒绝 TP>1**）。
+用户要的是"前缀 hash 命中、前端不用改"，在 TP=2 下只能走会话机制。
+
+**实现（纯插件层，3 处）**
+1. `http_sessions.auto_session_id()`：请求没带 `session_id`/`X-Session-ID`/`vllm_xargs.session_id` 时，
+   用**提示前缀文本的 sha256**派生 `auto-<hash24>` 作为命名空间。（文本相同 ⇒ token 相同 ⇒ 真命中；
+   文本不同 ⇒ 不同命名空间 ⇒ 不会误命中。`kvmem_release_session` / `kvmem_share_prefix` 不派生。）
+2. `serve.py`：`DEFAULTS` 新增 `auto_session` / `auto_session_chars`，向启动环境导出
+   `KVMEM_AUTO_SESSION=1`、`KVMEM_AUTO_SESSION_PREFIX_CHARS`。
+3. profile 打开 **P 边界冻结**（否则 checkpoint 在"prompt+输出"末端，重复同一 prompt 不算续写）：
+   `session_checkpoint_policy=sealed`、`session_freeze_prompt=true`、
+   `session_capture_terminal=false`、`session_capture_decode=false`、`query_history=false`。
+
+**实测（完全不带 session_id 的 3 次相同请求）**
+| 次 | 耗时 | 答案 |
+|---|---|---|
+| 1 | 7.66 s | `ZX-4417-QJ7` |
+| 2 | **0.89 s** | `ZX-4417-QJ7` |
+| 3 | **0.89 s** | `ZX-4417-QJ7` |
+
+⇒ **8.7×**；`scheduler_resources.json → sessions.hits=2`，`archive.json → session_restored_tokens=9216`。
+
+**边界**：派生命名空间会随不同前缀增长，需配 `session_capacity`（当前 8）与
+`KVMEM_SESSION_IDLE_LRU_EVICTION`；同一前缀的并发请求会被串行化（上游"同会话串行"语义）。

@@ -34,6 +34,48 @@ def validate_session_payload(payload, header):
         raise ValueError('kvmem_share_prefix requires a session and a positive integer token position')
 
 
+def auto_session_id(payload, prefix_chars):
+    """Derive a stable session namespace from the request's prompt prefix.
+
+    SM75 deployments often have clients that cannot send a session id, while KVMem's
+    reusable unit IS the token prefix: the ledger matches on exact token identity, so a
+    namespace label derived from the prefix text is safe (identical text -> identical
+    tokens -> a real hit; different text -> a different namespace -> no false hit).
+
+    Release (`kvmem_release_session`) and prefix sharing (`kvmem_share_prefix`) talk about
+    an explicit conversation/image, so they never auto-derive.
+    """
+    params = payload.get('kv_transfer_params')
+    if isinstance(params, dict) and (params.get('kvmem_release_session')
+                                     or params.get('kvmem_share_prefix') is not None):
+        return None
+    messages = payload.get('messages')
+    if isinstance(messages, list):
+        parts = []
+        for message in messages:
+            if isinstance(message, dict):
+                content = message.get('content')
+                if isinstance(content, str):
+                    parts.append(content)
+                elif isinstance(content, list):
+                    parts.extend(part.get('text') or '' for part in content
+                                 if isinstance(part, dict))
+        material = '\x00'.join(parts)
+    else:
+        prompt = payload.get('prompt')
+        if isinstance(prompt, str):
+            material = prompt
+        elif isinstance(prompt, list) and prompt and all(isinstance(t, int) for t in prompt):
+            material = ',' + ','.join(str(t) for t in prompt) + ','
+        else:
+            return None
+    if not material:
+        return None
+    import hashlib
+    limit = max(64, int(prefix_chars))
+    return 'auto-' + hashlib.sha256(material[:limit].encode()).hexdigest()[:24]
+
+
 def normalize_query_plan(payload, session_header=None):
     if not isinstance(payload, dict):
         return False  # Preserve native request-schema errors.
@@ -105,8 +147,23 @@ async def validate_prompt_session(request, call_next):
             pass  # Preserve native malformed-JSON responses.
         else:
             try:
+                mutated = False
+                if os.environ.get('KVMEM_AUTO_SESSION', '0') == '1':
+                    header = request.headers.get('X-Session-ID')
+                    extras = payload.get('vllm_xargs')
+                    owned = (payload.get('session_id') or header
+                             or (extras.get('session_id')
+                                 if isinstance(extras, dict) else None))
+                    if not owned:
+                        derived = auto_session_id(
+                            payload, os.environ.get('KVMEM_AUTO_SESSION_PREFIX_CHARS', '8192'))
+                        if derived:
+                            payload['session_id'] = derived
+                            mutated = True
                 validate_session_payload(payload, request.headers.get('X-Session-ID'))
                 if normalize_query_plan(payload,request.headers.get('X-Session-ID')):
+                    mutated = True
+                if mutated:
                     request._body = json.dumps(payload).encode()
                     request._json = payload
             except ValueError as error:
