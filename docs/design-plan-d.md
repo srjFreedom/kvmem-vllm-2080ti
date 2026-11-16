@@ -7156,3 +7156,30 @@ prompt digest 与命中时记录的不同（`_prompt_ids[req]` 在重建阶段�
 **结论（对目标的直接影响）**：在池 64,288（0.83）上，B=36,864 的几何放不下；
 要按用户口径"B 大了就调小"，必须先让 B 真正生效并能被验证。这一步完成前，
 "以 B 为物理池边界"的验收无法进行，更谈不上几秒命中。
+
+## 993. Round 848：**B 不生效的根因找到**（残留 EnvironmentFile）；新的阻塞点是 blockwise 压缩
+
+**根因**：`/home/srj/.config/kvmem-vllm.env` 里有一行残留 `BUDGET=37280`。
+systemd 的 `EnvironmentFile` 顺序是 `/etc/default/kvmem-vllm` 后接该文件，**后加载者覆盖前者**，
+所以我写进 `/etc/default` 的 `BUDGET=20480` 一直被 37,280 压掉。
+处理：该行注释掉（备份 `kvmem-vllm.env.bak`）。同时新增**生效几何日志**
+（`runtime_geometry`：`budget_tokens/gen_reserve/sink/recent/page_tokens/kv_block_size/pool_tokens`），
+以后几何是否生效一眼可查。
+
+**生效后（池 0.83 = 64,288，B=20,480 / R=8,192 / SINK=8,192）**
+```
+runtime_geometry: budget_tokens=12288 gen_reserve=8192 sink_tokens=8192
+                  recent_tokens=8192 page_tokens=32 cfg_budget=20480 cfg_gen_reserve=8192
+```
+⇒ B 确实生效了。
+
+**但 88K 仍卡死**，且探针给出新原因：
+- 压缩门：`high=704 页(22,528)`、`bp=640 页(20,480)`、`pc=51,744`
+- 每次门触发都走 **blockwise** 分支且返回空：`blockwise_no_logical` ×16 → `quiescent_compact_empty` ×16
+- 请求一直涨到 **57,344**（≈池上限 51,744 之上）后 GPU 空闲
+
+⇒ 与 B 大小无关；是**压缩路径选错分支**：在池 90,944/B=36,864 下走的是 `rebuild_select`（能成），
+在池 64,288/B=20,480 下走 blockwise 且拿不到 logical 页。
+
+**下一步**：定位 `blockwise_no_logical` 的判据（大概率是 `st.logical` / `applied_view_coord`
+在该几何下未安装），让小池也走已验证的 rebuild 路径。

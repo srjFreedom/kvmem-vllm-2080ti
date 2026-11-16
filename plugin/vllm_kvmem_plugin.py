@@ -290,7 +290,42 @@ def torch_dtype(runner):
 _BOOT_T0 = __import__("time").monotonic()
 
 
+_PROBE_KINDS = frozenset({
+    "prefix_probe", "prefix_attempt", "prefix_frontier", "prefix_window",
+    "prefix_decide_probe", "prefix_rec_skip", "prefix_no_record", "prefix_record_found",
+    "prefix_skip", "prefix_state_probe", "prefix_state_missing", "hit_digest",
+    "sel_digest_probe", "book_trace", "frontier_trace", "hit_seq_len_fixed",
+    "d_gate_trace", "d_prefill_snap", "d_pf_entry", "d_pf_nolayout", "state_geom",
+    "compact_geom", "needle_page_check", "d_store_probe", "d_resume_pair",
+    "d_resume_gate505", "d_resume_geom455", "resume_loop_gate", "d_step_call",
+    "d_bs_entry", "d_em_entry", "d_hv_funnel", "d_exec_after", "d_post_adapter",
+    "d_step_snapshot", "d_exec_seen", "d_preclear", "d_core_entry", "d_step362",
+    "d_hv_result", "d_retire_arrival", "d_retire_reqs", "state_restore_refused",
+    "resume_probe", "resume_skip", "d_resume_selfderive", "d_resume_forged",
+    "d_adopt_knife", "d_knife_enter", "d_knife_restore", "d_knife_now",
+    "d_blockwise_panel", "d_keepalive_graft", "d_graft_probe", "d_park_needle",
+    "d_bs_gate", "d_direct_entry", "sparse_attach_error", "concurrency_pass",
+    "dense_sampled_skip", "blockwise_no_shrink", "blockwise_reselect",
+    "row_synced", "statistics_final", "d_final_sweep", "d_adopt_lookup",
+    "d_restore_after", "d_restore_sample", "d_blk_restore", "d_exec_suppressed",
+    "escape_suppressed", "d_b_probe", "d_rpc_return", "d_skip_refused",
+})
+
+
+
+def _probe_muted(kind):
+    return (str(kind) in _PROBE_KINDS
+            and str(os.environ.get("KVMEM_PREFIX_TRACE", "0")).strip().lower() not in (
+                "1", "true", "yes", "on"))
+
+
 def _append(path, record):
+    if _probe_muted((record or {}).get("kind")):
+        return
+    return _append_raw(path, record)
+
+
+def _append_raw(path, record):
     try:
         if isinstance(record, dict) and "t" not in record:
             record = {**record,
@@ -481,19 +516,6 @@ def _bind_state_capture(runner, runtime):
 
 # Temporary investigation probes. They are cheap but noisy, so they are filtered at the single log
 # exit and can be re-enabled with KVMEM_PREFIX_TRACE=1 when a regression needs them again.
-_PROBE_KINDS = frozenset({
-    "prefix_probe", "prefix_attempt", "prefix_frontier", "prefix_window",
-    "prefix_decide_probe", "prefix_rec_skip", "prefix_no_record", "prefix_record_found",
-    "prefix_skip", "prefix_state_probe", "prefix_state_missing", "hit_digest",
-    "sel_digest_probe", "book_trace", "frontier_trace", "hit_seq_len_fixed",
-    "d_gate_trace", "d_prefill_snap", "d_pf_entry", "d_pf_nolayout", "state_geom",
-    "compact_geom", "needle_page_check", "d_store_probe", "d_resume_pair",
-    "d_resume_gate505", "d_resume_geom455", "resume_loop_gate", "d_step_call",
-    "d_bs_entry", "d_em_entry", "d_hv_funnel", "d_exec_after", "d_post_adapter",
-    "d_step_snapshot", "d_exec_seen", "d_preclear", "d_core_entry", "d_step362",
-})
-
-
 def _make_runtime_log(log_path):
     def _log(record):
         kind = str((record or {}).get("kind", ""))
@@ -805,6 +827,28 @@ def _attach_sparse(runner, log_path):
         # vLLM's NULL block occupies one aligned unit at the front of the pool.
         first_page=int(cfg.get("first_page", 0)) or
         (int(cfg.get("select_block_tokens", 128)) // max(1, int(view.page_tokens))))
+    # Effective geometry, logged once at attach: the only trustworthy statement of what B/R/SINK/
+    # RECENT the runtime actually uses (a stale /home/<user>/.config/kvmem-vllm.env BUDGET=37280
+    # once shadowed /etc/default and silently pinned B — measured 2026-11-16).
+    try:
+        _eff = {
+            "kind": "runtime_geometry",
+            "budget_tokens": int(getattr(runtime, "budget_tokens", 0) or 0),
+            "gen_reserve": int(getattr(runtime, "gen_reserve", 0) or 0),
+            "sink_tokens": int(getattr(runtime, "sink_tokens", 0) or 0),
+            "recent_tokens": int(getattr(runtime, "recent_tokens", 0) or 0),
+            "page_tokens": int(getattr(view, "page_tokens", 0) or 0),
+            "kv_block_size": int(getattr(runtime, "kv_block_size", 0) or 0),
+            "pool_tokens": int(getattr(runtime, "pool_ceiling_tokens", 0) or 0),
+            "prefill_pressure": bool(cfg.get("prefill_pressure")),
+            "cfg_budget": int(cfg.get("budget_tokens", 0) or 0),
+            "cfg_gen_reserve": int(cfg.get("gen_reserve_tokens", 0) or 0),
+        }
+        _append(log_path, _eff)
+        print("[kvmem] effective geometry: " + " ".join(
+            f"{k}={v}" for k, v in _eff.items() if k != "kind"), flush=True)
+    except Exception:
+        pass
     runtime.install = bool(cfg.get("install", True))
     # In-request compaction rewrites the block table mid-request; vLLM accounts sequence length
     # monotonically, so this is opt-in and comes from --kvmem-inrequest-compaction.
