@@ -448,7 +448,7 @@ def session_checkpoint_frontier(prompt_tokens, block_tokens, budget_tokens,
     # Leave one native KV block of headroom. The old B-aligned boundary triggered physical
     # compaction before the checkpoint could be captured at 36064 tokens in the MTP-off geometry.
     limit = max(0, budget - block)
-    if os.environ.get("KVMEM_PLAN_D", "") in ("1", "true", "yes"):
+    if False:  # plan D is gone
         # OBSERVED PREFIX (design 200, objective clause 4): Plan D
         # never rewinds the token stream and the host store keeps
         # EVERY canonical page, so a resume may skip the WHOLE

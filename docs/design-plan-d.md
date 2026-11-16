@@ -7230,3 +7230,25 @@ NOADOPT/NOINSTALL/NORESTORE/NOSKIP/POS/REBAKE/REBAKE_INV/ROPE/SLIDE/STORELOG`。
 **下一步**：按"折叠到生产分支"的方式逐个删除——共享路径里的开关直接删掉 env 读与非默认分支；
 纯 D 的函数（`_apply_selection_d`/`_d_reset_row`/knife 家族）连同其调用点一起删，
 并用 47K/88K 冷+暖回归守住。
+
+## 996. Round 851：D 轨开关**全部归零**（读取点 0 个），回归通过
+
+**做法**：把 17 个 `KVMEM_D_*` 与 `KVMEM_PLAN_D` 的**环境读取点**逐个折叠成"未设置时的生产分支"，
+保留行为不变；同时删掉 Plan D 的启动分支（`worker.py` 里的 `if _env_flag("KVMEM_PLAN_D")` 整块，
+它会强制关掉 `prefill_pressure`，正是我们需要的通道）。
+
+**清单（全部归零）**
+- 值开关折叠为常量：`IDVIEW/INPLACE/REBAKE/REBAKE_INV/SLIDE/NORESTORE/NOINSTALL/NOADOPT/NOACT/POS/META/APPLY/STORE
+  LOG/ROPE0/HEADVIEW/BLKIDS`
+- 守卫块删除：`if KVMEM_D_SLIDE == "1": return`（×2）、NOADOPT 拒单、`_os753` APPLY 早退、`plan_d` 启动块
+- `d_knife` 钉为 False（视图 knife 属废弃设计）；`KVMEM_PLAN_D` / `KVMEM_D_BLKIDS` / `KVMEM_D_KNIFE`
+  从 `/etc/default` 与 `/tmp/kvmem_env_baseline` 删除
+
+**验证**
+- `grep -E "environ\.get|_env_flag" | grep KVMEM_D_` ⇒ **0**
+- `grep KVMEM_PLAN_D` 的 env 读取 ⇒ **0**（只剩注释）
+- 4 个文件 `compile()` 通过；服务重启后 `effective geometry` 正常（B=36,864 / R=16,384）
+- 回归：**47K** cold 80s / warm 66s，均 10 `ZX-4417-QJ7`；**88K** cold 116s / warm 111s，均 10 `ZX-4417-QJ7` ✓
+
+**剩余工作**：`d_mode` 分支（66 处）现在是恒假死代码，可整体删除；`_apply_selection_d`、
+`_d_reset_row`、ring/knife 家族函数随之删除。删完后 `KVMEM_D_` 在仓库里只剩注释/文档提及。

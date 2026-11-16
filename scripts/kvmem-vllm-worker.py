@@ -106,13 +106,11 @@ def build_config(a) -> dict:
         # Plan D switch travels in the native config so every
         # process (scheduler + each TP worker) sees the same
         # truth - env vars alone reach the systemd process only.
-        "plan_d": os.environ.get("KVMEM_PLAN_D", "") in ("1", "true", "yes"),
         # design 572: the knife switch must be the operator's, not a
         # constant. It was hard-wired True here, so KVMEM_D_KNIFE=0 in
         # /etc/default never disabled the view knife and every "null D"
         # experiment still ran the D path.
-        "d_knife": os.environ.get("KVMEM_D_KNIFE", "") in
-                   ("1", "true", "yes", "on"),
+        "d_knife": False,
         "install": True,
         "budget_tokens": a.kvmem_budget,
         "gen_reserve_tokens": a.kvmem_gen_reserve,

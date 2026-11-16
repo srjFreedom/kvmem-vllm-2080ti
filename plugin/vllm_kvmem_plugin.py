@@ -1019,9 +1019,7 @@ def _attach_sparse(runner, log_path):
             # capture/knife gates run. additional_config reaches
             # every process natively; env remains a fallback for
             # the main process only.
-            runtime.d_mode = bool(cfg.get("plan_d")) and (
-                bool(cfg.get("d_knife")) or
-                os.environ.get("KVMEM_D_KNIFE", "") in ("1", "true", "yes", "on"))
+            runtime.d_mode = bool(cfg.get("plan_d")) and bool(cfg.get("d_knife"))
             if runtime.prefill_pressure:
                 # prefix mode PROPOSES NOTHING to Core (retirement reporting only); the
                 # pressure watermark trigger needs the real blockwise proposal channel.
@@ -1089,9 +1087,7 @@ def _attach_sparse(runner, log_path):
     except Exception:
         runtime.block_pages = 1
     try:
-        runtime.d_mode = bool(cfg.get("plan_d")) and (
-            bool(cfg.get("d_knife")) or
-            os.environ.get("KVMEM_D_KNIFE", "") in ("1", "true", "yes", "on"))
+        runtime.d_mode = bool(cfg.get("plan_d")) and bool(cfg.get("d_knife"))
         runner.kvmem_runtime = runtime      # diagnostic hooks in the runner read the books here
     except Exception:
         pass
@@ -1376,7 +1372,7 @@ def _attach_sparse(runner, log_path):
                                 _saved = common_attn_metadata.seq_lens
                                 _new = runtime.attention_seq_lens(_saved)
                                 try:
-                                    if _env_flag("KVMEM_D_META"):
+                                    if False:
                                         with open("/tmp/kvmem_build.jsonl", "a") as _bf:
                                             _bf.write("BUILD rank=%s rt=%s " % (
                                                 getattr(runner, "tp_rank",
@@ -1493,7 +1489,7 @@ def _attach_sparse(runner, log_path):
         def prepare_pos_seq_lens(idx_mapping, query_start_loc, num_computed_tokens,
                                  positions, seq_lens):
             try:
-                if _env_flag("KVMEM_D_POS"):
+                if False:
                     try:
                         from kvmem_sparse_runtime import VIEW_OFFSETS as _VO0
                     except Exception:
@@ -1779,7 +1775,7 @@ def _attach_sparse(runner, log_path):
                 except Exception:
                     pass
                 try:
-                    if _env_flag("KVMEM_D_META"):
+                    if False:
                         try:
                             _ib = getattr(runner, "input_batch", None)
                             _pos = getattr(_ib, "positions", None) if _ib is not None else None
@@ -2116,8 +2112,8 @@ def _attach_sparse(runner, log_path):
                                     with _t631.no_grad():
                                         _dv[int(_row)] = 0
                                         _vl[int(_row)] = 0
-                            elif (os.environ.get("KVMEM_D_APPLY") == "1"
-                                  and os.environ.get("KVMEM_D_NOACT") != "1"
+                            elif (False
+                                  and True
                                   and bool(getattr(_st631, "view_installed", False))):
                                 # design 795: ADVANCE the fork's view tables every step.
                                 # The table carries the view base (length before this
@@ -2167,10 +2163,10 @@ def _attach_sparse(runner, log_path):
                                 except Exception:
                                     pass
                             elif (_win631 > 0 and _tok631 > _win631
-                                  and _env_flag("KVMEM_D_APPLY") != True
-                                  and os.environ.get("KVMEM_D_APPLY") != "1"):
+                                  and True
+                                  and True):
                                 try:
-                                    if _env_flag("KVMEM_D_POS"):
+                                    if False:
                                         _ps9 = _st631 and list(
                                             view.query_position_slots(_rq))
                                         with open("/tmp/kvmem_pos.jsonl", "a") as _pf:
@@ -3102,7 +3098,7 @@ def register():
                 pass
             adopted = adopt_attention_blocks(scheduler.kv_cache_manager, request_id,
                                               physical, max(1, int(block_pages or 1)),
-                                             d_mode=(os.environ.get("KVMEM_PLAN_D", "") in ("1", "true", "yes", "on")))
+                                             d_mode=(False))
             req.num_computed_tokens = max(0, visible)
             req.num_kvmem_offset = int(getattr(req, "num_logical_tokens", 0)) - visible
             _compact_state[request_id] = key
@@ -4502,7 +4498,7 @@ def register():
                             request, result,
                             lambda visible, pages, block_pages: adopt_attention_blocks(
                                 manager, request.request_id, pages, block_pages,
-                                d_mode=(os.environ.get("KVMEM_PLAN_D", "") in ("1", "true", "yes", "on"))))
+                                d_mode=(False)))
                         _append(log_path, {"kind": "sched_compact_timing", "req": request.request_id,
                                                "epoch": epoch, "rpc_s": _elapsed_rpc,
                                                "validate_apply_s": round(_time.perf_counter() - _t_val, 3)})
@@ -4972,7 +4968,7 @@ def _install(cls, module_name, probe, smoke, state):
                         # erased it AFTER the hook had published it - measured round 582:
                         # rope=0, positions view, delta=base -> RoPE phases view while the
                         # stored pages carry true phases, and the slot jumped by base.
-                        if os.environ.get("KVMEM_D_SLIDE") == "1":
+                        if False:
                             raise RuntimeError("x-pub slide arm")
                         _st = _rt.state(_req)
                         # V2's CPU num_computed_tokens_np mirrors the LOGICAL sampler
@@ -5028,8 +5024,7 @@ def _install(cls, module_name, probe, smoke, state):
         # old=1 new=9 - the in-kernel convention subtracts query_start). The
         # knife will supply both tables with REAL view values and be judged by
         # the needle battery, not by identity.
-        if (os.environ.get("KVMEM_PLAN_D", "") in ("1", "true", "yes", "on")
-                and os.environ.get("KVMEM_D_KNIFE", "") in ("1", "true", "yes", "on")):
+        if False:  # the plan-D knife lane is gone
             try:
                 _dl = getattr(self, "kvmem_slot_deltas", None)
                 if _dl is None:
@@ -5747,7 +5742,7 @@ def _install(cls, module_name, probe, smoke, state):
                                 rt.before_step(req, row_index=row,
                                                position_slots=rt.view.query_position_slots(req))
                                 try:
-                                    if _env_flag("KVMEM_D_POS"):
+                                    if False:
                                         _ib9 = getattr(runner, "input_batch", None)
                                         _names = []
                                         for _n9 in ("positions", "position_ids", "pos_ids"):
@@ -5765,7 +5760,7 @@ def _install(cls, module_name, probe, smoke, state):
                                 except Exception:
                                     pass
                                 try:
-                                    if _env_flag("KVMEM_D_META"):
+                                    if False:
                                         with open("/tmp/kvmem_seqcheck.jsonl", "a") as _sf0:
                                             _sf0.write("INSTALL rank=%s rt=%s row=%s ovr=%s" % (
                                                 getattr(runner, "tp_rank", getattr(runner, "rank", "?")),
@@ -5775,7 +5770,7 @@ def _install(cls, module_name, probe, smoke, state):
                                 except Exception:
                                     pass
                                 try:
-                                    if _env_flag("KVMEM_D_META"):
+                                    if False:
                                         with open("/tmp/kvmem_seqcheck.jsonl", "a") as _sf:
                                             _sf.write("row=%s seq_lens=%s st_seq=%s tok=%s" % (
                                                 row, int(rt.view.seq_lens()[int(row)]),

@@ -72,7 +72,7 @@ def entry_compaction_env(cfg, env):
     # protocol stays off. Without this the entry policy trims every prompt to B
     # (measured: a 142K request reached the engine as 36,136 tokens and "passed"
     # without touching the over-pool path at all).
-    if _env_flag("KVMEM_PLAN_D") and _env_flag("KVMEM_ENTRY_RESIDENT_PREFILL"):
+    if _env_flag("KVMEM_ENTRY_RESIDENT_PREFILL"):  # the plan-D carve-out is gone
         return "1", "plan d keeps the entry intact"
     if truthy:
         # A raised ceiling without engine-side compaction overflows the pool (B + R cannot hold
@@ -150,40 +150,20 @@ def main(argv=None) -> int:
         with open("/tmp/kvmem_cfg.jsonl", "a") as _f571:
             _f571.write(_json571.dumps(
                 {"pid": __import__("os").getpid(),
-                 "plan_d": _env_flag("KVMEM_PLAN_D"),
-                 "d_knife": _env_flag("KVMEM_D_KNIFE"),
+                 "plan_d": False,
+                 "d_knife": False,
                  "cfg": {k: v for k, v in cfg.items()
                          if not isinstance(v, (bytes, bytearray))}},
                 default=str) + "\n")
     except Exception:
         pass
-    if _env_flag("KVMEM_PLAN_D"):
-        cfg["plan_d"] = True
-        # PLAN D supersedes the whole rewind family: the pressure knife, the
-        # sched_compact protocol, and the end-of-prompt rebuild all truncate
-        # `_all_token_ids`/rewind books - the exact thing D forbids (D1). D's
-        # own view-knife arrives with its own triggers; until then D boots run
-        # the pure token stream (window-sized prompts; larger ones simply do
-        # not compact until the D knife lands).
-        # R2b protocol (design-plan-d section 7): D REUSES the proven trigger
-        # and proposal machinery unchanged (watermark (c) + sched_compact + the
-        # worker-side quiescent proposal/install plane), and switches ONLY the
-        # apply: Core does nothing to the books (no adopt - the physical set
-        # never changes - no truncate, no rewind). compact_rebuild stays OFF:
-        # no prompt-end child, escape predicates are inert by construction.
-        # design 570: the compaction machines belong to the D KNIFE. With
-        # the knife off, plan_d must run the PURE token stream (the comment
-        # above says exactly that) - forcing them on made "null D" still
-        # compact at the Core boundary and broke long contexts while
-        # PLAN_D=0 stayed correct.
-        _knife = _env_flag("KVMEM_D_KNIFE")
-        cfg["prefill_pressure"] = _knife
+
         cfg["sched_compact"] = _knife
         cfg["compact_rebuild"] = False
         print("[kvmem backends/vllm] PLAN D on: token stream never rewinds; "
               "attention row/seq lens/slot mapping run on the adapter view "
               "books (pressure/rebuild superseded)")
-    if _env_flag("KVMEM_PREFILL_PRESSURE") and not _env_flag("KVMEM_PLAN_D"):
+    if _env_flag("KVMEM_PREFILL_PRESSURE"):
         cfg["prefill_pressure"] = True
         # B2 (goal round 5): pressure releases through the Core quiescent protocol - the
         # (c) watermark trigger self-gates on cfg["prefill_pressure"], so it does NOT

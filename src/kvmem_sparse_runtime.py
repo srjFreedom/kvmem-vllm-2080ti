@@ -661,7 +661,7 @@ class VllmSparseRuntime:
         # verifies them at the forward; the knife's reset zeroed them between the
         # override and prepare_attn (measured round 589: same tensor ids, values 96 ->
         # 0 within one step, so the write address fell back to the TRUE column).
-        if os.environ.get("KVMEM_D_SLIDE") == "1":
+        if False:
             return
         try:
             runner = getattr(self.view, "runner", None)
@@ -1330,7 +1330,7 @@ class VllmSparseRuntime:
         the host store into the request's own spare blocks.
         """
         import os as _os753
-        if _os753.environ.get("KVMEM_D_APPLY") != "1":
+        if True:
             return False
         prop = getattr(self, "_last_proposal", None)
         try:
@@ -1361,13 +1361,13 @@ class VllmSparseRuntime:
         win_blocks = max(1, int(self.budget_tokens + self.gen_reserve) // max(1, block_tokens))
         want = min(win_blocks, max(1, len(owned)))
         import os as _osid
-        _identity = _osid.environ.get("KVMEM_D_IDVIEW") == "1"
+        _identity = False
         # selection in position order, restricted to what we can actually host
         sel_blocks = sorted({p // q for p in sel})
         keep = [b for b in sel_blocks if b in owned][:want]
         need = [b for b in sel_blocks if b not in owned]
         import os as _oshv
-        if _oshv.environ.get("KVMEM_D_HEADVIEW") == "1":
+        if False:
             # control: keep the FIRST `want` blocks at their own slots (b == i,
             # nothing moves, nothing is rebaked). Coherent prose here means the
             # install path and geometry are right and only the selection is off.
@@ -1393,7 +1393,7 @@ class VllmSparseRuntime:
         # below the pool size), and rotate those pages from the block's true phase
         # to the slot's window phase. Nothing about the row, its length or its
         # block count changes.
-        _inp823 = __import__("os").environ.get("KVMEM_D_INPLACE") == "1"
+        _inp823 = False
         try:
             with open("/tmp/kvmem_inplace.jsonl", "a") as _g824:
                 _rv = [int(x) for x in (row or ())]
@@ -1497,7 +1497,7 @@ class VllmSparseRuntime:
                 # the phase attention expects. Rotating it again was written for the old
                 # compacted-phase arm and corrupts the bytes (KVMEM_D_REBAKE=1 restores
                 # that behaviour for comparison).
-                _rebake823 = __import__("os").environ.get("KVMEM_D_REBAKE") == "1"
+                _rebake823 = False
                 if _rb823 and _rebake823:
                     try:
                         from kvmem_sparse_rope import rotate_k_pages_fp8, rotary_inv_freq
@@ -1562,7 +1562,7 @@ class VllmSparseRuntime:
         restored = 0
         try:
             try:
-                if __import__("os").environ.get("KVMEM_D_STORELOG") == "1" and orch is not None:
+                if False and orch is not None:
                     _pgs = list(getattr(orch.store, "pages", []) or [])
                     with open("/tmp/kvmem_store.jsonl", "a") as _sf:
                         _sf.write("n=%s min=%s max=%s need0=%s rowat=%s nb=%s" % (
@@ -1592,7 +1592,7 @@ class VllmSparseRuntime:
                             # destination slot is that page - not block_id*block_pages
                             # (that arithmetic ran past the 2,842-page pool and the
                             # copy asserted on the device).
-                            if __import__("os").environ.get("KVMEM_D_NORESTORE") == "1":
+                            if False:
                                 break
                             _dst_slot = int(row[dst_b * q + j])
                             if 0 <= _dst_slot < 1 << 20:
@@ -1664,7 +1664,7 @@ class VllmSparseRuntime:
                         break
                 theta = (rotary_inv_freq(rot, base_theta, device=paged[0].device)
                          if (rot > 0 and paged) else None)
-                do_rb = (_os753.environ.get("KVMEM_D_REBAKE") == "1"
+                do_rb = (False
                          and not _identity and theta is not None)
                 ksl = slice(0, hd)
                 for i, b in enumerate(keep):
@@ -1678,7 +1678,7 @@ class VllmSparseRuntime:
                     row_new[i * q:(i + 1) * q] = _blk
                     if do_rb and b != i and paged:
                         import os as _osr
-                        shift = ((b - i) if _osr.environ.get("KVMEM_D_REBAKE_INV") == "1"
+                        shift = ((b - i) if False
                                  else (i - b)) * q
                         # design 771: rotate the BLOCK's PHYSICAL pages
                         # (block_id*block_pages + inner), not the row page indices.
@@ -1693,7 +1693,7 @@ class VllmSparseRuntime:
             # already points at, so the row, its length and its block count stay
             # exactly as the engine booked them (that bookkeeping is what kept
             # tripping gather_block_tables).
-            _inplace818 = __import__("os").environ.get("KVMEM_D_INPLACE") == "1"
+            _inplace818 = False
             if not _inplace818:
                 st.row = tuple(row_new)
                 st.logical = tuple([-1] * len(row_new))
@@ -1709,9 +1709,9 @@ class VllmSparseRuntime:
             # (so keys keep their true phase) and replaces the attention length
             # with kvmem_view_lens[row] + query_len when kvmem_view_active.
             try:
-                if __import__("os").environ.get("KVMEM_D_NOACT") == "1":
+                if False:
                     raise ValueError("activation off")
-                if os.environ.get("KVMEM_D_SLIDE") == "1":
+                if False:
                     # the sliding arm owns view_lens / rope_offset / slot_deltas
                     raise ValueError("slide arm owns the tables")
                 _rn = self.view.runner
@@ -1739,7 +1739,7 @@ class VllmSparseRuntime:
                 # design 799: KVMEM_D_ROPE0 keeps the RoPE offset at zero so the
                 # positions stay in the COMPACTED frame; that is only consistent when
                 # the keys are rebaked into the same frame (REBAKE=1).
-                if __import__("os").environ.get("KVMEM_D_ROPE0") == "1":
+                if False:
                     _off791 = 0
                 _ro.fill_(_off791)
                 _rn.kvmem_rope_offset = _ro
@@ -1781,7 +1781,7 @@ class VllmSparseRuntime:
                     _ps = list(self.view.query_position_slots(req))
                 except Exception:
                     _ps = []
-                if (__import__("os").environ.get("KVMEM_D_NOINSTALL") != "1"
+                if (True
                         and not _inplace818):
                     self._install(int(_ri), list(st.row), int(st.seq_len), _ps)
                 _inst = 1
@@ -4203,8 +4203,7 @@ class VllmSparseRuntime:
             # a synthetic dummy decode; adopting a real archive
             # for it would swap books under a doomed request.
             return None
-        if (__import__("os").environ.get("KVMEM_D_NOADOPT", "")
-                in ("1", "true", "yes")):
+        if False:  # KVMEM_D_NOADOPT ablation removed with the plan
             # DIAGNOSTIC GATE (432, bisect-verified tree): refuse
             # adoption entirely; paired with KVMEM_D_NOSKIP on the
             # Core side the request runs pure cold. The skip and
@@ -5878,7 +5877,7 @@ class VllmSparseRuntime:
             pass
         try:
             import os as _osp
-            if _osp.environ.get('KVMEM_D_POS') == '1':
+            if False:
                 _stp = self._state.get(req)
                 _psp = []
                 try:
@@ -5961,7 +5960,7 @@ class VllmSparseRuntime:
             # publication in the same step (measured: delta 0 and vl 0 at every step after
             # activation, so writes went to true columns and the view never updated).
             _ring_owns = ((os.environ.get("KVMEM_RING_VIEW") == "1"
-                           or os.environ.get("KVMEM_D_SLIDE") == "1")
+                           or False)
                           and bool(getattr(st, "ring_ready", False)))
             if not _ring_owns:
                 self._d_reset_row(row_index)
@@ -6045,7 +6044,7 @@ class VllmSparseRuntime:
         # the final step (measured: the apply witness stayed empty on a 92K run
         # while the knife itself ran 22 times).
         try:
-            if __import__("os").environ.get("KVMEM_D_APPLY") == "1":
+            if False:
                 with open("/tmp/kvmem_gate.jsonl", "a") as _gf:
                     _gf.write("nq=%s d=%s applied=%s prompt=%s tok=%s row=%s" % (
                         int(n_query_tokens or 0),
@@ -6059,7 +6058,7 @@ class VllmSparseRuntime:
             pass
         try:
             if (getattr(self, "d_mode", False)
-                    and __import__("os").environ.get("KVMEM_D_APPLY") == "1"
+                    and False
                     and int(n_query_tokens or 0) == 1
                     and str(req) not in getattr(self, "_applied_set", set())
                     # design 766: wait for PREFILL to finish. `n_query_tokens == 1`
@@ -6102,7 +6101,7 @@ class VllmSparseRuntime:
             # `_roll_window` still rotates by token/1024 (a 32x error in a page-granular
             # row) and would corrupt the view one step after the hook installed it.
             _ring1576 = (os.environ.get("KVMEM_RING_VIEW") == "1"
-                         or os.environ.get("KVMEM_D_SLIDE") == "1"
+                         or False
                          or os.environ.get("KVMEM_NATIVE_SW") == "1")
             if getattr(self, "d_mode", False) and getattr(st, "row", ()):
                 st.view_installed = True
@@ -6387,7 +6386,7 @@ class VllmSparseRuntime:
             return st
         try:
             import os as _os737
-            if _os737.environ.get("KVMEM_D_META") == "1":
+            if False:
                 with open("/tmp/kvmem_rowhead.jsonl", "a") as _rh:
                     _rh.write("view=%s strow=%s tbl=%s" % (
                         bool(getattr(st, "view_installed", False)),
@@ -6699,7 +6698,7 @@ class VllmSparseRuntime:
         """
         try:
             import os as _os742
-            if _os742.environ.get("KVMEM_D_META") == "1":
+            if False:
                 _st742 = self._state.get(req)
                 with open("/tmp/kvmem_syncrow.jsonl", "a") as _srf:
                     _srf.write("req=%s written=%s rowlen=%s tok=%s ntreq=%s" % (
@@ -6730,7 +6729,7 @@ class VllmSparseRuntime:
                 # growth to fetch the engine's post-rewind append columns, and gating it
                 # globally regressed the default arm's 88K needle (measured: 88K -> "KEY-MID").
                 if (_w2 > w and (not int(written or 0)
-                                 or os.environ.get("KVMEM_D_SLIDE") != "1")):
+                                 or True)):
                     w = _w2
                 # design 830: never mirror past the page pool. The block table is
                 # wider than the pool, so entries beyond num_blocks() are engine
@@ -6797,7 +6796,7 @@ class VllmSparseRuntime:
                 _seen748 = getattr(self, "_unit_seen", None)
                 if _seen748 is None:
                     _seen748 = self._unit_seen = set()
-                if (_os748.environ.get("KVMEM_D_META") == "1"
+                if (False
                         and _k748 not in _seen748 and len(values) > 64):
                     _seen748.add(_k748)
                     _run = 1
@@ -11126,7 +11125,7 @@ class VllmSparseRuntime:
                     pass
                 return st
         elif visible <= 0 or (visible >= resident_before
-                              and __import__("os").environ.get("KVMEM_D_APPLY") != "1"):
+                              and True):
             # design 721: the "no shrink" bail is what keeps the RING path correct.
             # Letting plan D through it (design 700) made the knife's own apply run
             # and rewrite row/seq_len mid-prefill, which broke the ring answer
