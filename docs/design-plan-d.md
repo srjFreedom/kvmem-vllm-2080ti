@@ -7291,3 +7291,36 @@ logical=57344 selected_n=441 sel_last=1518 bound=1792 straddler=1791 in_sel=fals
 在**小池 + 压力门**这一刻运行一次即可判定：
 - 若 `n_pages≈1519` ⇒ 本地账本落后（继续修 frontier 来源）；
 - 若 `n_pages≈1792` 但 `kept` 不含块 36 ⇒ 尾部块被后续截断/填充挤掉（修 `kept` 收尾逻辑）。
+
+## 999. Round 854：对照原版契约做帧命中 —— **已到 5 秒**，剩引擎记账（assert 定位到 scheduler:941/1648）
+
+**用户的判断（本轮采用）**：不要一点一点试，按原版 `kvmem-vllm` 的契约做兼容。原版的关键契约在
+`src/vllm_kvmem/core/memory.py`：
+- `checkpoint_window()`：捕获"完整的、有序的、**稠密**的帧"，校验 `position == dense`、
+  每段 `count <= block_tokens`、最后一段可短且 `begin+count == checkpoint.position`；
+- `restore_window()`：回滚后把帧**重组进新页**，注释明确 "Both K and V must reload"，
+  且要求 `history_end == checkpoint.position`；
+- `begin_rewind()`：要求 `position % block_tokens == 0`；完成栅栏必须含 **GDN/draft 状态恢复**。
+
+**据此本轮实现（帧命中）**
+1. **帧相位律**：帧页里存的是"真实位置相位"，装到视图 rank 前按 `(rank - logical) * page_tokens`
+   旋转一次（用现成的 `rotate_k_pages_fp8`）。日志 `frame_phase_rotated`。
+2. **记账按 fork 契约**：`num_logical_tokens = 已服务数`、`num_computed_tokens = 帧长度(view)`、
+   `num_kvmem_offset = served - view`。
+3. `accept_reconstruction` 在无 state 时不再崩（帧命中请求没有经过 prefill，state 可能尚未创建）。
+
+**实测（47K，池 90,944）**
+| | 耗时 | 答案 |
+|---|---|---|
+| cold | 80s | `ZX-4417-QJ7`（10 token）|
+| warm（帧命中）| **5 秒** | 空（引擎报错退出）|
+
+⇒ **速度目标达到**（5s，正是用户要的"几秒"），但引擎在调度时断言。
+
+**剩余的唯一问题**：`scheduler.py:1648 assert num_new_tokens > 0`。根因在
+`scheduler.py:941` `_book = num_logical_tokens if kvmem_resident else num_computed_tokens`，
+而 `num_new_tokens = num_tokens_with_spec + placeholders - _book`：帧命中时我们让 logical=已服务数，
+于是 new=0。**下一次实验**：在该处（或插件 hook 里）打印
+`_book / num_tokens_with_spec / num_output_placeholders / token_budget / input_budget /
+request_prefill_remaining / prefill_frontier_step`，确认是哪一个把它们算成 0，
+再决定帧命中应走的"直接 decode"入口（fork 需要有 zero-prefill 的调度分支）。

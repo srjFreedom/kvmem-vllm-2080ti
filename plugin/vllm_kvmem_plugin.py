@@ -3338,9 +3338,23 @@ def register():
                         # subtracts the offset, which lands every logical position inside the
                         # restored view. This is the "positions logical / slots compacted"
                         # geometry the fork supports via num_kvmem_offset.
-                        request.num_computed_tokens = int(record["covered"])
-                        request.num_logical_tokens = int(record["covered"])
-                        request.num_kvmem_offset = int(record["covered"]) - int(view_tokens)
+                        # Leave exactly ONE token for the engine to compute: a fully-computed
+                        # prompt makes the scheduler assert `num_new_tokens > 0` (measured: the
+                        # frame hit returned in 6s with an empty answer and an EngineDeadError).
+                        # The single remaining token maps to the LAST restored view position, so
+                        # the write lands inside the frame and the decode then runs on it.
+                        # FORK BOOK CONTRACT (request.py: num_logical_tokens is the "served"
+                        # count that drives scheduling; num_computed_tokens is the RESIDENT book
+                        # that compaction rewinds). A frame hit has served the whole prompt and
+                        # holds `view_tokens` resident, so:
+                        #   logical = prompt (nothing left to prefill -> the step is a decode),
+                        #   computed = view (the frame), offset = prompt - view.
+                        # Booking computed = prompt-1 instead made the scheduler compute
+                        # `prompt - computed` new tokens and assert `num_new_tokens > 0`/dead-engine.
+                        _served = int(getattr(request, "num_prompt_tokens", 0) or 0)
+                        request.num_logical_tokens = int(_served)
+                        request.num_computed_tokens = max(1, int(view_tokens))
+                        request.num_kvmem_offset = int(_served) - int(view_tokens)
                         request.kvmem_session_resume = True
                         _append(_sched_cfg(scheduler).get("probe_log")
                                 or "/tmp/kvmem_sparse.jsonl",

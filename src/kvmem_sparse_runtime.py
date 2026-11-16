@@ -416,7 +416,8 @@ class VllmSparseRuntime:
         if st is not None:
             st.off_pages = 0
             st.applied_view_coord = True
-        st.view_installed = True
+        if st is not None:
+            st.view_installed = True
         for mapping in (self._prev_n, self._pending_new, self._pending_frontier,
                         self._inflight, self._engine_computed, self._engine_logical,
                         self._page_map, self._absorb_upto):
@@ -5224,6 +5225,46 @@ class VllmSparseRuntime:
                     raise RuntimeError("dest page out of range: %d" % slot)
                 for layer, kv in enumerate(kvs):
                     kv[slot].copy_(tensors[layer].to(kv.device, non_blocking=True))
+            # FRAME PHASE LAW (upstream `checkpoint_window`/`restore_window` contract): a frame is
+            # a COMPLETE ORDERED DENSE window - record position == dense offset. The stored pages
+            # carry their TRUE-position RoPE phase, so installing them at view ranks without
+            # re-baking leaves the phases of the two frames inconsistent (measured: direct frame
+            # install crashed with `assert num_new_tokens > 0`, or answered empty).
+            # Rotate each restored page once, from its logical page to its view rank:
+            # delta = (rank - logical) * page_tokens.
+            if _mode == "frame" and not _skip_fill and _logical:
+                try:
+                    from kvmem_sparse_rope import rotate_k_pages_fp8, rotary_inv_freq
+                    _cfg_f = self.view.runner.model_config.hf_config
+                    _hd = _rot = 0
+                    _theta0 = 1e6
+                    for _c in (_cfg_f, getattr(_cfg_f, "text_config", None)):
+                        if _c is None:
+                            continue
+                        _hd = int(getattr(_c, "head_dim", 0) or 0)
+                        if _hd > 0:
+                            _rot = int(_hd * float(getattr(_c, "partial_rotary_factor", 1.0) or 1.0))
+                            _theta0 = float(getattr(_c, "rope_theta", 1e6) or 1e6)
+                            break
+                    _pt_f = int(self.page_tokens)
+                    _pmap_f = []
+                    for _i in range(min(count, len(_logical))):
+                        _lp = int(_logical[_i])
+                        if _lp == _i:
+                            continue
+                        _dst = int(dest[_i])
+                        _pmap_f.append((_dst, _dst + (_i - _lp)))
+                    if _pmap_f and _rot > 0 and _hd > 0:
+                        _theta_f = rotary_inv_freq(_rot, _theta0, device=kvs[0].device)
+                        for _kv_f in kvs:
+                            rotate_k_pages_fp8(_kv_f, _pmap_f, _pt_f, _theta_f, _rot,
+                                               slice(0, _hd))
+                        self.log({"kind": "frame_phase_rotated", "req": str(req)[-6:],
+                                  "pages": len(_pmap_f),
+                                  "sorted_dense": bool(_logical == sorted(_logical))})
+                except Exception as _exf:
+                    self.log({"kind": "frame_phase_error", "req": str(req)[-6:],
+                              "error": f"{type(_exf).__name__}: {_exf}"})
             # RECURRENT STATE IS PART OF THE PREFIX (upstream: "GDN and draft context
             # restoration"). Without it the restored KV runs on a fresh state and the answer
             # drifts even though every page is byte-correct (measured: cold "ZX-4417-QJ7" vs
