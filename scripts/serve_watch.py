@@ -209,7 +209,7 @@ PARAM_GROUPS = (
     ("model", ("model", "served_model_name", "tensor_parallel_size", "dtype",
                "kv_cache_dtype", "max_model_len", "execution_mode")),
     ("batch", ("max_num_seqs", "max_num_batched_tokens", "prefill_chunk_tokens",
-               "gpu_memory_utilization", "cudagraph_capture_sizes")),
+               "gpu_memory_utilization", "kv_cache_memory_bytes", "cudagraph_capture_sizes")),
     ("mtp", ("draft_method", "draft_tokens", "sm75_spec_sync_mode",
              "allow_mamba_spec_full_cudagraph")),
     ("window", ("kvmem.select_budget", "kvmem.gen_budget", "kvmem.block_tokens",
