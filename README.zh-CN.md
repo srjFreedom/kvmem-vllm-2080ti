@@ -53,8 +53,8 @@ KVMem 的核心思路：**GPU 上只保留有界的 KV 窗口，全量历史放�
 
 - 2×RTX 2080 Ti / Titan（SM75），每卡 22 GB。27B FP8 权重约 32 GB，必须 TP=2；单卡 22 GB 装不下。
 - 主机内存：256K 逻辑上下文需要 13–16 GB（见下方容量表）。
-- Linux、CUDA 13 驱动、Python 3.12 venv（复用引擎的 venv；本机没有 `pip`，用
-  `uv pip install --python …`）。
+- Linux、CUDA 13 驱动、Python 3.12（插件装进引擎的 virtualenv；`uv pip install --python …` 与
+  `pip` 均可用）。
 
 ## 快速开始
 
@@ -77,14 +77,21 @@ cd /path/to/kvmem-vllm-2080ti
 systemctl daemon-reload && systemctl enable --now kvmem-vllm
 ```
 
-仓库里没有任何硬编码路径：profile 用 `${KVMEM_MODEL_DIR}`，启动器从 `KVMEM_ENGINE_DIR`
-（或 `KVMEM_ENGINE_VENV`）解析引擎，看门狗最后会退回 `PATH` 上找 `vllm-kvmem`。
-`KVMEM_BASE_URL` 可覆盖状态/请求端点。
+### 环境变量
 
-### 本机配置（仓库保持默认）
+| 变量 | 含义 |
+|---|---|
+| `KVMEM_ENGINE_DIR` | 含 `.venv` 的引擎 checkout |
+| `KVMEM_ENGINE_VENV` | 直接指定引擎 virtualenv 的 `bin/`（优先于 `KVMEM_ENGINE_DIR`）|
+| `KVMEM_MODEL_DIR` | profile 里 `${KVMEM_MODEL_DIR}` 展开到的模型目录 |
+| `CONFIG` | 服务 profile（默认 `local/serve-2080ti-default.json`）|
+| `RUN_DIR` | 运行目录，存放日志与证据（默认在 `/var/tmp` 下）|
+| `KVMEM_BASE_URL` | `serve_watch.py status/req` 使用的端点（默认 `http://127.0.0.1:18200`）|
 
-本机差异不要写进仓库：在外面放一个小启动脚本，设置路径并用 `--set KEY=VALUE` 覆盖，磁盘上的
-profile 永远不动。
+### 本机配置
+
+本机相关的值放在 checkout 之外：用一个启动脚本设置环境变量并在启动时传 `--set KEY=VALUE` 覆盖，
+提交进仓库的 profile 保持为参考默认值。
 
 ```bash
 # ~/run-kvmem-2080ti.sh（可复制 deploy/example-local-launcher.sh 修改）
@@ -98,7 +105,7 @@ OVERRIDES=(
 exec /path/to/kvmem-vllm-2080ti/deploy/run-kvmem-vllm.sh start "${OVERRIDES[@]}" "$@"
 ```
 
-`--set` 支持顶层键与点号路径（`kvmem.select_budget`），值会按 JSON 解析；未知键直接报错，不会被忽略。
+`--set` 支持顶层键与点号路径（`kvmem.select_budget`），值按 JSON 解析，未知键会被拒绝。
 
 开机自启（systemd，`oneshot` + `RemainAfterExit`，`ExecStop` 负责停掉 GPU 进程）：
 
@@ -115,7 +122,8 @@ ExecStop=-/path/to/run-kvmem-2080ti.sh stop
 WantedBy=multi-user.target
 ```
 
-`./deploy/install.sh --print-unit` 会按你的用户名和路径生成同样的 unit。
+`./deploy/install.sh --print-unit` 会按当前用户和路径生成同样的 unit。
+
 ```bash
 systemctl enable --now kvmem-vllm     # 立即启动并开机自启
 systemctl is-active kvmem-vllm        # active
@@ -196,9 +204,8 @@ docs/                    上游 kvmem-vllm 文档（未改动）
 | [Triton](https://github.com/triton-lang/triton) | GDN / M-RoPE / 装配内核 | MIT |
 | [Qwen](https://github.com/QwenLM) 模型家族 | 被服务的 checkpoint | 依其模型许可 |
 
-我们的贡献仅限于：`src/vllm_kvmem` 里的 SM75/float16 兼容层、自动 session id、页池需求修正、
-诊断探针、一个小的引擎补丁、部署 profile 与验证数据。这里跑得好的部分都是上游作者的功劳，
-跑不好的部分是我们的问题。
+本仓库的范围：`src/vllm_kvmem` 里的 SM75/float16 兼容层、自动 session id、页池需求修正、
+诊断探针、一个 15 行的引擎补丁、部署 profile 与验证数据。
 
-历史说明：本仓库此前是另一个适配器（同一 fork 上的 KVMEM 入口中间件），那部分工作保留在
+本仓库此前是另一个适配器（同一 fork 上的 KVMEM 入口中间件），那部分工作保留在
 `legacy-adapter-v0.5` 分支；`main` 是本文描述的这份移植。

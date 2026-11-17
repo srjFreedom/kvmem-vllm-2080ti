@@ -130,10 +130,9 @@ The pool holds `pages × 1,616` attention tokens; the 15 pages of GDN state are 
 | 0.92 | 191,453 tok (118 pages) | 166K | — | — |
 | **0.96** | 240,053 tok (148 pages) | **215K** | **80.0 tok/s @200,704 window** | ❌ CUDA OOM (engine died) |
 
-Reading: a 200K window boots and decodes at full speed at 0.96 — the old fork's 0.972 → ~201K pool is
-matched or beaten — but the **prefill transient of a maximum-length prompt no longer fits** at that
-utilization. 0.90 with a 131K window is the setting that survives both. Choose by workload:
-long inputs → 0.90; long windows for many short requests → 0.96.
+At 0.96 a 200K window starts and decodes at full speed, but the prefill transient of a maximum-length
+prompt no longer fits. 0.90 with a 131K window survives both. Choose by workload: long inputs → 0.90;
+large windows for many short requests → 0.96.
 
 ## Overrides without editing the profile
 

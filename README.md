@@ -57,8 +57,8 @@ Details and the exact commands: [docs/sm75/VERIFICATION.md](docs/sm75/VERIFICATI
 - 2 × RTX 2080 Ti / Titan Turing (SM75), 22 GB each. The 27B FP8 checkpoint needs TP = 2 (~32 GB of
   weights); a single 22 GB card cannot hold it.
 - 16 GB+ host RAM for 256K logical context (see the capacity table below).
-- Linux, CUDA 13 driver, Python 3.12 venv (the engine's venv is reused; no `pip` on this host,
-  `uv pip install --python …` works).
+- Linux, a CUDA 13 driver, Python 3.12 (the plugin installs into the engine's virtualenv;
+  `uv pip install --python …` and `pip` both work).
 
 ## Quick start
 
@@ -81,14 +81,21 @@ cd /path/to/kvmem-vllm-2080ti
 systemctl daemon-reload && systemctl enable --now kvmem-vllm
 ```
 
-No path is hard-coded: profiles reference `${KVMEM_MODEL_DIR}`, the launcher resolves
-`KVMEM_ENGINE_DIR` (or `KVMEM_ENGINE_VENV`), and the watchdog finds `vllm-kvmem` on `PATH` as a last resort.
-`KVMEM_BASE_URL` overrides the status/request endpoint.
+### Environment
 
-### Machine-local configuration (repository stays default)
+| variable | meaning |
+|---|---|
+| `KVMEM_ENGINE_DIR` | engine checkout that contains `.venv` |
+| `KVMEM_ENGINE_VENV` | engine virtualenv `bin/` directly (overrides `KVMEM_ENGINE_DIR`) |
+| `KVMEM_MODEL_DIR` | checkpoint directory used by the profiles (`${KVMEM_MODEL_DIR}` expansion) |
+| `CONFIG` | serving profile (default `local/serve-2080ti-default.json`) |
+| `RUN_DIR` | run directory for evidence and logs (default under `/var/tmp`) |
+| `KVMEM_BASE_URL` | endpoint used by `serve_watch.py status/req` (default `http://127.0.0.1:18200`) |
 
-Keep machine differences out of the repository: a small launcher outside the checkout sets the paths and
-passes `--set KEY=VALUE` overrides. The profile on disk is never edited.
+### Machine-local configuration
+
+Machine-specific values belong outside the checkout. A launcher script supplies the environment and
+passes `--set KEY=VALUE` overrides at start-up, so the committed profile stays the reference default.
 
 ```bash
 # ~/run-kvmem-2080ti.sh  (copy deploy/example-local-launcher.sh and edit)
@@ -102,8 +109,8 @@ OVERRIDES=(
 exec /path/to/kvmem-vllm-2080ti/deploy/run-kvmem-vllm.sh start "${OVERRIDES[@]}" "$@"
 ```
 
-`--set` accepts top-level keys and dotted paths (`kvmem.select_budget`); values are parsed as JSON when
-possible. An unknown key fails loudly instead of being ignored.
+`--set` accepts top-level keys and dotted paths (`kvmem.select_budget`); values are parsed as JSON
+when possible and unknown keys are rejected.
 
 Boot the machine with it (systemd, `oneshot` + `RemainAfterExit`, `ExecStop` stops the GPU processes):
 
@@ -121,6 +128,7 @@ WantedBy=multi-user.target
 ```
 
 `./deploy/install.sh --print-unit` renders the same unit with your user and paths filled in.
+
 ```bash
 systemctl enable --now kvmem-vllm     # start now and on every boot
 systemctl is-active kvmem-vllm        # active
@@ -201,10 +209,9 @@ This work exists only because others built the foundation. We are a patch on top
 | [Triton](https://github.com/triton-lang/triton) | GDN / M-RoPE / assembly kernels | MIT |
 | [Qwen](https://github.com/QwenLM) model family | the served checkpoint | its model license |
 
-Our contribution is limited to: the SM75/float16 compatibility layer in `src/vllm_kvmem`, the
-auto-session identifier, the page-pool demand fix, the diagnostics, one small engine patch, the
-deployment profiles and the verification data. Anything that works well here is the upstream authors'
-work; anything that does not is our fault.
+Scope of this repository: the SM75/float16 compatibility layer in `src/vllm_kvmem`, the auto-session
+identifier, the page-pool demand fix, the diagnostics, one engine patch of 15 lines, the deployment
+profiles and the verification data.
 
-History note: this repository previously hosted a different adapter (KVMEM entry middleware for the
-same fork). That work is preserved on branch `legacy-adapter-v0.5`; `main` is the port described here.
+This repository previously hosted a different adapter (KVMEM entry middleware for the same fork). That
+work is preserved on branch `legacy-adapter-v0.5`; `main` is the port described here.
