@@ -1164,7 +1164,8 @@ class KVMemScheduler(Scheduler):
                 if action == 'exhausted':
                     raise RuntimeError('keep_selected append headroom was exhausted')
                 if ((plan is None and (imported_query or self.query_policy.refresh(
-                        request.num_computed_tokens, request.num_prompt_tokens, offset))) or
+                        request.num_computed_tokens, request.num_prompt_tokens, offset,
+                        lookahead=int(self.scheduler_config.max_num_batched_tokens)))) or
                         (action is not None and request.num_computed_tokens >= selected_budget)):
                     asynchronous = getattr(self, 'async_refresh', False)
                     tokens = ()

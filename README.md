@@ -200,7 +200,12 @@ arithmetic: [docs/sm75/CONFIGURATION.md](docs/sm75/CONFIGURATION.md).
 6. **The API has no authentication.** The default profile binds `127.0.0.1`; a profile that sets
    `host=0.0.0.0` serves the whole network, so put it behind a firewall or a reverse proxy that
    adds auth.
-7. **Per-card VRAM is dominated by weights.** The 27B FP8 checkpoint plus its BF16 `lm_head` and
+7. **Prefill above the window rebuilds once per generation budget.** The scheduler triggers a
+   window rebuild when the next step would not fit in what is left of the window
+   (`QueryPolicy.refresh` with the step-limit lookahead), so a long cold prompt rebuilds about
+   every `R` tokens instead of every aligned block: 80K prompt 184 s -> 121 s, 200K 591 s -> 306 s
+   on this host, with the same answers.
+8. **Per-card VRAM is dominated by weights.** The 27B FP8 checkpoint plus its BF16 `lm_head` and
    MTP head load as 14.54 GiB per rank, and the CUDA context/NCCL/Triton add ~1.2 GiB, so ~15.8 GiB
    of the 21.1 GiB usable on a 22 GB card are gone before any KV. `gpu_memory_utilization` then sizes
    the pool from the remainder while the real long-prompt transient (~2.7 GiB: logits buffer, query
@@ -209,7 +214,9 @@ arithmetic: [docs/sm75/CONFIGURATION.md](docs/sm75/CONFIGURATION.md).
    `query_replay_budget=2048` leaves ~0.8 GiB slack for an 80K-token cold prompt, where
    `gpu_memory_utilization=0.92` (3.4 GiB pool) had only ~1.4 GiB and failed to allocate. Raising the
    pool further needs a smaller transient — the largest lever is quantizing the BF16 `lm_head`
-   (~2.5 GB per rank).
+   (~2.5 GB per rank). The allocator expands into every free byte regardless of pool size, so its
+   occasional `memory allocation failed ... retry` lines at 200K are occupancy artefacts, not a
+   fixed per-request overhead.
 
 ## Repository layout
 

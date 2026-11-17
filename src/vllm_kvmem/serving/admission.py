@@ -39,11 +39,16 @@ class QueryPolicy:
             raise RuntimeError("Working set filled without a preceding query refresh")
         return tokens
 
-    def refresh(self, history, prompt_tokens, offset):
+    def refresh(self, history, prompt_tokens, offset, lookahead=0):
         if history < self.select_budget or history % self.block_tokens:
             return False
+        local = history - offset
+        # `lookahead` is the largest step the scheduler can add before the next
+        # refresh decision, so triggering at capacity - block - lookahead keeps
+        # the native allocation below capacity while rebuilding once per
+        # generation budget instead of once per aligned block.
         if history < prompt_tokens:
-            return True
+            return local + max(lookahead, 0) >= self.capacity - self.block_tokens
         # Leave one block for the provisional target query. Speculative batches
         # require their own accepted-boundary checkpoint policy, not this rule.
-        return history - offset >= self.capacity - self.block_tokens
+        return local >= self.capacity - self.block_tokens
