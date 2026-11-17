@@ -8,5 +8,13 @@ REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 CONFIG=${CONFIG:-$REPO/local/serve-2080ti-default.json}
 RUN_DIR=${RUN_DIR:-${TMPDIR:-/tmp}/kvmem-run-baseline}
 # The watchdog is stdlib-only; the engine venv is resolved inside it.
-exec python3 "$REPO/scripts/serve_watch.py" "${1:-start}" \
-  --config "$CONFIG" --run-dir "$RUN_DIR" ${2:-}
+ACTION=${1:-start}; shift || true
+case "$ACTION" in
+  start)
+    exec python3 "$REPO/scripts/serve_watch.py" start \
+      --config "$CONFIG" --run-dir "$RUN_DIR" "$@" ;;
+  stop)
+    exec python3 "$REPO/scripts/serve_watch.py" stop "$@" ;;
+  *)
+    exec python3 "$REPO/scripts/serve_watch.py" "$ACTION" "$@" ;;
+esac

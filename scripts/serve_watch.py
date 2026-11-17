@@ -285,6 +285,8 @@ def main():
     start.add_argument("--timeout", type=float, default=420)
     start.add_argument("--fresh", action="store_true",
                        help="replace an existing run-dir that holds unrelated content")
+    start.add_argument("--set", dest="passthrough", action="append", default=[], metavar="KEY=VALUE",
+                       help="profile override forwarded to the launcher (repeatable)")
     sub.add_parser("stop")
     sub.add_parser("status")
     req = sub.add_parser("req")

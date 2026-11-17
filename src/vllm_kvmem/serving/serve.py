@@ -137,6 +137,33 @@ def _validate_safetensors_config(model):
         raise ValueError('Safetensors config.json must contain an object')
 
 
+def _apply_overrides(profile, assignments):
+    """Apply ``--set KEY=VALUE`` on top of the loaded profile (no file edits)."""
+    import copy as _copy
+    import json as _json
+    result = _copy.deepcopy(profile)
+    for item in assignments:
+        key, sep, raw = item.partition('=')
+        key = key.strip()
+        if not sep or not key:
+            raise ValueError(f'--set expects KEY=VALUE, got {item!r}')
+        try:
+            value = _json.loads(raw)
+        except ValueError:
+            value = raw
+        node = result
+        parts = key.split('.')
+        for part in parts[:-1]:
+            child = node.get(part)
+            if not isinstance(child, dict):
+                raise ValueError(f'--set {key}: {part!r} is not a profile object')
+            node = child
+        if parts[-1] not in node:
+            raise ValueError(f'--set {key}: unknown profile field')
+        node[parts[-1]] = value
+    return result
+
+
 def build_launch(profile, base, run_dir, *, check_paths=True):
     if not isinstance(profile, dict) or set(profile) - set(DEFAULTS) - set(PATHS) - {
             'kvmem', 'multi_user', 'linear_backend_per_quant', 'settings'}:
@@ -605,6 +632,10 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', type=Path,
         help='Explicit JSON profile; omit for the bundled DFlash2 k7 / GPU .80 agent profile')
+    parser.add_argument('--set', action='append', default=[], metavar='KEY=VALUE',
+        help='Override one profile field (repeatable). KEY is a top-level key or a dotted '
+             'path such as kvmem.select_budget. Values are parsed as JSON when possible, '
+             'else taken as strings. The profile on disk stays untouched.')
     parser.add_argument('-tp', '--tensor-parallel-size', type=int,
         help='Override the tensor-parallel size of the serving profile')
     parser.add_argument('--run-dir', type=Path, required=True, help='New owned telemetry/archive directory')
@@ -671,6 +702,8 @@ def main(argv=None):
     else:
         source = args.config.expanduser().resolve()
         profile, base = _expand_environment(json.loads(source.read_text())), source.parent
+    if args.set:
+        profile = _apply_overrides(profile, args.set)
     if args.tensor_parallel_size is not None:
         profile['tensor_parallel_size'] = args.tensor_parallel_size
     if isinstance(profile.get('kvmem'), dict):

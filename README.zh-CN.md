@@ -81,6 +81,44 @@ systemctl daemon-reload && systemctl enable --now kvmem-vllm
 （或 `KVMEM_ENGINE_VENV`）解析引擎，看门狗最后会退回 `PATH` 上找 `vllm-kvmem`。
 `KVMEM_BASE_URL` 可覆盖状态/请求端点。
 
+### 本机配置（仓库保持默认）
+
+本机差异不要写进仓库：在外面放一个小启动脚本，设置路径并用 `--set KEY=VALUE` 覆盖，磁盘上的
+profile 永远不动。
+
+```bash
+# ~/run-kvmem-2080ti.sh（可复制 deploy/example-local-launcher.sh 修改）
+export KVMEM_ENGINE_DIR=/path/to/engine
+export KVMEM_MODEL_DIR=/path/to/checkpoint
+OVERRIDES=(
+  --set gpu_memory_utilization=0.92
+  --set kvmem.select_budget=36864
+  --set kvmem.gen_budget=4096
+)
+exec /path/to/kvmem-vllm-2080ti/deploy/run-kvmem-vllm.sh start "${OVERRIDES[@]}" "$@"
+```
+
+`--set` 支持顶层键与点号路径（`kvmem.select_budget`），值会按 JSON 解析；未知键直接报错，不会被忽略。
+
+开机自启（systemd，以 `srj` 身份，oneshot + `RemainAfterExit`，`ExecStop` 负责停掉 GPU 进程）：
+
+```
+/etc/systemd/system/kvmem-vllm.service
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=srj
+ExecStart=/home/srj/run-kvmem-2080ti.sh start
+ExecStop=-/home/srj/run-kvmem-2080ti.sh stop
+[Install]
+WantedBy=multi-user.target
+```
+```bash
+systemctl enable --now kvmem-vllm     # 立即启动并开机自启
+systemctl is-active kvmem-vllm        # active
+curl -s localhost:18200/v1/models | head -c 120
+```
+
 Profile：`local/serve-2080ti-default.json`（B 36K / R 4K、util 0.92、chunk 2,048）、
 `local/serve-2080ti-lean.json`（窗口 49K、util 0.82）、`local/serve-2080ti-200k.json`（窗口 200K、util 0.96）。
 

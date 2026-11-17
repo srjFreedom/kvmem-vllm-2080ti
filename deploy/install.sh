@@ -11,7 +11,9 @@ VENV=$ENGINE/.venv/bin
 MODEL=${KVMEM_MODEL_DIR:?set KVMEM_MODEL_DIR to the checkpoint directory}
 
 if [ "${1:-}" = "--print-unit" ]; then
-  sed -e "s|@REPO@|$REPO|g" -e "s|@ENGINE_DIR@|$ENGINE|g" "$REPO/deploy/kvmem-vllm.service"
+  LAUNCHER=${KVMEM_LAUNCHER:-$REPO/deploy/run-kvmem-vllm.sh}
+  sed -e "s|@LAUNCHER@|$LAUNCHER|g" -e "s|@USER@|${SUDO_USER:-$USER}|g" \
+      -e "s|@HOME@|$HOME|g" "$REPO/deploy/kvmem-vllm.service"
   exit 0
 fi
 

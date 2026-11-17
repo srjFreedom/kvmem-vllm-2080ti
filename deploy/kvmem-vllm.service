@@ -1,19 +1,21 @@
-# Template unit. Substitute the two placeholders before installing, or run
+# Template unit. Generate a concrete one with:
 #   ./deploy/install.sh --print-unit
 [Unit]
 Description=KVMem vLLM (SM75) serving
-After=network.target
+After=network-online.target nvidia-persistenced.service
+Wants=network-online.target
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-WorkingDirectory=@REPO@
-Environment=KVMEM_ENGINE_DIR=@ENGINE_DIR@
-Environment=CONFIG=@REPO@/local/serve-2080ti-default.json
-Environment=RUN_DIR=/var/tmp/kvmem-run-baseline
-ExecStart=@REPO@/deploy/run-kvmem-vllm.sh start
-ExecStop=@REPO@/deploy/run-kvmem-vllm.sh stop
+User=@USER@
+Group=@USER@
+Environment=HOME=@HOME@
+ExecStart=@LAUNCHER@ start
+ExecStop=-@LAUNCHER@ stop
 TimeoutStartSec=900
+TimeoutStopSec=120
+KillMode=control-group
 
 [Install]
 WantedBy=multi-user.target

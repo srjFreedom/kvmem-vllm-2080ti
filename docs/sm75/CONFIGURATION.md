@@ -134,3 +134,17 @@ Reading: a 200K window boots and decodes at full speed at 0.96 — the old fork'
 matched or beaten — but the **prefill transient of a maximum-length prompt no longer fits** at that
 utilization. 0.90 with a 131K window is the setting that survives both. Choose by workload:
 long inputs → 0.90; long windows for many short requests → 0.96.
+
+## Overrides without editing the profile
+
+```bash
+./deploy/run-kvmem-vllm.sh start \
+  --set gpu_memory_utilization=0.92 \
+  --set kvmem.select_budget=36864 \
+  --set kvmem.gen_budget=4096
+```
+
+`--set KEY=VALUE` is applied after the profile is loaded (and after `${VAR}` expansion); dotted paths
+reach nested objects, JSON values keep their type, and an unknown key is rejected. This is how a machine
+launcher can keep local differences while the committed profile stays the reference default
+(see `deploy/example-local-launcher.sh`).

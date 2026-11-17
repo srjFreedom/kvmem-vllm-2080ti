@@ -85,6 +85,46 @@ No path is hard-coded: profiles reference `${KVMEM_MODEL_DIR}`, the launcher res
 `KVMEM_ENGINE_DIR` (or `KVMEM_ENGINE_VENV`), and the watchdog finds `vllm-kvmem` on `PATH` as a last resort.
 `KVMEM_BASE_URL` overrides the status/request endpoint.
 
+### Machine-local configuration (repository stays default)
+
+Keep machine differences out of the repository: a small launcher outside the checkout sets the paths and
+passes `--set KEY=VALUE` overrides. The profile on disk is never edited.
+
+```bash
+# ~/run-kvmem-2080ti.sh  (copy deploy/example-local-launcher.sh and edit)
+export KVMEM_ENGINE_DIR=/path/to/engine
+export KVMEM_MODEL_DIR=/path/to/checkpoint
+OVERRIDES=(
+  --set gpu_memory_utilization=0.92
+  --set kvmem.select_budget=36864
+  --set kvmem.gen_budget=4096
+)
+exec /path/to/kvmem-vllm-2080ti/deploy/run-kvmem-vllm.sh start "${OVERRIDES[@]}" "$@"
+```
+
+`--set` accepts top-level keys and dotted paths (`kvmem.select_budget`); values are parsed as JSON when
+possible. An unknown key fails loudly instead of being ignored.
+
+Boot the machine with it (systemd user `srj`, oneshot + `RemainAfterExit`, `ExecStop` stops the GPU
+processes):
+
+```
+/systemd/system/kvmem-vllm.service
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=srj
+ExecStart=/home/srj/run-kvmem-2080ti.sh start
+ExecStop=-/home/srj/run-kvmem-2080ti.sh stop
+[Install]
+WantedBy=multi-user.target
+```
+```bash
+systemctl enable --now kvmem-vllm     # start now and on every boot
+systemctl is-active kvmem-vllm        # active
+curl -s localhost:18200/v1/models | head -c 120
+```
+
 Profiles: `local/serve-2080ti-default.json` (B 36K / R 4K, util 0.92, chunk 2,048), `local/serve-2080ti-lean.json` (49K window, util 0.82), `local/serve-2080ti-200k.json` (200K window, util 0.96).
 
 ## Configuration in one page
