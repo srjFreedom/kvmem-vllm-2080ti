@@ -17,6 +17,7 @@ import json
 import os
 import re
 import signal
+import shutil
 import subprocess
 import sys
 import time
@@ -24,9 +25,36 @@ import urllib.error
 import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-VENV = "/home/srj/vLLM-2080Ti-Definitive/.venv/bin"
-SERVE = os.path.join(VENV, "vllm-kvmem")
-BASE = "http://127.0.0.1:18200"
+
+
+def _engine_venv():
+    """Locate the engine virtualenv that provides ``vllm-kvmem``.
+
+    Order: $KVMEM_ENGINE_VENV, $KVMEM_ENGINE_DIR/.venv/bin, then PATH lookup.
+    Nothing is hard-coded to one machine.
+    """
+    explicit = os.environ.get("KVMEM_ENGINE_VENV")
+    if explicit:
+        return os.path.abspath(os.path.expanduser(explicit))
+    engine = os.environ.get("KVMEM_ENGINE_DIR")
+    if engine:
+        return os.path.join(os.path.abspath(os.path.expanduser(engine)), ".venv", "bin")
+    found = shutil.which("vllm-kvmem")
+    if found:
+        return os.path.dirname(os.path.abspath(found))
+    raise SystemExit("set KVMEM_ENGINE_VENV (or KVMEM_ENGINE_DIR) to the engine virtualenv")
+
+
+_VENV = None
+
+
+def venv():
+    """Resolve the engine virtualenv lazily; only launching needs it."""
+    global _VENV
+    if _VENV is None:
+        _VENV = _engine_venv()
+    return _VENV
+BASE = os.environ.get("KVMEM_BASE_URL", "http://127.0.0.1:18200")
 DEFAULT_CONFIG = os.path.join(ROOT, "local", "serve-2080ti-smoke.json")
 DEFAULT_RUN = "/tmp/kvmem-run-watch"
 LOG = "/tmp/kvmem-serve-watch.log"
@@ -86,7 +114,7 @@ def cmd_start(args):
         return 1
     log = open(args.log, "w")
     started = time.time()
-    proc = subprocess.Popen([SERVE, "serve", "--config", args.config, "--run-dir", args.run_dir],
+    proc = subprocess.Popen([os.path.join(venv(), "vllm-kvmem"), "serve", "--config", args.config, "--run-dir", args.run_dir],
                             stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
     print("launch pid=%d log=%s" % (proc.pid, args.log))
     marker = "Application startup complete"

@@ -63,26 +63,29 @@ Details and the exact commands: [docs/sm75/VERIFICATION.md](docs/sm75/VERIFICATI
 ## Quick start
 
 ```bash
-# 1. engine (the model actually runs there); its venv also provides `vllm-kvmem`
-cd /home/srj/vLLM-2080Ti-Definitive        # v0.2.2.post3 + SM75 fork
-git apply /path/to/patches/0001-engine-skip-kv-check.patch
+# 0. environment (put these in your shell or /etc/default/kvmem-vllm)
+export KVMEM_ENGINE_DIR=/path/to/vllm-0.2.2.post3-sm75   # engine checkout, contains .venv
+export KVMEM_MODEL_DIR=/path/to/checkpoint               # holds config.json + shards
 
-# 2. mechanism (this repository, editable into the engine venv)
+# 1. check the host, patch the engine, install this plugin (editable) and smoke-test
 cd /path/to/kvmem-vllm-2080ti
-git apply patches/0002-kvmem-sm75-compat.patch   # only when starting from upstream
-uv pip install --python /home/srj/vLLM-2080Ti-Definitive/.venv/bin/python -e .
+./deploy/install.sh
 
-# 3. serve + verify (polls /v1/models, samples nvidia-smi, detects stalls; never sleeps blindly)
-./deploy/run-kvmem-vllm.sh start          # default profile: local/serve-2080ti-default.json
+# 2. serve and verify (polls /v1/models, samples nvidia-smi, detects stalls)
+./deploy/run-kvmem-vllm.sh start
 ./scripts/serve_watch.py status
 ./scripts/serve_watch.py req --file request.json
 
 # optional: systemd
-sudo cp deploy/kvmem-vllm.service /etc/systemd/system/ && sudo systemctl daemon-reload
+./deploy/install.sh --print-unit > /etc/systemd/system/kvmem-vllm.service
+systemctl daemon-reload && systemctl enable --now kvmem-vllm
 ```
 
-Profiles: `local/serve-2080ti-default.json` (B 36K / R 4K, util 0.92, chunk 2,048), `local/serve-2080ti-lean.json` (49K window, util 0.82), `local/serve-2080ti-200k.json` (200K window, util 0.96),
-`local/serve-2080ti-128k.json`, `local/serve-2080ti-256k.json`.
+No path is hard-coded: profiles reference `${KVMEM_MODEL_DIR}`, the launcher resolves
+`KVMEM_ENGINE_DIR` (or `KVMEM_ENGINE_VENV`), and the watchdog finds `vllm-kvmem` on `PATH` as a last resort.
+`KVMEM_BASE_URL` overrides the status/request endpoint.
+
+Profiles: `local/serve-2080ti-default.json` (B 36K / R 4K, util 0.92, chunk 2,048), `local/serve-2080ti-lean.json` (49K window, util 0.82), `local/serve-2080ti-200k.json` (200K window, util 0.96).
 
 ## Configuration in one page
 

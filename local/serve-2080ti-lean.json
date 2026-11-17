@@ -1,7 +1,7 @@
 {
-  "model": "/home/srj/models/Coder390/FP8-fp8mtp",
-  "tokenizer": "/home/srj/models/Coder390/FP8-fp8mtp",
-  "hf_config_path": "/home/srj/models/Coder390/FP8-fp8mtp",
+  "model": "${KVMEM_MODEL_DIR}",
+  "tokenizer": "${KVMEM_MODEL_DIR}",
+  "hf_config_path": "${KVMEM_MODEL_DIR}",
   "model_format": "safetensors",
   "draft_method": "mtp",
   "draft_tokens": 4,

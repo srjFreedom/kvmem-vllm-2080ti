@@ -7,7 +7,7 @@
 
 | 层 | 内容 | 位置 |
 |---|---|---|
-| 引擎 | `vLLM-2080Ti-Definitive` v0.2.2.post3 + **1 个 15 行补丁**（`KVMEM_SKIP_KV_CHECK`）| `/home/srj/vLLM-2080Ti-Definitive` @ `01506a5471` |
+| 引擎 | vLLM `0.2.2.post3` SM75 checkout + **1 个 15 行补丁**（`KVMEM_SKIP_KV_CHECK`）| `$KVMEM_ENGINE_DIR` |
 | 机制 | 上游 `kvmem/kvmem-vllm` + SM75 兼容补丁 + auto-session | 本仓库 `src/` @ `d4e27d1` |
 | 补丁集 | `patches/0001-engine-skip-kv-check.patch`、`patches/0002-kvmem-sm75-compat.patch` | `patches/` |
 | 启动 | `deploy/run-kvmem-vllm.sh start`（内部 `scripts/serve_watch.py`，信号轮询不硬等）| `deploy/` |
@@ -18,7 +18,7 @@
 
 | 项 | 值 | 说明 |
 |---|---|---|
-| 模型 | `/home/srj/models/Coder390/FP8-fp8mtp`（FP8 w8a16，MTP 权重 fp8，`lm_head` 保持 BF16）| SM75 无 bf16 ⇒ `dtype=float16` |
+| 模型 | `$KVMEM_MODEL_DIR`（FP8 w8a16，MTP 权重 fp8，`lm_head` 保持 BF16）| SM75 无 bf16 ⇒ `dtype=float16` |
 | TP | 2 | 单卡装不下 27B |
 | KV | `fp8_e4m3` | kvmem 上游要求的显式拼写（与 `fp8` 等价）|
 | `max_model_len`（CTX）| 32,768（dev）/ 262,144（长上下文）| 逻辑上限，与池解耦（skip-check）|

@@ -1,7 +1,7 @@
 # SM75（2080Ti）兼容计划 —— 以最新上游 kvmem-vllm 为准
 
-创建：2026-11-16　仓库：`/home/srj/src/kvmem-vllm-2080ti`（克隆自 `github.com/kvmem/kvmem-vllm`，HEAD `8654700`）
-目标运行时：`/home/srj/vLLM-2080Ti-Definitive`（分支 `kvmem-0.2.2-clean`，vllm `0.2.2.post3`，torch 2.13.0+cu130，py 3.12.15）
+创建：2026-11-16　仓库：本 checkout（克隆自 `github.com/kvmem/kvmem-vllm`，HEAD `8654700`）
+目标运行时：vLLM `0.2.2.post3` SM75 checkout（`$KVMEM_ENGINE_DIR`），torch 2.13.0+cu130，py 3.12.15
 
 ## 1. 已经用实测确认的事（本轮证据）
 
@@ -65,8 +65,8 @@
 
 ## 5. 现成资产（迁移来源）
 
-- `vLLM-2080Ti-Definitive` 分支 `kvmem-0.2.2-clean` 有 **20 个未推送提交**（已备份 `/home/srj/vllm-fork-2080ti-20261116.bundle`），其中 `a156cf2bfd` 是“kvmem 集成补丁（同步自旧 adapter 仓库）”，P3 的实现可以直接参考/迁移。
-- 旧适配器代码已删除，但**已推送到私有仓库** `srjFreedom/kvmem-vllm-adapter`（999 个提交），需要时 `git clone` 取回。
+- `vLLM-2080Ti-Definitive` 分支 `kvmem-0.2.2-clean` 有 **20 个未推送提交**（已备份为 bundle 文件），其中 `a156cf2bfd` 是“kvmem 集成补丁（同步自旧 adapter 仓库）”，P3 的实现可以直接参考/迁移。
+- 旧适配器代码已删除，但**已推送到私有仓库** `srjFreedom/kvmem-vllm-adapter`，保留在 `legacy-adapter-v0.5` 分支。
 
 ## 6. 待你拍板
 
@@ -118,8 +118,8 @@
 
 ### 启动命令（可复现）
 ```bash
-cd /home/srj/src/kvmem-vllm-2080ti
-/home/srj/vLLM-2080Ti-Definitive/.venv/bin/vllm-kvmem serve \
+cd "$REPO"
+"$KVMEM_ENGINE_DIR/.venv/bin/vllm-kvmem" serve \
   --config local/serve-2080ti-smoke.json --run-dir /tmp/kvmem-run-smoke
 ```
 profile：`local/serve-2080ti-smoke.json`（Coder390 FP8-fp8mtp、TP=2、gpu_mem 0.80、max_model_len 16384、MTP 1 draft、dtype float16、kvmem 预算 2048/2048）

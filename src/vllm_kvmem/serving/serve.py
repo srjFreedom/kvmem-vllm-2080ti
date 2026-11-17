@@ -56,6 +56,24 @@ DEFAULTS = {
     'allow_mamba_spec_full_cudagraph': True,
 }
 PATHS = ('model', 'tokenizer', 'hf_config_path', 'draft_model', 'mm_proj')
+
+
+def _expand_environment(value):
+    """Expand ``$VAR`` / ``${VAR}`` in every string of a serving profile.
+
+    Keeps machine-specific paths out of the repository: a profile can say
+    ``"model": "${KVMEM_MODEL_DIR}"`` and the launcher resolves it at start.
+    Unknown variables are left untouched so a typo fails loudly on the path check.
+    """
+    import os as _os
+    if isinstance(value, str):
+        return _os.path.expandvars(value)
+    if isinstance(value, list):
+        return [_expand_environment(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _expand_environment(item) for key, item in value.items()}
+    return value
+
 # Explicit experiment controls for NVFP4 and FP8 checkpoints.
 # Exclude weight-only/emulation backends: they change the activation precision.
 LINEAR_BACKENDS = {
@@ -177,6 +195,10 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
         if name == 'mm_proj' and not is_gguf:
             continue
         value = cfg.get(name)
+        if isinstance(value, str) and '$' in value:
+            raise ValueError(
+                f'{name} still contains an unexpanded variable ({value}); '
+                'export it (e.g. KVMEM_MODEL_DIR) before serving')
         if not isinstance(value, str) or not value:
             raise ValueError(f'Serving profile requires local {name}')
         path = Path(value).expanduser()
@@ -648,7 +670,7 @@ def main(argv=None):
         profile, base = load_default_profile(), Path.cwd()
     else:
         source = args.config.expanduser().resolve()
-        profile, base = json.loads(source.read_text()), source.parent
+        profile, base = _expand_environment(json.loads(source.read_text())), source.parent
     if args.tensor_parallel_size is not None:
         profile['tensor_parallel_size'] = args.tensor_parallel_size
     if isinstance(profile.get('kvmem'), dict):

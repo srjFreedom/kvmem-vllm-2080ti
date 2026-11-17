@@ -1,15 +1,18 @@
+# Template unit. Substitute the two placeholders before installing, or run
+#   ./deploy/install.sh --print-unit
 [Unit]
-Description=KVMem vLLM baseline (2x2080Ti, SM75)
+Description=KVMem vLLM (SM75) serving
 After=network.target
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-WorkingDirectory=/home/srj/src/kvmem-vllm-2080ti
-Environment=CONFIG=/home/srj/src/kvmem-vllm-2080ti/local/serve-2080ti-default.json
+WorkingDirectory=@REPO@
+Environment=KVMEM_ENGINE_DIR=@ENGINE_DIR@
+Environment=CONFIG=@REPO@/local/serve-2080ti-default.json
 Environment=RUN_DIR=/var/tmp/kvmem-run-baseline
-ExecStart=/home/srj/src/kvmem-vllm-2080ti/deploy/run-kvmem-vllm.sh start
-ExecStop=/home/srj/src/kvmem-vllm-2080ti/deploy/run-kvmem-vllm.sh stop
+ExecStart=@REPO@/deploy/run-kvmem-vllm.sh start
+ExecStop=@REPO@/deploy/run-kvmem-vllm.sh stop
 TimeoutStartSec=900
 
 [Install]

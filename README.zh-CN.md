@@ -59,26 +59,30 @@ KVMem 的核心思路：**GPU 上只保留有界的 KV 窗口，全量历史放�
 ## 快速开始
 
 ```bash
-# 1. 引擎（真正跑模型的地方，它的 venv 同时提供 vllm-kvmem）
-cd /home/srj/vLLM-2080Ti-Definitive        # v0.2.2.post3 + SM75 fork
-git apply /path/to/patches/0001-engine-skip-kv-check.patch
+# 0. 环境变量（写进 shell 或 /etc/default/kvmem-vllm）
+export KVMEM_ENGINE_DIR=/path/to/vllm-0.2.2.post3-sm75   # 引擎 checkout，含 .venv
+export KVMEM_MODEL_DIR=/path/to/checkpoint               # 含 config.json 与权重分片
 
-# 2. 机制（本仓库，editable 装进引擎 venv）
+# 1. 检查环境、打引擎补丁、以 editable 方式安装本插件，并做一次冒烟
 cd /path/to/kvmem-vllm-2080ti
-git apply patches/0002-kvmem-sm75-compat.patch   # 只有从上游起步时才需要
-uv pip install --python /home/srj/vLLM-2080Ti-Definitive/.venv/bin/python -e .
+./deploy/install.sh
 
-# 3. 启动与验证（轮询 /v1/models、采样 nvidia-smi、检测卡死，不硬等）
-./deploy/run-kvmem-vllm.sh start          # 默认 profile：local/serve-2080ti-default.json
+# 2. 启动与验证（轮询 /v1/models、采样 nvidia-smi、检测卡死）
+./deploy/run-kvmem-vllm.sh start
 ./scripts/serve_watch.py status
 ./scripts/serve_watch.py req --file request.json
 
 # 可选：systemd
-sudo cp deploy/kvmem-vllm.service /etc/systemd/system/ && sudo systemctl daemon-reload
+./deploy/install.sh --print-unit > /etc/systemd/system/kvmem-vllm.service
+systemctl daemon-reload && systemctl enable --now kvmem-vllm
 ```
 
-Profile：`local/serve-2080ti-default.json`（B 36K / R 4K、util 0.92、chunk 2,048）、`local/serve-2080ti-lean.json`（窗口 49K、util 0.82）、`local/serve-2080ti-200k.json`（窗口 200K、util 0.96）、
-`local/serve-2080ti-128k.json`、`local/serve-2080ti-256k.json`。
+仓库里没有任何硬编码路径：profile 用 `${KVMEM_MODEL_DIR}`，启动器从 `KVMEM_ENGINE_DIR`
+（或 `KVMEM_ENGINE_VENV`）解析引擎，看门狗最后会退回 `PATH` 上找 `vllm-kvmem`。
+`KVMEM_BASE_URL` 可覆盖状态/请求端点。
+
+Profile：`local/serve-2080ti-default.json`（B 36K / R 4K、util 0.92、chunk 2,048）、
+`local/serve-2080ti-lean.json`（窗口 49K、util 0.82）、`local/serve-2080ti-200k.json`（窗口 200K、util 0.96）。
 
 ## 一页配置口径
 
