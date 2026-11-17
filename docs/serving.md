@@ -310,6 +310,15 @@ templates, and are ignored by Git.
 - **Memory pressure:** measure both host and device memory, reduce concurrency
   and size K/G and archive budgets together. The 256K benchmark profile is not
   intended as a universal first-launch configuration.
+- **A stream stops mid-answer and the client waits for its own timeout:** the
+  response body went silent while the request was still decoding (a model that
+  loops inside an output structure the parser holds back). The `stream_watchdog`
+  middleware ends such a stream after `idle_seconds` of silence (60 by default,
+  measured after the first body byte; prefill time is not counted) and cancels
+  the request, so the client sees a truncated stream and retries instead of
+  blocking until its own timeout. `{"stream_watchdog": {"idle_seconds": 0}}`
+  disables it; the warning it logs carries the request id, the silence and the
+  bytes sent.
 
 For a report, include the source commit, dependency versions, model revision,
 sanitized profile, input/output lengths and relevant error text. Remove local

@@ -176,7 +176,7 @@ def _apply_overrides(profile, assignments):
 
 def build_launch(profile, base, run_dir, *, check_paths=True):
     if not isinstance(profile, dict) or set(profile) - set(DEFAULTS) - set(PATHS) - {
-            'kvmem', 'multi_user', 'linear_backend_per_quant', 'settings'}:
+            'kvmem', 'multi_user', 'stream_watchdog', 'linear_backend_per_quant', 'settings'}:
         raise ValueError('Serving profile contains unknown fields or is not an object')
     cfg = {**DEFAULTS, **profile}
     if cfg['model_adapter'] not in (None, 'qwen38_flash_next_b12x'):
@@ -443,6 +443,9 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
         '--speculative-config', json.dumps(speculation),
         '--enable-per-request-metrics', '--per-request-spec-decode-metrics', 'summary',
         '--middleware', 'vllm_kvmem.serving.http_sessions.validate_prompt_session',
+        # A stream that goes silent while its request is still decoding is a failure, not a
+        # slow answer: fail it fast so the client retries instead of hitting its own timeout.
+        '--middleware', 'vllm_kvmem.serving.http_stream_watchdog.StreamWatchdogMiddleware',
         '--enable-auto-tool-choice', '--tool-call-parser', 'qwen3_xml', '--reasoning-parser', 'qwen3']
     env = {'KVMEM_SERVING': '1', 'KVMEM_RUNNER_PROBE_DIR': str(run_dir / 'capture'),
         'KVMEM_ARCHIVE_PROBE': '1', 'KVMEM_LIFECYCLE_TRACE': '1',
@@ -602,6 +605,10 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
         # Admission counters and tenant queues have a single API process owner.
         argv += ['--api-server-count', '1']
         env['KVMEM_MULTI_USER_CONFIG'] = json.dumps(settings)
+    if 'stream_watchdog' in profile:
+        from .http_stream_watchdog import validate_config as validate_watchdog
+        cfg['stream_watchdog'] = validate_watchdog(profile['stream_watchdog'])
+        env['KVMEM_STREAM_WATCHDOG'] = json.dumps(cfg['stream_watchdog'])
     if options.request_planning:
         env['KVMEM_REQUEST_PLAN_CONFIG'] = json.dumps({'block_tokens': options.memory.block_tokens,
             'gen_budget': options.memory.gen_budget, 'select_budget': options.memory.select_budget,
