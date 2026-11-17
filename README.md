@@ -154,3 +154,6 @@ Our contribution is limited to: the SM75/float16 compatibility layer in `src/vll
 auto-session identifier, the page-pool demand fix, the diagnostics, one small engine patch, the
 deployment profiles and the verification data. Anything that works well here is the upstream authors'
 work; anything that does not is our fault.
+
+History note: this repository previously hosted a different adapter (KVMEM entry middleware for the
+same fork). That work is preserved on branch `legacy-adapter-v0.5`; `main` is the port described here.
