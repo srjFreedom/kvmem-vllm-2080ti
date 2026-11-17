@@ -266,3 +266,19 @@ B 的收益要在"刷新占比更高"的场景（窗口远小于输出、或 R �
 **结论**：默认保持 **A**（chat 兼容、实现简单、速度相同）；
 B 留给"纯 token 级 API + 长输出"的专门场景，且需要额外约 3.6 GiB 主机内存
 （一个完整活跃视图 + 一个 checkpoint 的在飞预算）。
+
+## 10. 更正：上下文上限不是 262,144
+
+之前写的"硬顶 262,144"是错的。实测（`max_model_len=524288`、B=R=8,192、`gpu_memory_utilization=0.90`、
+`cpu_read_cache_bytes=12 GiB`）：
+
+| prompt | 结果 |
+|---|---|
+| 269,654 token（needle 在中间）| ✅ 答对 `ZX-4417-QJ7`，686 s，393 tok/s prefill |
+| 299,280 token | ✅ `FINISHED_STOPPED`，无 OOM |
+
+约束的真实来源：
+1. 启动器对 MTP 允许 `max_model_len` 到 **10,000,000**，只要求 `request_planning` 打开且 `B+R ≤ 262,144`；
+2. 真正的墙是**显存余量**：窗口 49,152 + `gpu_memory_utilization` 0.96/0.88 时同一个 300K prompt
+   在 prefill 阶段 CUDA OOM；把窗口缩到 16,384 就通过；
+3. 模型声明 262,144 个位置且 `rope_type=default`，超出属 RoPE 外推：能答对 needle，但长距离质量未验证。

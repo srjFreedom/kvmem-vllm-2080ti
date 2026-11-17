@@ -115,7 +115,11 @@ GPU 池需求        ≈ 3 组 × (B + R)                    # 本模型有 3 �
 2. **rolling 模式**（`rolling_active_window=true`）可用，但只接受 token-ID 形式的
    `/v1/completions`，不兼容 chat；实测吞吐与默认模式相同。
 3. **prefix image**（多任务共享前缀）上游拒绝 TP>1，本机不可用。
-4. 上下文上限 262,144（本 fork 的位置表）。
+4. **上下文并不被 262,144 卡死**：启动器对 MTP 允许 `max_model_len` 到 **10,000,000**
+   （条件是 `request_planning` 打开且 `B+R ≤ 262,144`）。本机已经用 `max_model_len=524,288`
+   成功服务了 **269,654 token** 的 prompt（答案正确）和 299,280 token 的请求。真正的约束是
+   **主机内存**（归档）和 **prefill 瞬态显存**，不是上下文上限。模型自身声明 262,144 个位置且
+   `rope_type=default`，超出后 RoPE 属外推：能跑，但质量未验证。
 5. 会话超额默认**不淘汰**：拿不到归档额度的请求会**排队**。要么按会话数配足
    `cpu_read_cache_bytes`，要么开启 `KVMEM_SESSION_IDLE_LRU_EVICTION=1` 并把
    `session_capacity` 设小。

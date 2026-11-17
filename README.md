@@ -119,7 +119,12 @@ arithmetic: [docs/sm75/CONFIGURATION.md](docs/sm75/CONFIGURATION.md).
 2. **Rolling window mode** (`rolling_active_window=true`) works but only accepts token-ID
    `/v1/completions`; it is incompatible with chat and measured the same throughput.
 3. **Prefix images** (multi-image prefix sharing) are refused for TP > 1 upstream.
-4. Context above 262,144 is outside this fork's position table.
+4. **Context is not capped at 262,144.** The launcher accepts `max_model_len` up to 10,000,000 for
+   MTP (with `request_planning` and `B+R ≤ 262,144`), and this host served a **269,654-token** prompt
+   correctly (and a 299,280-token request) with `max_model_len=524,288`. What actually binds is host
+   RAM for the archive plus VRAM headroom for the prefill transient — not a context limit. The
+   checkpoint declares 262,144 positions with `rope_type=default`, so beyond that RoPE is
+   extrapolated: it works, but treat quality as unverified.
 5. Session overflow is not evicted by default: a request that cannot get archive credit **queues**.
    Size `cpu_read_cache_bytes` for the sessions you keep, or enable
    `KVMEM_SESSION_IDLE_LRU_EVICTION=1` and a small `session_capacity`.

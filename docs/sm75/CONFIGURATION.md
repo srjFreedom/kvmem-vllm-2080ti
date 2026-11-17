@@ -39,7 +39,7 @@ Measured archive cost per token (this model): **17,408 B/rank** = 17 full-attent
 
 | key | default here | notes |
 |---|---|---|
-| `max_model_len` | 262,144 | logical CTX; must be ≥ B+R; hard ceiling 262,144 (position table) |
+| `max_model_len` | 262,144 | logical CTX; must be ≥ B+R; the launcher allows up to 10,000,000 for MTP (needs `request_planning` and `B+R ≤ 262,144`) |
 | `gpu_memory_utilization` | 0.96 | weights + activation + graphs + KV pool; the rest stays free for other processes |
 | `kvmem.select_budget` | 32,768 | selected history per step; must be divisible by `block_tokens`, ≥ sink+recent |
 | `kvmem.gen_budget` | 16,384 | generation headroom; also the model's per-request output reserve |
@@ -95,3 +95,23 @@ With R = 16,384 that is one refresh per ~16K generated tokens.
 | more warm sessions | `session_capacity` up **and** `cpu_read_cache_bytes` up by 4.25 GiB/rank per extra 256K session |
 | free VRAM for another service | lower `gpu_memory_utilization` (0.80 leaves ~4.7 GB) and/or R |
 | avoid a hard failure when sessions overflow | `KVMEM_SESSION_IDLE_LRU_EVICTION=1` + small `session_capacity` |
+
+## Beyond 262,144 tokens
+
+The logical context is **not** capped at 262,144. Measured on this host with
+`max_model_len = 524,288`, `B = R = 8,192`, `gpu_memory_utilization = 0.90`:
+
+| prompt | result |
+|---|---|
+| 269,654 tokens (needle at the middle) | answered `ZX-4417-QJ7` correctly, 686 s, 393 tok/s prefill |
+| 299,280 tokens | `FINISHED_STOPPED`, no OOM |
+
+Two caveats, both measured:
+
+1. **VRAM headroom, not context, is the wall.** The same 300K prompt failed with CUDA OOM when the
+   window was 49,152 at `gpu_memory_utilization` 0.96/0.88: the pool (3 × window) plus the prefill
+   transient filled the card. Shrinking the window (16,384 total) or the utilization leaves the room.
+2. **The checkpoint declares 262,144 positions** (`rope_type=default`); beyond that RoPE is
+   extrapolated. It returns the right answer in our needle tests, but long-range quality is unverified.
+
+Cost: prefill runs at ~390–1,000 tok/s depending on the window, so a 270K prompt takes ~11 minutes.
