@@ -27,13 +27,13 @@ checkpoint RAM           ≤ session_checkpoint_bytes        # TOTAL across sess
 Measured archive cost per token (this model): **17,408 B/rank** = 17 full-attention layers ×
 (4 kv heads / TP 2) × 256 head_dim × 2 (K+V, fp8).
 
-### Worked example — B = 128K, R = 16K (window 147,456), CTX = 256K, one session
+### Worked example — B = 36K, R = 4K (window 40,960), CTX = 256K, one session
 
 | item | value |
 |---|---|
-| window | 147,456 tokens |
-| GPU KV needed | ceil(147,456/1,616) + 15 pages = **107 pages ≈ 2.87 GiB** |
-| pool at `gpu_memory_utilization=0.92` | 118 pages ≈ 3.09 GiB (1.10× margin) |
+| window | 40,960 tokens |
+| GPU KV needed | ceil(40,960/1,616) + 15 pages = **41 pages ≈ 1.07 GiB** |
+| pool at `gpu_memory_utilization=0.92` | 118 pages ≈ 3.09 GiB (2.9× margin — the window is a product choice, not a limit) |
 | history for one 256K session | 262,144 × 17,408 = **4.25 GiB/rank** ⇒ 8.5 GiB host |
 | `cpu_read_cache_bytes` | 6 GiB (1.41× margin) |
 
@@ -43,10 +43,10 @@ Measured archive cost per token (this model): **17,408 B/rank** = 17 full-attent
 |---|---|---|
 | `max_model_len` | 262,144 | logical CTX; must be ≥ B+R; the launcher allows up to 10,000,000 for MTP (needs `request_planning` and `B+R ≤ 262,144`) |
 | `gpu_memory_utilization` | **0.92** | weights + activation + graphs + KV pool; 0.90 leaves ~2.8 GiB free for the long-prefill transient (at 0.96 a max-length prefill hit CUDA OOM) |
-| `kvmem.select_budget` | 131,072 | selected history per step; must be divisible by `block_tokens`, ≥ sink+recent |
-| `kvmem.gen_budget` | 16,384 | generation headroom; also the model's per-request output reserve |
+| `kvmem.select_budget` | 36,864 | selected history per step; must be divisible by `block_tokens`, ≥ sink+recent |
+| `kvmem.gen_budget` | 4,096 | generation headroom; also the model's per-request output reserve |
 | `kvmem.block_tokens` | 32 | selection grid; sink/recent/`repository_blocks` are counted in these |
-| `kvmem.sink_blocks` / `recent_blocks` | 256 / 128 | 8,192 / 4,096 tokens kept unconditionally |
+| `kvmem.sink_blocks` / `recent_blocks` | 128 / 64 | 4,096 / 2,048 tokens kept unconditionally |
 | `kvmem.repository_blocks` | 16,384 | × 32 = 524,288 nominal tokens |
 | `kvmem.cpu_read_cache_bytes` | 6 GiB | **the real history limit**, shared by all sessions |
 | `query_replay_budget` (top level) | 4,096 | defaults to R; costs ~180 KiB VRAM per token — always set it |
@@ -56,7 +56,7 @@ Measured archive cost per token (this model): **17,408 B/rank** = 17 full-attent
 | `execution_mode` | `full_graph` | SM75 recipe: `cudagraph_mode=FULL` + `cudagraph_capture_sizes=[K+1]` |
 | `draft_tokens` | 4 | MTP drafts; acceptance decides the win (code ≈ 4/5, prose ≈ 2/5) |
 | `cudagraph_capture_sizes` | `[5]` | must equal `{query_len × batch}` for batch 1..`max_num_seqs` |
-| `max_num_batched_tokens` | 1,024 | keeps the prefill logits buffer at 0.49 GB (4,096 ⇒ 1.94 GB, which OOMs a max-length prefill at high utilization) |
+| `prefill_chunk_tokens` / `max_num_batched_tokens` | 2,048 | logits buffer ≈ 1.0 GB; 4,096 ⇒ 1.94 GB and a max-length prefill can OOM at high utilization |
 | `max_num_seqs` | 1 | windowed requests are serialized anyway; raise only for spare authority slots |
 | `auto_session` | `true` | derive `session_id` from the conversation opening; no frontend change |
 

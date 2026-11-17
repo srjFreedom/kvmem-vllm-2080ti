@@ -77,7 +77,7 @@ uv pip install --python /home/srj/vLLM-2080Ti-Definitive/.venv/bin/python -e .
 sudo cp deploy/kvmem-vllm.service /etc/systemd/system/ && sudo systemctl daemon-reload
 ```
 
-Profile：`local/serve-2080ti-default.json`（窗口 147K、util 0.92、chunk 1,024）、`local/serve-2080ti-lean.json`（窗口 49K、util 0.82）、`local/serve-2080ti-200k.json`（窗口 200K、util 0.96）、
+Profile：`local/serve-2080ti-default.json`（B 36K / R 4K、util 0.92、chunk 2,048）、`local/serve-2080ti-lean.json`（窗口 49K、util 0.82）、`local/serve-2080ti-200k.json`（窗口 200K、util 0.96）、
 `local/serve-2080ti-128k.json`、`local/serve-2080ti-256k.json`。
 
 ## 一页配置口径
@@ -98,9 +98,9 @@ GPU KV 需求       ≈ 17,408 B/token × (B + R) + 0.39 GiB（3 个 GDN 组的�
 会话数 × CTX      ≤ 历史 token 总量                   # 否则新会话只能排队
 ```
 
-默认（已实测）：B=128K、R=16K（窗口 147,456）、CTX=256K、`gpu_memory_utilization=0.92`、
-`max_num_batched_tokens=1,024`（logits 缓冲 0.49 GB）、`query_replay_budget=4,096`、
-`session_capacity=1`、`cpu_read_cache_bytes=6 GiB`。
+默认（已实测）：B=36K、R=4K（窗口 40,960）、CTX=256K、`gpu_memory_utilization=0.92`、
+`prefill_chunk_tokens=2,048`、`query_replay_budget=4,096`、`session_capacity=1`、
+`cpu_read_cache_bytes=6 GiB`。
 
 > `query_replay_budget` 默认等于 R，约 **180 KiB/token** 的显存；不显式设置它，
 > 48K 窗口看起来就"永远放不下"。这是最容易踩的坑。

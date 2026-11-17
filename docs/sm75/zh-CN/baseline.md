@@ -345,3 +345,19 @@ decode 速度不变；但 `0.96` 下**最长 prompt 的 prefill 余量不够**�
 
 实测：代码生成 **80.1 tok/s**；7,252 token 会话续写 7.51 s → **0.33 s**。
 新增 `local/serve-2080ti-200k.json`（util 0.96 + 窗口 200,704 + chunk 1,024，启动已验证）。
+
+## 16. 最终默认：B=36K / R=4K（窗口 40,960），chunk 2,048，util 0.92
+
+窗口大小是**产品选择**，不是容量上限（0.92 的池 118 页 ≈3.09 GiB，40,960 窗口只用 41 页 ≈1.07 GiB）。
+
+| 项 | 值 |
+|---|---|
+| `select_budget` (B) | **36,864** |
+| `gen_budget` (R) | **4,096**（窗口 40,960）|
+| sink / recent | 4,096 / 2,048 token |
+| `prefill_chunk_tokens` / `max_num_batched_tokens` | **2,048**（logits ≈1.0 GB）|
+| `gpu_memory_utilization` | 0.92（占用 20,188/22,528 MiB）|
+| CTX / session / 归档 | 262,144 / 1 / 6 GiB |
+
+实测：代码生成 **80.1 tok/s**；7,252 token 会话 7.52 s → **0.33 s**。
+注意刷新节奏随 R 变小：`R=4,096` ⇒ decode 每生成约 4K token 触发一次 bounded refresh（每次重建约 1.3–1.5×R）。
