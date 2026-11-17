@@ -57,6 +57,9 @@ DEFAULTS = {
     # Experimental CUDA VMM allocator; required before PYTORCH_CUDA_ALLOC_CONF=expandable_segments.
     'enable_cumem_allocator': False,
     'disable_custom_all_reduce': False,
+    # 'vllm' keeps vLLM's neutral sampling defaults; 'auto' applies the model's
+    # generation_config.json to requests that leave sampling parameters unset.
+    'generation_config': 'vllm',
 }
 PATHS = ('model', 'tokenizer', 'hf_config_path', 'draft_model', 'mm_proj')
 
@@ -433,7 +436,7 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
         '--max-num-seqs', str(cfg['max_num_seqs']), '--max-num-batched-tokens', str(cfg['max_num_batched_tokens']),
         '--tensor-parallel-size', str(cfg['tensor_parallel_size']),
         '--gpu-memory-utilization', str(utilization), '--no-enable-prefix-caching',
-        '--generation-config', 'vllm',
+        '--generation-config', str(cfg.get('generation_config', 'vllm')),
         '--long-prefill-token-threshold', str(cfg['long_prefill_token_threshold']), '--no-async-scheduling',
         '--scheduler-cls', 'vllm_kvmem.serving.scheduler.KVMemScheduler', '--kv-transfer-config', json.dumps(transfer),
         '--worker-extension-cls', 'vllm_kvmem.serving.systemone_worker.SystemOneWorker',
