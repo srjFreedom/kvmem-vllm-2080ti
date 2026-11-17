@@ -12,7 +12,7 @@ Every number below was measured on this host, on the hardware and software liste
 | TP / dtype | 2 / `float16` (SM75 has no bfloat16) |
 | KV dtype | `fp8_e4m3` (KVMem's required spelling; `fp8` is the same alias upstream) |
 | engine | `vLLM-2080Ti-Definitive` @ `01506a5471` = vLLM `0.2.2.post3` + one 15-line patch |
-| plugin | this repository (`vllm_kvmem 0.1.0.dev1`) |
+| plugin | this repository (`vllm_kvmem 0.6.0`) |
 
 ## Startup
 
