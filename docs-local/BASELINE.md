@@ -240,3 +240,29 @@ bounded_refresh.jsonl: 2 条
 
 **失败边界**：若刷新无法准入（容量耗尽），计划返回 `exhausted`（会中断而非静默降级）。
 本机测试未出现。
+
+## 9. rolling 模式（B）实测对照：可用但**不兼容 chat**，速度也无差异
+
+**开启条件（全部需要）**：`rolling_active_window=true` + `async_refresh=async_restore=true` +
+`cpu_history_coordination=true` + `maintenance_max_steps>0` + `session_capture_terminal=true`（pm 已满足）。
+
+**关键限制（实测）**：rolling 模式**只接受 token-ID 形式的 completion**：
+```
+POST /v1/chat/completions → 400 "Rolling active window requires a token-ID completion prompt"
+POST /v1/completions {"prompt": [token ids], ...} → ✅
+```
+（`http_sessions.py:115`：`prompt` 必须是 int 列表）⇒ **与我们的 chat / auto-session 默认路径不兼容**。
+
+**同负载对照（B=4,096 / R=2,048，窗口 6,144，9,000 token 计数输出）**
+| 模式 | 接口 | wall | 吞吐 | GPU 忙 | 最长空转 | 刷新 |
+|---|---|---|---|---|---|---|
+| **A（默认，同步）** | chat | 89.54 s | **100.5 tok/s** | 205/208 | — | 2 次（`rebuilt=2848/3072`）|
+| **B（rolling，异步）** | completions + token ids | 89.48 s | **100.6 tok/s** | 206/208 | **0.8 s** | 2 次（`asynchronous=True`，`rebuilt=None`）|
+
+⇒ 吞吐**没有差异**（100.6 vs 100.5）。原因是这个窗口下同步刷新本身只占 ~3 s/89 s（约 3%），
+而异步机制也有自己的开销（`maintenance_busy_ms=2.0` 每轮的合作预算）。
+B 的收益要在"刷新占比更高"的场景（窗口远小于输出、或 R 很大）才可能显现。
+
+**结论**：默认保持 **A**（chat 兼容、实现简单、速度相同）；
+B 留给"纯 token 级 API + 长输出"的专门场景，且需要额外约 3.6 GiB 主机内存
+（一个完整活跃视图 + 一个 checkpoint 的在飞预算）。
