@@ -811,7 +811,7 @@ index f712268..0342075 100644
                      request._json = payload
              except ValueError as error:
 diff --git a/src/vllm_kvmem/serving/serve.py b/src/vllm_kvmem/serving/serve.py
-index 8ad0a8e..91c3cc6 100644
+index 8ad0a8e..5f31118 100644
 --- a/src/vllm_kvmem/serving/serve.py
 +++ b/src/vllm_kvmem/serving/serve.py
 @@ -42,8 +42,38 @@ DEFAULTS = {
@@ -853,7 +853,41 @@ index 8ad0a8e..91c3cc6 100644
  # Explicit experiment controls for NVFP4 and FP8 checkpoints.
  # Exclude weight-only/emulation backends: they change the activation precision.
  LINEAR_BACKENDS = {
-@@ -165,6 +195,10 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
+@@ -107,6 +137,33 @@ def _validate_safetensors_config(model):
+         raise ValueError('Safetensors config.json must contain an object')
+ 
+ 
++def _apply_overrides(profile, assignments):
++    """Apply ``--set KEY=VALUE`` on top of the loaded profile (no file edits)."""
++    import copy as _copy
++    import json as _json
++    result = _copy.deepcopy(profile)
++    for item in assignments:
++        key, sep, raw = item.partition('=')
++        key = key.strip()
++        if not sep or not key:
++            raise ValueError(f'--set expects KEY=VALUE, got {item!r}')
++        try:
++            value = _json.loads(raw)
++        except ValueError:
++            value = raw
++        node = result
++        parts = key.split('.')
++        for part in parts[:-1]:
++            child = node.get(part)
++            if not isinstance(child, dict):
++                raise ValueError(f'--set {key}: {part!r} is not a profile object')
++            node = child
++        if parts[-1] not in node:
++            raise ValueError(f'--set {key}: unknown profile field')
++        node[parts[-1]] = value
++    return result
++
++
+ def build_launch(profile, base, run_dir, *, check_paths=True):
+     if not isinstance(profile, dict) or set(profile) - set(DEFAULTS) - set(PATHS) - {
+             'kvmem', 'multi_user', 'linear_backend_per_quant', 'settings'}:
+@@ -165,6 +222,10 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
          if name == 'mm_proj' and not is_gguf:
              continue
          value = cfg.get(name)
@@ -864,7 +898,7 @@ index 8ad0a8e..91c3cc6 100644
          if not isinstance(value, str) or not value:
              raise ValueError(f'Serving profile requires local {name}')
          path = Path(value).expanduser()
-@@ -356,7 +390,10 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
+@@ -356,7 +417,10 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
                          if cfg['draft_quantization'] else {})})
      argv = ['serve', cfg['model'], '--served-model-name', cfg['served_model_name'],
          '--host', cfg['host'], '--port', str(cfg['port']), '--tokenizer', cfg['tokenizer'],
@@ -876,7 +910,7 @@ index 8ad0a8e..91c3cc6 100644
          '--language-model-only', *loader_args,
          '--kv-cache-dtype', 'fp8_e4m3', '--max-model-len', str(cfg['max_model_len']),
          '--max-num-seqs', str(cfg['max_num_seqs']), '--max-num-batched-tokens', str(cfg['max_num_batched_tokens']),
-@@ -435,6 +472,24 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
+@@ -435,6 +499,24 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
          env['KVMEM_FULL_HISTORY_BENCHMARK'] = '1'
      if cfg['prefill_chunk_tokens']:
          env['KVMEM_PREFILL_CHUNK_TOKENS'] = str(cfg['prefill_chunk_tokens'])
@@ -901,12 +935,25 @@ index 8ad0a8e..91c3cc6 100644
      if cfg['reasoning_end_str'] is not None:
          argv += ['--reasoning-config',json.dumps({'reasoning_end_str':cfg['reasoning_end_str']})]
      if cfg['execution_mode'] in ('full_graph', 'compiled_graph'):
-@@ -615,7 +670,7 @@ def main(argv=None):
+@@ -550,6 +632,10 @@ def main(argv=None):
+     parser = argparse.ArgumentParser(description=__doc__)
+     parser.add_argument('--config', type=Path,
+         help='Explicit JSON profile; omit for the bundled DFlash2 k7 / GPU .80 agent profile')
++    parser.add_argument('--set', action='append', default=[], metavar='KEY=VALUE',
++        help='Override one profile field (repeatable). KEY is a top-level key or a dotted '
++             'path such as kvmem.select_budget. Values are parsed as JSON when possible, '
++             'else taken as strings. The profile on disk stays untouched.')
+     parser.add_argument('-tp', '--tensor-parallel-size', type=int,
+         help='Override the tensor-parallel size of the serving profile')
+     parser.add_argument('--run-dir', type=Path, required=True, help='New owned telemetry/archive directory')
+@@ -615,7 +701,9 @@ def main(argv=None):
          profile, base = load_default_profile(), Path.cwd()
      else:
          source = args.config.expanduser().resolve()
 -        profile, base = json.loads(source.read_text()), source.parent
 +        profile, base = _expand_environment(json.loads(source.read_text())), source.parent
++    if args.set:
++        profile = _apply_overrides(profile, args.set)
      if args.tensor_parallel_size is not None:
          profile['tensor_parallel_size'] = args.tensor_parallel_size
      if isinstance(profile.get('kvmem'), dict):
