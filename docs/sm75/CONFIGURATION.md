@@ -46,7 +46,7 @@ Measured archive cost per token (this model): **17,408 B/rank** = 17 full-attent
 | `kvmem.select_budget` | 36,864 | selected history per step; must be divisible by `block_tokens`, ≥ sink+recent |
 | `kvmem.gen_budget` | 4,096 | generation headroom; also the model's per-request output reserve |
 | `kvmem.block_tokens` | 32 | selection grid; sink/recent/`repository_blocks` are counted in these |
-| `kvmem.sink_blocks` / `recent_blocks` | 128 / 64 | 4,096 / 2,048 tokens kept unconditionally |
+| `kvmem.sink_blocks` / `recent_blocks` | 64 / 32 | 2,048 / 1,024 tokens kept unconditionally |
 | `kvmem.repository_blocks` | 16,384 | × 32 = 524,288 nominal tokens |
 | `kvmem.cpu_read_cache_bytes` | 6 GiB | **the real history limit**, shared by all sessions |
 | `query_replay_budget` (top level) | 4,096 | defaults to R; costs ~180 KiB VRAM per token — always set it |
