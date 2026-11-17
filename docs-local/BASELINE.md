@@ -225,5 +225,18 @@ bounded_refresh.jsonl: 2 条
 | 默认（`rolling_active_window=false`）| 到 `B+R-block` 才刷新一次，重建增量；`max_tokens > R` 在**显式 plan** 路径会被拒（auto-session 路径不受限）|
 | `rolling_active_window=true` | 把 G 当"纯物理余量"（文档原话：*G is physical decode headroom in rolling mode, not a response limit*），边界更频繁、每次更小 |
 
+**刷新节奏（重要，纠正一个误解）**：`B` 一旦选中就是**满的**，所以"48K 以内不刷新"只对**极短 prompt**成立。
+实测（B=4,096、R=2,048，窗口 6,144）：
+
+| 情形 | 刷新点（history_begin）| 结论 |
+|---|---|---|
+| 短 prompt（42 token）| 6,112 → 8,128 | 首次 ~`B+R`，之后每 **~R**（+2,016）|
+| 长 prompt（4,856 token > B）| 4,096 / 4,352 / 4,608（prefill 期）→ **6,624**（decode 期）| prefill 期按块边界刷新；decode 期每 **~R**（+2,016）|
+
+⇒ **decode 阶段的刷新间隔 ≈ R（`gen_budget`）**，不是 B+R。
+默认配置 R=16,384 ⇒ 每生成约 **1.6 万 token 刷新一次**（之前"4.8 万以内不刷新"的说法不成立，
+那只适用于 prompt ≪ B 的第一段生成）。
+每次刷新重建量实测 2,592–3,072 token（≈1.3–1.5×R），按 ~1,000 tok/s ≈ 2.6–3.1 s。
+
 **失败边界**：若刷新无法准入（容量耗尽），计划返回 `exhausted`（会中断而非静默降级）。
 本机测试未出现。
