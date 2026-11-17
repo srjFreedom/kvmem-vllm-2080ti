@@ -645,7 +645,11 @@ class SessionLedger:
         plan = request_plan(request,self.block_tokens,self.gen_budget) if self.gen_budget else None
         at_query = plan is not None and plan.replay_begin == position
         at_point = plan is not None and plan.prefill_checkpoint(request.num_prompt_tokens)==position
-        if self.checkpoint_policy=='pm' and not at_point:
+        if self.checkpoint_policy=='pm' and plan is not None and not at_point:
+            # Query plans anchor their own prefill point. A native chat request has no
+            # plan (`kvmem_request_plan` is set only for token-ID prompts), so without
+            # this fallback the policy captured nothing below the prompt and every
+            # later prompt that did not repeat the previous answer stayed cold.
             return
         if (entry is None or entry.phase != 'active' or entry.candidate_position or
                 not 0 < position < request.num_prompt_tokens or position % self.block_tokens or
