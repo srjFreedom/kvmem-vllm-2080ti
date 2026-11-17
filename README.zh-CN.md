@@ -100,19 +100,22 @@ exec /path/to/kvmem-vllm-2080ti/deploy/run-kvmem-vllm.sh start "${OVERRIDES[@]}"
 
 `--set` 支持顶层键与点号路径（`kvmem.select_budget`），值会按 JSON 解析；未知键直接报错，不会被忽略。
 
-开机自启（systemd，以 `srj` 身份，oneshot + `RemainAfterExit`，`ExecStop` 负责停掉 GPU 进程）：
+开机自启（systemd，`oneshot` + `RemainAfterExit`，`ExecStop` 负责停掉 GPU 进程）：
 
 ```
 /etc/systemd/system/kvmem-vllm.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-User=srj
-ExecStart=/home/srj/run-kvmem-2080ti.sh start
-ExecStop=-/home/srj/run-kvmem-2080ti.sh stop
+User=<你的用户名>
+Environment=HOME=/home/<你的用户名>
+ExecStart=/path/to/run-kvmem-2080ti.sh start
+ExecStop=-/path/to/run-kvmem-2080ti.sh stop
 [Install]
 WantedBy=multi-user.target
 ```
+
+`./deploy/install.sh --print-unit` 会按你的用户名和路径生成同样的 unit。
 ```bash
 systemctl enable --now kvmem-vllm     # 立即启动并开机自启
 systemctl is-active kvmem-vllm        # active

@@ -105,20 +105,22 @@ exec /path/to/kvmem-vllm-2080ti/deploy/run-kvmem-vllm.sh start "${OVERRIDES[@]}"
 `--set` accepts top-level keys and dotted paths (`kvmem.select_budget`); values are parsed as JSON when
 possible. An unknown key fails loudly instead of being ignored.
 
-Boot the machine with it (systemd user `srj`, oneshot + `RemainAfterExit`, `ExecStop` stops the GPU
-processes):
+Boot the machine with it (systemd, `oneshot` + `RemainAfterExit`, `ExecStop` stops the GPU processes):
 
 ```
-/systemd/system/kvmem-vllm.service
+/etc/systemd/system/kvmem-vllm.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-User=srj
-ExecStart=/home/srj/run-kvmem-2080ti.sh start
-ExecStop=-/home/srj/run-kvmem-2080ti.sh stop
+User=<your-user>
+Environment=HOME=/home/<your-user>
+ExecStart=/path/to/run-kvmem-2080ti.sh start
+ExecStop=-/path/to/run-kvmem-2080ti.sh stop
 [Install]
 WantedBy=multi-user.target
 ```
+
+`./deploy/install.sh --print-unit` renders the same unit with your user and paths filled in.
 ```bash
 systemctl enable --now kvmem-vllm     # start now and on every boot
 systemctl is-active kvmem-vllm        # active
