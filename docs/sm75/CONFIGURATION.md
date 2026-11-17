@@ -1,0 +1,97 @@
+# Configuration
+
+All knobs live in one serving profile (`local/*.json`). `deploy/run-kvmem-vllm.sh` reads it, builds
+the vLLM command line and exports the plugin environment. Nothing else needs editing.
+
+## The four budgets
+
+| budget | keys | meaning |
+|---|---|---|
+| GPU window | `kvmem.select_budget` (B), `kvmem.gen_budget` (R) | KV resident for one request |
+| logical context | `max_model_len` (top level, = CTX) | longest single conversation |
+| host history | `kvmem.cpu_read_cache_bytes`, `kvmem.repository_blocks`, `block_tokens` | total history tokens, shared |
+| session checkpoints | `kvmem.session_capacity`, `kvmem.session_checkpoint_bytes` | how many conversations stay warm |
+
+## Capacity formulas
+
+```
+GPU pool needed          ≈ groups × (B + R)                # groups = attention cache groups (3 here)
+history tokens, per rank = min( cpu_read_cache_bytes / 17,408 ,
+                                repository_blocks × block_tokens )
+host RAM for history     ≈ 2 × history tokens × 17,408     # TP=2 → two archives
+checkpoint RAM           ≤ session_checkpoint_bytes        # TOTAL across sessions (60–80 MB each)
+```
+
+Measured archive cost per token (this model): **17,408 B/rank** = 17 full-attention layers ×
+(4 kv heads / TP 2) × 256 head_dim × 2 (K+V, fp8).
+
+### Worked example — B = 32K, R = 16K, CTX = 256K, one session
+
+| item | value |
+|---|---|
+| window | 49,152 tokens |
+| GPU pool needed | 3 × 49,152 = **147,456** |
+| measured pool at `gpu_memory_utilization=0.96` | **240,053** (1.63× margin) |
+| history for one 256K session | 262,144 × 17,408 = **4.25 GiB/rank** ⇒ 8.5 GiB host |
+| `cpu_read_cache_bytes` | 6 GiB (1.41× margin) |
+
+## Key knobs
+
+| key | default here | notes |
+|---|---|---|
+| `max_model_len` | 262,144 | logical CTX; must be ≥ B+R; hard ceiling 262,144 (position table) |
+| `gpu_memory_utilization` | 0.96 | weights + activation + graphs + KV pool; the rest stays free for other processes |
+| `kvmem.select_budget` | 32,768 | selected history per step; must be divisible by `block_tokens`, ≥ sink+recent |
+| `kvmem.gen_budget` | 16,384 | generation headroom; also the model's per-request output reserve |
+| `kvmem.block_tokens` | 32 | selection grid; sink/recent/`repository_blocks` are counted in these |
+| `kvmem.sink_blocks` / `recent_blocks` | 128 / 64 | 4,096 / 2,048 tokens kept unconditionally |
+| `kvmem.repository_blocks` | 16,384 | × 32 = 524,288 nominal tokens |
+| `kvmem.cpu_read_cache_bytes` | 6 GiB | **the real history limit**, shared by all sessions |
+| `query_replay_budget` (top level) | 4,096 | defaults to R; costs ~180 KiB VRAM per token — always set it |
+| `kvmem.session_capacity` | 1 | retained conversations (old adapter: `SESSIONS`) |
+| `kvmem.session_checkpoint_bytes` | 1 GiB | **total** for all retained checkpoints |
+| `kvmem.session_checkpoint_policy` | `pm` | P + terminal checkpoints; required for continuation hits |
+| `execution_mode` | `full_graph` | SM75 recipe: `cudagraph_mode=FULL` + `cudagraph_capture_sizes=[K+1]` |
+| `draft_tokens` | 4 | MTP drafts; acceptance decides the win (code ≈ 4/5, prose ≈ 2/5) |
+| `cudagraph_capture_sizes` | `[5]` | must equal `{query_len × batch}` for batch 1..`max_num_seqs` |
+| `max_num_seqs` | 1 | windowed requests are serialized anyway; raise only for spare authority slots |
+| `auto_session` | `true` | derive `session_id` from the conversation opening; no frontend change |
+
+### Mapping from the old adapter (v0.5)
+
+| old | new | unit change |
+|---|---|---|
+| `B` | `kvmem.select_budget` | tokens (same meaning) |
+| `R` | `kvmem.gen_budget` | tokens |
+| `CTX` | `max_model_len` | tokens |
+| `SINK` / `RECENT` | `sink_blocks` / `recent_blocks` | **tokens → blocks of `block_tokens`** (8,192 tok = 256 blocks) |
+| `HOST_MIB` | `cpu_read_cache_bytes` + `repository_blocks` | one pool → bytes **and** blocks; bytes bind first |
+| `SESSIONS` | `session_capacity` | same |
+| `SPECULATIVE_TOKENS` | `draft_tokens` | same |
+| `GPU_UTIL` | `gpu_memory_utilization` | same |
+
+## Generation past the window
+
+When the resident window fills (`B+R−block_tokens`), the plan returns `pressure` and KVMem runs a
+bounded refresh: append generated tokens to history, re-select B tokens from the full history
+(sink + recent + scored middle), rebuild only the delta, keep the same request and sampler.
+
+Measured (B=4,096 / R=2,048, window 6,144, 9,000-token output): 2 refreshes, each rebuilding
+~2,600–3,100 tokens (~3 s at 1,000 tok/s), total **100.5 tok/s**, no stall.
+
+Refresh cadence during decode ≈ **R** (not B+R), because B is already full once history is selected.
+With R = 16,384 that is one refresh per ~16K generated tokens.
+
+`rolling_active_window=true` replaces this with asynchronous refresh quanta; it requires
+`async_refresh=async_restore=true`, `cpu_history_coordination=true`, `maintenance_max_steps>0`,
+`session_capture_terminal=true`, accepts only token-ID completions, and measured the same throughput.
+
+## Tuning recipes
+
+| goal | change |
+|---|---|
+| faster code generation | `draft_tokens=4` + `cudagraph_capture_sizes=[5]` + `execution_mode=full_graph` (80–87 tok/s verified) |
+| longer logical context | raise `max_model_len` and `cpu_read_cache_bytes` together; keep `sessions × CTX ≤ history tokens` |
+| more warm sessions | `session_capacity` up **and** `cpu_read_cache_bytes` up by 4.25 GiB/rank per extra 256K session |
+| free VRAM for another service | lower `gpu_memory_utilization` (0.80 leaves ~4.7 GB) and/or R |
+| avoid a hard failure when sessions overflow | `KVMEM_SESSION_IDLE_LRU_EVICTION=1` + small `session_capacity` |
