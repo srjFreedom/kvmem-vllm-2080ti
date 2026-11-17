@@ -27,13 +27,13 @@ checkpoint RAM           ≤ session_checkpoint_bytes        # TOTAL across sess
 Measured archive cost per token (this model): **17,408 B/rank** = 17 full-attention layers ×
 (4 kv heads / TP 2) × 256 head_dim × 2 (K+V, fp8).
 
-### Worked example — B = 32K, R = 16K, CTX = 256K, one session
+### Worked example — B = 112K, R = 16K (window 131,072), CTX = 256K, one session
 
 | item | value |
 |---|---|
-| window | 49,152 tokens |
-| GPU KV needed | ceil(49,152/1,616) + 15 pages = **46 pages ≈ 1.21 GiB** |
-| pool at `gpu_memory_utilization=0.90` | 114 pages ≈ 2.99 GiB — spare, not required |
+| window | 131,072 tokens |
+| GPU KV needed | ceil(131,072/1,616) + 15 pages = **97 pages ≈ 2.52 GiB** |
+| pool at `gpu_memory_utilization=0.90` | 114 pages ≈ 2.99 GiB (1.19× margin) |
 | history for one 256K session | 262,144 × 17,408 = **4.25 GiB/rank** ⇒ 8.5 GiB host |
 | `cpu_read_cache_bytes` | 6 GiB (1.41× margin) |
 
@@ -43,10 +43,10 @@ Measured archive cost per token (this model): **17,408 B/rank** = 17 full-attent
 |---|---|---|
 | `max_model_len` | 262,144 | logical CTX; must be ≥ B+R; the launcher allows up to 10,000,000 for MTP (needs `request_planning` and `B+R ≤ 262,144`) |
 | `gpu_memory_utilization` | **0.90** | weights + activation + graphs + KV pool; 0.90 leaves ~2.8 GiB free for the long-prefill transient (at 0.96 a max-length prefill hit CUDA OOM) |
-| `kvmem.select_budget` | 32,768 | selected history per step; must be divisible by `block_tokens`, ≥ sink+recent |
+| `kvmem.select_budget` | 114,688 | selected history per step; must be divisible by `block_tokens`, ≥ sink+recent |
 | `kvmem.gen_budget` | 16,384 | generation headroom; also the model's per-request output reserve |
 | `kvmem.block_tokens` | 32 | selection grid; sink/recent/`repository_blocks` are counted in these |
-| `kvmem.sink_blocks` / `recent_blocks` | 128 / 64 | 4,096 / 2,048 tokens kept unconditionally |
+| `kvmem.sink_blocks` / `recent_blocks` | 256 / 128 | 8,192 / 4,096 tokens kept unconditionally |
 | `kvmem.repository_blocks` | 16,384 | × 32 = 524,288 nominal tokens |
 | `kvmem.cpu_read_cache_bytes` | 6 GiB | **the real history limit**, shared by all sessions |
 | `query_replay_budget` (top level) | 4,096 | defaults to R; costs ~180 KiB VRAM per token — always set it |

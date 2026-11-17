@@ -77,7 +77,7 @@ uv pip install --python /home/srj/vLLM-2080Ti-Definitive/.venv/bin/python -e .
 sudo cp deploy/kvmem-vllm.service /etc/systemd/system/ && sudo systemctl daemon-reload
 ```
 
-Profile：`local/serve-2080ti-default.json`（窗口 32K、CTX 256K、保留 1 个会话）、
+Profile：`local/serve-2080ti-default.json`（窗口 131K、CTX 256K、保留 1 个会话）、`local/serve-2080ti-lean.json`（窗口 49K、util 0.82，留显存给其他进程）、
 `local/serve-2080ti-128k.json`、`local/serve-2080ti-256k.json`。
 
 ## 一页配置口径
@@ -98,7 +98,7 @@ GPU KV 需求       ≈ 17,408 B/token × (B + R) + 0.39 GiB（3 个 GDN 组的�
 会话数 × CTX      ≤ 历史 token 总量                   # 否则新会话只能排队
 ```
 
-默认（已实测）：B=32K、R=16K、CTX=256K、`gpu_memory_utilization=0.90`、
+默认（已实测）：B=112K、R=16K（窗口 131,072）、CTX=256K、`gpu_memory_utilization=0.90`、
 `query_replay_budget=4,096`、`session_capacity=1`、`cpu_read_cache_bytes=6 GiB`。
 
 > `query_replay_budget` 默认等于 R，约 **180 KiB/token** 的显存；不显式设置它，
