@@ -73,8 +73,13 @@ and TP all-reduce is 2 %. MTP acceptance decides the speed: ~4/5 on code, ~2/5 o
 ```bash
 ./deploy/run-kvmem-vllm.sh start                       # default profile
 ./scripts/serve_watch.py status
-./scripts/serve_watch.py req --file request.json       # prints wall time, tok/s, GPU busy ratio, stall flag
+./scripts/serve_watch.py params                        # effective window/history/session/MTP values
+./scripts/serve_watch.py logs --lines 40               # engine log at $RUN_DIR/serve.log
+./scripts/serve_watch.py req --file local/request-example.json  # prints wall time, tok/s, GPU busy ratio, stall flag
 ```
+
+The engine log is `$RUN_DIR/serve.log`; `$RUN_DIR/capture/` holds the traces
+(`bounded_refresh.jsonl`, `scheduler_refresh.jsonl`, `archive.json`, …).
 
 `serve_watch.py` polls `/v1/models`, samples `nvidia-smi` every 0.4 s and reports a `STALL` when the GPU
 stays idle while a request is in flight, so a hang is visible instead of being waited out.

@@ -70,7 +70,9 @@ cd /path/to/kvmem-vllm-2080ti
 # 2. 启动与验证（轮询 /v1/models、采样 nvidia-smi、检测卡死）
 ./deploy/run-kvmem-vllm.sh start
 ./scripts/serve_watch.py status
-./scripts/serve_watch.py req --file request.json
+./scripts/serve_watch.py params                  # 生效的窗口/历史/会话/MTP 深度
+./scripts/serve_watch.py logs --lines 40         # 引擎日志：$RUN_DIR/serve.log
+./scripts/serve_watch.py req --file local/request-example.json
 
 # 可选：systemd
 ./deploy/install.sh --print-unit > /etc/systemd/system/kvmem-vllm.service
@@ -85,7 +87,7 @@ systemctl daemon-reload && systemctl enable --now kvmem-vllm
 | `KVMEM_ENGINE_VENV` | 直接指定引擎 virtualenv 的 `bin/`（优先于 `KVMEM_ENGINE_DIR`）|
 | `KVMEM_MODEL_DIR` | profile 里 `${KVMEM_MODEL_DIR}` 展开到的模型目录 |
 | `CONFIG` | 服务 profile（默认 `local/serve-2080ti-default.json`）|
-| `RUN_DIR` | 运行目录，存放日志与证据（默认在 `/var/tmp` 下）|
+| `RUN_DIR` | 运行目录：`serve.log`、`launch.json`、`capture/` 证据（默认在 `/var/tmp` 下）|
 | `KVMEM_BASE_URL` | `serve_watch.py status/req` 使用的端点（默认 `http://127.0.0.1:18200`）|
 
 ### 本机配置

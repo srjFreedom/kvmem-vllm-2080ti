@@ -42,7 +42,7 @@ KVMEM_ENGINE_DIR="$ENGINE" KVMEM_MODEL_DIR="$MODEL" \
   CONFIG="$REPO/local/serve-2080ti-default.json" "$REPO/deploy/run-kvmem-vllm.sh" status || true
 cat <<MSG
 
-Done. Export these in your shell (or /etc/default/kvmem-vllm):
+Done. Export these in your shell before running the launcher:
   export KVMEM_ENGINE_DIR=$ENGINE
   export KVMEM_MODEL_DIR=$MODEL
 

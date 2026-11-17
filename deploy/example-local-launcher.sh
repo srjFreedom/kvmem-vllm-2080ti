@@ -1,9 +1,12 @@
 #!/bin/bash
 # Example of the machine-local launcher pattern: the repository keeps its default
 # profile, and this script (living outside the repo, e.g. ~/run-kvmem-2080ti.sh)
-# supplies the paths and any machine-specific overrides through --set.
+# supplies the paths and every machine-specific override through --set.
 #
-#   ./example-local-launcher.sh [start|stop|status] [--set KEY=VALUE ...]
+#   ./example-local-launcher.sh [start|stop|status|logs|params] [--set KEY=VALUE ...]
+#
+# The engine log is written to $RUN_DIR/serve.log; `logs` prints it, `params`
+# prints the effective values (window, history, sessions, MTP depth).
 set -euo pipefail
 
 REPO=${REPO:-/path/to/kvmem-vllm-2080ti}
@@ -17,16 +20,56 @@ shift || true
 
 # Machine-specific overrides; the profile on disk is not modified.
 OVERRIDES=(
-  --set gpu_memory_utilization=0.92
+  # model and engine
+  --set model="$KVMEM_MODEL_DIR"
+  --set tokenizer="$KVMEM_MODEL_DIR"
+  --set hf_config_path="$KVMEM_MODEL_DIR"
+  --set served_model_name=kvmem-2080ti
+  --set execution_mode=full_graph
+  --set tensor_parallel_size=2
+  --set dtype=float16
   --set max_model_len=262144
-  --set prefill_chunk_tokens=2048
+  --set host=127.0.0.1
+  --set port=18200
+
+  # batching and VRAM
+  --set max_num_seqs=1
   --set max_num_batched_tokens=2048
+  --set prefill_chunk_tokens=2048
+  --set gpu_memory_utilization=0.92
+  --set cudagraph_capture_sizes=[5]
+
+  # MTP speculative decoding
+  --set draft_method=mtp
+  --set draft_tokens=4
+  --set sm75_spec_sync_mode=nosync
+  --set allow_mamba_spec_full_cudagraph=true
+
+  # GPU window
   --set kvmem.select_budget=36864
   --set kvmem.gen_budget=4096
+  --set query_replay_budget=4096
+  --set kvmem.block_tokens=32
+  --set kvmem.sink_blocks=128
+  --set kvmem.recent_blocks=64
+
+  # host history
   --set kvmem.cpu_read_cache_bytes=6442450944
+  --set kvmem.repository_blocks=16384
+  --set kvmem.archive_backend=cpu
+  --set kvmem.archive_io_max_bytes=134217728
+
+  # sessions
+  --set kvmem.session_capacity=1
+  --set kvmem.session_checkpoint_bytes=1073741824
+  --set kvmem.session_checkpoint_policy=pm
+  --set kvmem.session_capture_terminal=true
+  --set auto_session=true
 )
 
 if [ "$ACTION" = "start" ]; then
+  echo "[kvmem] window B+R=40960 ctx=262144 MTP=4 util=0.92 chunk=2048"
+  echo "[kvmem] engine log: $RUN_DIR/serve.log  params: $RUN_DIR/launch.json"
   exec "$REPO/deploy/run-kvmem-vllm.sh" start "${OVERRIDES[@]}" "$@"
 fi
 exec "$REPO/deploy/run-kvmem-vllm.sh" "$ACTION" "$@"

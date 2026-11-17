@@ -159,7 +159,11 @@ def _apply_overrides(profile, assignments):
                 raise ValueError(f'--set {key}: {part!r} is not a profile object')
             node = child
         if parts[-1] not in node:
-            raise ValueError(f'--set {key}: unknown profile field')
+            # Keys carried only by the built-in defaults are still settable, so a
+            # short profile file does not hide knobs such as the SM75 sync mode.
+            defaults = DEFAULTS if parts == [key] else DEFAULTS.get(parts[0])
+            if not isinstance(defaults, dict) or parts[-1] not in defaults:
+                raise ValueError(f'--set {key}: unknown profile field')
         node[parts[-1]] = value
     return result
 
@@ -880,8 +884,12 @@ def main(argv=None):
         print(json.dumps(plan, indent=2))
         return
     # A new directory prevents stale armed flags, cross-server trace replacement
-    # and accidental reuse of another live worker's authoritative arena.
-    run_dir.mkdir(parents=True, exist_ok=False)
+    # and accidental reuse of another live worker's authoritative arena. A launcher
+    # may create the directory only to place its own serve.log inside it.
+    run_dir.mkdir(parents=True, exist_ok=True)
+    foreign = {path.name for path in run_dir.iterdir()} - {'serve.log'}
+    if foreign:
+        raise SystemExit(f'run-dir {run_dir} is not fresh (contains {sorted(foreign)})')
     (run_dir / 'capture').mkdir()
     (run_dir / 'launch.json').write_text(json.dumps(plan, indent=2) + '\n')
     for name in list(os.environ):

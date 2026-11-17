@@ -1,0 +1,8 @@
+{
+  "model": "kvmem-2080ti",
+  "messages": [
+    {"role": "user", "content": "记住暗号：ZX-4417-QJ7。稍后我会问暗号是什么，届时只回答暗号本身。"}
+  ],
+  "max_tokens": 64,
+  "temperature": 0.0
+}

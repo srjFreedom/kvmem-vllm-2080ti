@@ -57,15 +57,28 @@ Details and the exact commands: [docs/sm75/VERIFICATION.md](docs/sm75/VERIFICATI
 - 2 × RTX 2080 Ti / Titan Turing (SM75), 22 GB each. The 27B FP8 checkpoint needs TP = 2 (~32 GB of
   weights); a single 22 GB card cannot hold it.
 - 16 GB+ host RAM for 256K logical context (see the capacity table below).
-- Linux, a CUDA 13 driver, Python 3.12 (the plugin installs into the engine's virtualenv;
-  `uv pip install --python …` and `pip` both work).
+- Linux, a working CUDA 13.x driver, Python 3.12, and the engine's virtualenv build from its
+  repository (see that repo's own README for its toolchain and build script). The plugin needs
+  nothing but the engine venv; `install.sh` handles the patch and the editable install.
 
-## Quick start
+## Clean-machine install
+
+One heavy step (building the engine), two leaf steps (the engine patch, the plugin into the
+engine's venv):
 
 ```bash
-# 0. environment (put these in your shell or /etc/default/kvmem-vllm)
-export KVMEM_ENGINE_DIR=/path/to/vllm-0.2.2.post3-sm75   # engine checkout, contains .venv
-export KVMEM_MODEL_DIR=/path/to/checkpoint               # holds config.json + shards
+git clone https://github.com/weicj/vLLM-2080Ti-Definitive.git    # engine; its README lists the toolchain
+cd vLLM-2080Ti-Definitive
+git checkout v0.2.2-post3 && ./build.sh                           # produces .venv (uv) + the SM75 kernels
+cd ..
+
+git clone git@github.com:srjFreedom/kvmem-vllm-adapter.git kvmem-vllm-2080ti   # this repo (private)
+cd kvmem-vllm-2080ti
+
+export KVMEM_ENGINE_DIR=$PWD/../vLLM-2080Ti-Definitive
+export KVMEM_MODEL_DIR=/path/to/checkpoint
+./deploy/install.sh                                               # patch, plugin, smoke
+```
 
 # 1. check the host, patch the engine, install this plugin (editable) and smoke-test
 cd /path/to/kvmem-vllm-2080ti
@@ -74,7 +87,9 @@ cd /path/to/kvmem-vllm-2080ti
 # 2. serve and verify (polls /v1/models, samples nvidia-smi, detects stalls)
 ./deploy/run-kvmem-vllm.sh start
 ./scripts/serve_watch.py status
-./scripts/serve_watch.py req --file request.json
+./scripts/serve_watch.py params                 # effective window / history / sessions / MTP depth
+./scripts/serve_watch.py logs --lines 40        # engine log: $RUN_DIR/serve.log
+./scripts/serve_watch.py req --file local/request-example.json
 
 # optional: systemd
 ./deploy/install.sh --print-unit > /etc/systemd/system/kvmem-vllm.service
@@ -89,7 +104,7 @@ systemctl daemon-reload && systemctl enable --now kvmem-vllm
 | `KVMEM_ENGINE_VENV` | engine virtualenv `bin/` directly (overrides `KVMEM_ENGINE_DIR`) |
 | `KVMEM_MODEL_DIR` | checkpoint directory used by the profiles (`${KVMEM_MODEL_DIR}` expansion) |
 | `CONFIG` | serving profile (default `local/serve-2080ti-default.json`) |
-| `RUN_DIR` | run directory for evidence and logs (default under `/var/tmp`) |
+| `RUN_DIR` | run directory: `serve.log`, `launch.json`, `capture/` traces (default under `/var/tmp`) |
 | `KVMEM_BASE_URL` | endpoint used by `serve_watch.py status/req` (default `http://127.0.0.1:18200`) |
 
 ### Machine-local configuration

@@ -5,10 +5,15 @@ No fixed sleeps in the hot paths: readiness and completion are polled on observa
 (/health, /v1/models, the process table, nvidia-smi) and a GPU-idle window while a request is
 in flight is reported as a stall instead of being waited out blindly.
 
-  serve_watch.py start [--config PATH] [--run-dir DIR] [--timeout S]
+  serve_watch.py start [--config PATH] [--run-dir DIR] [--set KEY=VALUE ...] [--timeout S]
   serve_watch.py stop
-  serve_watch.py status
+  serve_watch.py status [--run-dir DIR]
+  serve_watch.py logs [--run-dir DIR] [--lines N]
+  serve_watch.py params [--run-dir DIR] [--config PATH]
   serve_watch.py req --file REQ.json [--idle-stall S] [--repeat N]
+
+The engine log lives in the run directory (serve.log). `logs` and `status` print the path;
+`params` prints the effective serving knobs (window, history, sessions, MTP depth).
 """
 from __future__ import annotations
 
@@ -56,8 +61,8 @@ def venv():
     return _VENV
 BASE = os.environ.get("KVMEM_BASE_URL", "http://127.0.0.1:18200")
 DEFAULT_CONFIG = os.path.join(ROOT, "local", "serve-2080ti-smoke.json")
-DEFAULT_RUN = "/tmp/kvmem-run-watch"
-LOG = "/tmp/kvmem-serve-watch.log"
+DEFAULT_RUN = os.environ.get("RUN_DIR", "/tmp/kvmem-run-watch")
+MISS_LOG = os.environ.get("KVMEM_SESSION_MISS_LOG", "/tmp/kvmem_session_miss.jsonl")
 
 FATAL = re.compile(r"(ValueError: |RuntimeError: |EngineDeadError|engine core initialization failed"
                    r"|CUDA out of memory|Traceback \(most recent call last\))")
@@ -103,7 +108,7 @@ def cmd_start(args):
     # capture/launch.json or is empty); otherwise ask for --fresh.
     if os.path.isdir(args.run_dir):
         entries = set(os.listdir(args.run_dir))
-        ours = not entries or entries <= {"capture", "launch.json"}
+        ours = not entries or entries <= {"capture", "launch.json", "serve.log"}
         if not ours and not args.fresh:
             print("run-dir %s has unrelated content; pass --fresh to replace it" % args.run_dir)
             return 1
@@ -112,37 +117,43 @@ def cmd_start(args):
     elif os.path.exists(args.run_dir):
         print("run-dir %s exists and is not a directory" % args.run_dir)
         return 1
-    log = open(args.log, "w")
+    log_path = args.log or os.path.join(args.run_dir, "serve.log")
+    if os.path.dirname(os.path.abspath(log_path)) == os.path.abspath(args.run_dir):
+        os.makedirs(args.run_dir, exist_ok=True)   # the launcher owns serve.log only
+    log = open(log_path, "w")
     started = time.time()
-    proc = subprocess.Popen([os.path.join(venv(), "vllm-kvmem"), "serve", "--config", args.config, "--run-dir", args.run_dir],
-                            stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-    print("launch pid=%d log=%s" % (proc.pid, args.log))
+    command = [os.path.join(venv(), "vllm-kvmem"), "serve", "--config", args.config,
+               "--run-dir", args.run_dir]
+    for assignment in args.passthrough:
+        command += ["--set", assignment]
+    proc = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    print("launch pid=%d log=%s" % (proc.pid, log_path))
     marker = "Application startup complete"
     last_note = 0.0
     while True:
         if proc.poll() is not None:
             print("FAILED: process exited with %s after %.1fs" % (proc.returncode, time.time() - started))
-            _tail(args.log, FATAL)
+            _tail(log_path, FATAL)
             return 1
         model = ready()
         if model is not None:
             print("READY in %.1fs  model=%s ctx=%s" % (time.time() - started, model.get("id"),
                                                        model.get("max_model_len")))
-            _pool_line(args.log)
+            _pool_line(log_path)
             for idx, util, mem in gpu():
                 print("  gpu%d util=%d%% mem=%d MiB" % (idx, util, mem))
             return 0
-        text = _tail(args.log, FATAL, quiet=True)
+        text = _tail(log_path, FATAL, quiet=True)
         if text:
             print("FAILED at %.1fs: %s" % (time.time() - started, text[-300:]))
             return 1
-        if os.path.exists(args.log):
-            with open(args.log, "r", errors="replace") as fh:
+        if os.path.exists(log_path):
+            with open(log_path, "r", errors="replace") as fh:
                 if marker in fh.read() and time.time() - last_note > 5:
                     last_note = time.time()
         if time.time() - started > args.timeout:
             print("TIMEOUT after %.1fs (no /health 200)" % (time.time() - started))
-            _tail(args.log, FATAL)
+            _tail(log_path, FATAL)
             return 1
         time.sleep(0.5)
 
@@ -169,6 +180,79 @@ def _pool_line(path):
     except FileNotFoundError:
         pass
 
+def _log_path(run_dir, explicit=None):
+    return explicit or os.path.join(run_dir, "serve.log")
+
+
+def cmd_logs(args):
+    run_dir = args.run_dir
+    log_path = _log_path(run_dir, args.log)
+    capture = os.path.join(run_dir, "capture")
+    print("run-dir:", run_dir)
+    print("serve log:", log_path, "(exists)" if os.path.exists(log_path) else "(missing)")
+    if os.path.isdir(capture):
+        for name in sorted(os.listdir(capture)):
+            path = os.path.join(capture, name)
+            if os.path.isfile(path):
+                print("  capture/%s %d bytes" % (name, os.path.getsize(path)))
+    print("session misses:", MISS_LOG, "(exists)" if os.path.exists(MISS_LOG) else "(missing)")
+    if os.path.exists(log_path):
+        with open(log_path, "r", errors="replace") as fh:
+            lines = fh.read().splitlines()
+        print("--- last %d lines of serve.log ---" % args.lines)
+        for line in lines[-args.lines:]:
+            print(line[:240])
+    return 0
+
+
+PARAM_GROUPS = (
+    ("model", ("model", "served_model_name", "tensor_parallel_size", "dtype",
+               "kv_cache_dtype", "max_model_len", "execution_mode")),
+    ("batch", ("max_num_seqs", "max_num_batched_tokens", "prefill_chunk_tokens",
+               "gpu_memory_utilization", "cudagraph_capture_sizes")),
+    ("mtp", ("draft_method", "draft_tokens", "sm75_spec_sync_mode",
+             "allow_mamba_spec_full_cudagraph")),
+    ("window", ("kvmem.select_budget", "kvmem.gen_budget", "kvmem.block_tokens",
+                "kvmem.sink_blocks", "kvmem.recent_blocks", "query_replay_budget")),
+    ("history", ("kvmem.cpu_read_cache_bytes", "kvmem.repository_blocks",
+                 "kvmem.archive_backend")),
+    ("sessions", ("kvmem.session_capacity", "kvmem.session_checkpoint_bytes",
+                  "kvmem.session_checkpoint_policy", "kvmem.session_capture_terminal",
+                  "auto_session")),
+)
+
+
+def _dig(profile, dotted):
+    node = profile
+    for part in dotted.split("."):
+        if not isinstance(node, dict) or part not in node:
+            return "-"
+        node = node[part]
+    return node
+
+
+def cmd_params(args):
+    profile = None
+    launch = os.path.join(args.run_dir, "launch.json")
+    if os.path.exists(launch):
+        profile = json.load(open(launch)).get("profile")
+        print("source:", launch)
+    if profile is None and os.path.exists(args.config):
+        profile = json.load(open(args.config))
+        print("source:", args.config)
+    if profile is None:
+        print("no launch.json in the run dir and no readable config; is the service started?")
+        return 1
+    for title, keys in PARAM_GROUPS:
+        print("%s:" % title)
+        for key in keys:
+            print("  %-32s %s" % (key, _dig(profile, key)))
+    argv = json.load(open(launch)).get("vllm_argv") if os.path.exists(launch) else None
+    if argv and "--kv-cache-dtype" in argv:
+        print("  %-32s %s" % ("kv cache dtype (argv)", argv[argv.index("--kv-cache-dtype") + 1]))
+    return 0
+
+
 def cmd_stop(_args):
     pids = serve_pids()
     for pid in pids:
@@ -192,7 +276,7 @@ def cmd_stop(_args):
         print("  gpu%d util=%d%% mem=%d MiB" % (idx, util, mem))
     return 0
 
-def cmd_status(_args):
+def cmd_status(args):
     model = ready()
     print("ready:", model.get("id") if model else False)
     if model:
@@ -200,8 +284,10 @@ def cmd_status(_args):
     for idx, util, mem in gpu():
         print("gpu%d util=%d%% mem=%d MiB" % (idx, util, mem))
     print("serve pids:", serve_pids())
+    print("run-dir:", args.run_dir)
+    print("serve log:", _log_path(args.run_dir, args.log))
     for name in ("scheduler_resources.json", "archive.json"):
-        path = os.path.join("/tmp/kvmem-run-watch", "capture", name)
+        path = os.path.join(args.run_dir, "capture", name)
         if os.path.exists(path):
             data = json.load(open(path))
             if "sessions" in data:
@@ -281,20 +367,31 @@ def main():
     start = sub.add_parser("start")
     start.add_argument("--config", default=DEFAULT_CONFIG)
     start.add_argument("--run-dir", default=DEFAULT_RUN)
-    start.add_argument("--log", default=LOG)
+    start.add_argument("--log", default=None, help="engine log (default: RUN_DIR/serve.log)")
     start.add_argument("--timeout", type=float, default=420)
     start.add_argument("--fresh", action="store_true",
                        help="replace an existing run-dir that holds unrelated content")
     start.add_argument("--set", dest="passthrough", action="append", default=[], metavar="KEY=VALUE",
-                       help="profile override forwarded to the launcher (repeatable)")
+                       help="profile override forwarded to vllm-kvmem serve (repeatable)")
     sub.add_parser("stop")
-    sub.add_parser("status")
+    status = sub.add_parser("status")
+    status.add_argument("--run-dir", default=DEFAULT_RUN)
+    status.add_argument("--log", default=None)
+    logs = sub.add_parser("logs")
+    logs.add_argument("--run-dir", default=DEFAULT_RUN)
+    logs.add_argument("--log", default=None)
+    logs.add_argument("--lines", type=int, default=40)
+    params = sub.add_parser("params")
+    params.add_argument("--run-dir", default=DEFAULT_RUN)
+    params.add_argument("--config", default=DEFAULT_CONFIG)
     req = sub.add_parser("req")
     req.add_argument("--file", required=True)
     req.add_argument("--timeout", type=float, default=3600)
     req.add_argument("--idle-stall", type=float, default=25)
     args = parser.parse_args()
-    return {"start": cmd_start, "stop": cmd_stop, "status": cmd_status, "req": cmd_req}[args.cmd](args)
+    handlers = {"start": cmd_start, "stop": cmd_stop, "status": cmd_status,
+                "logs": cmd_logs, "params": cmd_params, "req": cmd_req}
+    return handlers[args.cmd](args)
 
 if __name__ == "__main__":
     sys.exit(main())
