@@ -15,7 +15,9 @@ the vLLM command line and exports the plugin environment. Nothing else needs edi
 ## Capacity formulas
 
 ```
-GPU pool needed          ≈ groups × (B + R)                # groups = attention cache groups (3 here)
+KV pages needed          ≈ ceil((B + R) / page_tokens) + 3 × (1 + spec_blocks)
+                            # page_tokens = 1,616, page = 26.8 MB, spec_blocks = 4
+                            # ⇒ 17,408 B per window token + 0.39 GiB fixed GDN state
 history tokens, per rank = min( cpu_read_cache_bytes / 17,408 ,
                                 repository_blocks × block_tokens )
 host RAM for history     ≈ 2 × history tokens × 17,408     # TP=2 → two archives
@@ -30,8 +32,8 @@ Measured archive cost per token (this model): **17,408 B/rank** = 17 full-attent
 | item | value |
 |---|---|
 | window | 49,152 tokens |
-| GPU pool needed | 3 × 49,152 = **147,456** |
-| measured pool at `gpu_memory_utilization=0.96` | **240,053** (1.63× margin) |
+| GPU KV needed | ceil(49,152/1,616) + 15 pages = **46 pages ≈ 1.21 GiB** |
+| pool at `gpu_memory_utilization=0.90` | 114 pages ≈ 2.99 GiB — spare, not required |
 | history for one 256K session | 262,144 × 17,408 = **4.25 GiB/rank** ⇒ 8.5 GiB host |
 | `cpu_read_cache_bytes` | 6 GiB (1.41× margin) |
 

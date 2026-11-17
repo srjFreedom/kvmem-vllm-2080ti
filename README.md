@@ -96,7 +96,7 @@ KVMem has three independent budgets. Mixing them up is the usual source of "it d
 | **session checkpoints** | `session_capacity` × `session_checkpoint_bytes` | how many conversations stay warm |
 
 ```
-GPU pool needed        ≈ 3 groups × (B + R)          # this model has 3 attention cache groups
+GPU KV needed          ≈ 17,408 B/token × (B + R) + 0.39 GiB   # the 3 GDN groups hold fixed state
 history tokens total   ≈ cpu_read_cache_bytes / 17,408      # per rank, shared by all sessions
 host RAM for that      = 2 × the above               # TP=2 runs two archives on one host
 sessions               × CTX   ≤ history tokens total        # otherwise the next session queues

@@ -92,7 +92,7 @@ KVMem 有四个独立预算，混淆它们是"放不下"的最常见原因。
 | **会话 checkpoint** | `session_capacity` × `session_checkpoint_bytes` | 能保活多少个会话 |
 
 ```
-GPU 池需求        ≈ 3 组 × (B + R)                    # 本模型有 3 个 attention cache 组
+GPU KV 需求       ≈ 17,408 B/token × (B + R) + 0.39 GiB（3 个 GDN 组的固定状态；与上下文无关）
 历史 token 总量   ≈ cpu_read_cache_bytes / 17,408     # 每 rank，被所有会话共享
 对应主机内存      = 上面数值 × 2                      # TP=2 在同一台机器上有两份 archive
 会话数 × CTX      ≤ 历史 token 总量                   # 否则新会话只能排队
