@@ -869,8 +869,9 @@ class KVMemScheduler(Scheduler):
                     and num_computed_tokens < request.num_prompt_tokens):
                 # Legacy chat/text entries share the larger atomic-Query batch
                 # budget. Their chunk still needs room for native MTP lookahead.
-                tokens = min(tokens, self.query_policy.gen_budget - self.query_policy.block_tokens,
-                             8 * self.query_policy.block_tokens)
+                from .prefill_control import chat_prefill_cap
+                tokens = min(tokens, chat_prefill_cap(self.query_policy.block_tokens,
+                                                      self.query_policy.gen_budget))
             if (batch_budget is not None and ordinary and not padding and
                     getattr(self, 'num_prefill_lookahead', 1) > 1):
                 baseline = self.query_policy.admit(num_computed_tokens, native_tokens,

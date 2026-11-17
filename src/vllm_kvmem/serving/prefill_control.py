@@ -184,3 +184,22 @@ class PrefillController:
                     maintenance_ms=self.last_maintenance_ms,
                     fixed_model_ms=self.fixed_ms, marginal_prefill_ms_per_token=self.token_ms,
                     unattainable_target_samples=self.unattainable)
+
+
+def chat_prefill_cap(block_tokens, gen_budget, blocks=None):
+    """Tokens one forward may cover for a native chat prefill.
+
+    A native chat request carries no request plan, so KVMEM_PREFILL_CHUNK_TOKENS (which
+    only the planned token-ID path applies) never sizes its prefill. This cap does, and
+    the default of eight blocks exists because the chunk must leave room inside G for the
+    native MTP lookahead; raising it trades prefill step count against a larger logits
+    transient (vocab x chunk x 2 bytes).
+    """
+    if blocks is None:
+        from ..core import settings as _settings
+        blocks = int(_settings.get('KVMEM_CHAT_PREFILL_BLOCKS', '8'))
+    if type(blocks) is not int or blocks <= 0:
+        raise ValueError('Chat prefill blocks must be a positive integer')
+    if type(block_tokens) is not int or type(gen_budget) is not int or block_tokens <= 0:
+        raise ValueError('Chat prefill needs a positive block size and G')
+    return min(gen_budget - block_tokens, blocks * block_tokens)
