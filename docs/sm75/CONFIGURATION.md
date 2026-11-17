@@ -117,3 +117,19 @@ Two caveats, both measured:
    extrapolated. It returns the right answer in our needle tests, but long-range quality is unverified.
 
 Cost: prefill runs at ~390–1,000 tok/s depending on the window, so a 270K prompt takes ~11 minutes.
+
+## Window capacity vs utilization (measured on 2 × 22 GB)
+
+The pool holds `pages × 1,616` attention tokens; the 15 pages of GDN state are fixed.
+
+| `gpu_memory_utilization` | pool | usable window | code-gen decode | max-length (258K) prefill |
+|---|---|---|---|---|
+| 0.82 | 70,690 tok (43 pages) | ~45K | — | not tested |
+| **0.90 (default)** | 167,889 tok (103 pages) | **142K** | 80.1 tok/s @131K window | ✅ 1,017 s |
+| 0.92 | 191,453 tok (118 pages) | 166K | — | — |
+| **0.96** | 240,053 tok (148 pages) | **215K** | **80.0 tok/s @200,704 window** | ❌ CUDA OOM (engine died) |
+
+Reading: a 200K window boots and decodes at full speed at 0.96 — the old fork's 0.972 → ~201K pool is
+matched or beaten — but the **prefill transient of a maximum-length prompt no longer fits** at that
+utilization. 0.90 with a 131K window is the setting that survives both. Choose by workload:
+long inputs → 0.90; long windows for many short requests → 0.96.
