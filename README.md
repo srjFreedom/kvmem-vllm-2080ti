@@ -102,7 +102,7 @@ host RAM for that      = 2 × the above               # TP=2 runs two archives o
 sessions               × CTX   ≤ history tokens total        # otherwise the next session queues
 ```
 
-Defaults (verified): B = 32K, R = 16K, CTX = 256K, `gpu_memory_utilization` = 0.96,
+Defaults (verified): B = 32K, R = 16K, CTX = 256K, `gpu_memory_utilization` = 0.90,
 `query_replay_budget` = 4,096, `session_capacity` = 1, `cpu_read_cache_bytes` = 6 GiB.
 
 > `query_replay_budget` defaults to R and costs ~180 KiB of VRAM per token. Leaving it at 16K is what

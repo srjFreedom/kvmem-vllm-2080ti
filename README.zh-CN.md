@@ -98,7 +98,7 @@ GPU 池需求        ≈ 3 组 × (B + R)                    # 本模型有 3 �
 会话数 × CTX      ≤ 历史 token 总量                   # 否则新会话只能排队
 ```
 
-默认（已实测）：B=32K、R=16K、CTX=256K、`gpu_memory_utilization=0.96`、
+默认（已实测）：B=32K、R=16K、CTX=256K、`gpu_memory_utilization=0.90`、
 `query_replay_budget=4,096`、`session_capacity=1`、`cpu_read_cache_bytes=6 GiB`。
 
 > `query_replay_budget` 默认等于 R，约 **180 KiB/token** 的显存；不显式设置它，
