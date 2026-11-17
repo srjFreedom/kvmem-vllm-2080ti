@@ -332,3 +332,16 @@ B 留给"纯 token 级 API + 长输出"的专门场景，且需要额外约 3.6 
 结论：**池容量与旧 fork 同级甚至更好**（0.96 的 240K > 旧 0.972 的 201K），200K 窗口能跑、
 decode 速度不变；但 `0.96` 下**最长 prompt 的 prefill 余量不够**（会 OOM）。
 按 workload 选：长输入 → 0.90 + 131K 窗口；短输入多会话的大窗口 → 0.96。
+
+## 15. 最终默认：util 0.92 / 窗口 147,456 / chunk 1,024
+
+| 项 | 值 |
+|---|---|
+| `gpu_memory_utilization` | **0.92**（占用 20,188/22,528 MiB，余量 2.34 GiB）|
+| 窗口 | **147,456**（B=131,072 / R=16,384，sink/recent = 8,192/4,096）|
+| 池 | 191,453 token = 118 页 ≈ 3.09 GiB；需求 107 页 ⇒ **1.10×** |
+| `max_num_batched_tokens` / `prefill_chunk_tokens` | **1,024**（logits 缓冲 0.49 GB，4,096 时 1.94 GB 会让最长 prefill OOM）|
+| CTX / 会话 / 归档 | 262,144 / capacity 1 / 6 GiB |
+
+实测：代码生成 **80.1 tok/s**；7,252 token 会话续写 7.51 s → **0.33 s**。
+新增 `local/serve-2080ti-200k.json`（util 0.96 + 窗口 200,704 + chunk 1,024，启动已验证）。

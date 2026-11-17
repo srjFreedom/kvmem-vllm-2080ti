@@ -81,7 +81,7 @@ uv pip install --python /home/srj/vLLM-2080Ti-Definitive/.venv/bin/python -e .
 sudo cp deploy/kvmem-vllm.service /etc/systemd/system/ && sudo systemctl daemon-reload
 ```
 
-Profiles: `local/serve-2080ti-default.json` (131K window, 256K context, 1 retained session), `local/serve-2080ti-lean.json` (49K window, util 0.82),
+Profiles: `local/serve-2080ti-default.json` (147K window, util 0.92, chunk 1,024), `local/serve-2080ti-lean.json` (49K window, util 0.82), `local/serve-2080ti-200k.json` (200K window, util 0.96),
 `local/serve-2080ti-128k.json`, `local/serve-2080ti-256k.json`.
 
 ## Configuration in one page
@@ -102,8 +102,9 @@ host RAM for that      = 2 × the above               # TP=2 runs two archives o
 sessions               × CTX   ≤ history tokens total        # otherwise the next session queues
 ```
 
-Defaults (verified): B = 112K, R = 16K (window 131,072), CTX = 256K, `gpu_memory_utilization` = 0.90,
-`query_replay_budget` = 4,096, `session_capacity` = 1, `cpu_read_cache_bytes` = 6 GiB.
+Defaults (verified): B = 128K, R = 16K (window 147,456), CTX = 256K, `gpu_memory_utilization` = 0.92,
+`max_num_batched_tokens` = 1,024 (logits buffer 0.49 GB), `query_replay_budget` = 4,096,
+`session_capacity` = 1, `cpu_read_cache_bytes` = 6 GiB.
 
 > `query_replay_budget` defaults to R and costs ~180 KiB of VRAM per token. Leaving it at 16K is what
 > made a 48K window look impossible; set it explicitly.
