@@ -54,6 +54,9 @@ DEFAULTS = {
     'sm75_spec_sync_mode': 'nosync',
     # Keep FULL CUDA graph replay for the hybrid Mamba/GDN decode path.
     'allow_mamba_spec_full_cudagraph': True,
+    # Experimental CUDA VMM allocator; required before PYTORCH_CUDA_ALLOC_CONF=expandable_segments.
+    'enable_cumem_allocator': False,
+    'disable_custom_all_reduce': False,
 }
 PATHS = ('model', 'tokenizer', 'hf_config_path', 'draft_model', 'mm_proj')
 
@@ -447,6 +450,10 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
         env['KVMEM_GIL_GATE_DRAIN_OPEN'] = '0'
     if cfg['kv_cache_memory_bytes'] is not None:
         argv.extend(['--kv-cache-memory-bytes', str(cfg['kv_cache_memory_bytes'])])
+    if cfg['enable_cumem_allocator']:
+        argv.append('--enable-cumem-allocator')
+    if cfg['disable_custom_all_reduce']:
+        argv.append('--disable-custom-all-reduce')
     if options.flashinfer_gemm_bucket_alignment:
         seed = _settings.get('KVMEM_FLASHINFER_GEMM_AUTOTUNE_SEED')
         if seed:

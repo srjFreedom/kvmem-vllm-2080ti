@@ -216,7 +216,10 @@ arithmetic: [docs/sm75/CONFIGURATION.md](docs/sm75/CONFIGURATION.md).
    pool further needs a smaller transient — the largest lever is quantizing the BF16 `lm_head`
    (~2.5 GB per rank). The allocator expands into every free byte regardless of pool size, so its
    occasional `memory allocation failed ... retry` lines at 200K are occupancy artefacts, not a
-   fixed per-request overhead.
+   fixed per-request overhead. `enable_cumem_allocator=true` with
+   `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` removes them (200K peak 21,990 -> 19,680 MiB,
+   12 -> 0 retries) but needs `disable_custom_all_reduce=true`: the VMM segments break the custom
+   all-reduce setup, and NCCL costs about 5% of decode throughput.
 
 ## Repository layout
 
