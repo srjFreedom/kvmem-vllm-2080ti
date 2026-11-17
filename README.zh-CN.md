@@ -160,6 +160,11 @@ GPU KV 需求       ≈ 17,408 B/token × (B + R) + 0.39 GiB（3 个 GDN 组的�
 > `query_replay_budget` 默认等于 R，约 **180 KiB/token** 的显存；不显式设置它，
 > 48K 窗口看起来就"永远放不下"。这是最容易踩的坑。
 
+`generation_config` 决定采样默认值：`vllm`（仓库默认）用 vLLM 的中性默认；`auto` 则把模型目录
+`generation_config.json` 应用到"未显式传采样参数"的请求。推理模型停在引擎默认（temperature 1.0）
+时，长输出会退化成绕圈子、草稿接受率同步崩塌；随附启动脚本设 `auto`，实测 checkpoint 记录
+temperature 0.6、top_p 0.95、top_k 20。
+
 参数全表、与旧适配器（`B/R/CTX/HOST_MIB/SESSIONS`）的对应关系、容量算式：
 [docs/sm75/zh-CN/parameter-map.md](docs/sm75/zh-CN/parameter-map.md) 与
 [docs/sm75/zh-CN/baseline.md](docs/sm75/zh-CN/baseline.md)。
@@ -183,12 +188,11 @@ GPU KV 需求       ≈ 17,408 B/token × (B + R) + 0.39 GiB（3 个 GDN 组的�
    应放在防火墙或带鉴权的反向代理后面。
 7. **每卡显存主要被权重吃掉**。27B FP8 权重 + BF16 `lm_head` + MTP 头每 rank 加载 14.54 GiB，
    CUDA 上下文/NCCL/Triton 再占约 1.2 GiB，22 GB 卡可用的 21.1 GiB 里约 15.8 GiB 在 KV 之前就没了。
-   `gpu_memory_utilization` 从剩余量里切池，而长 prompt 实测瞬态约 2.7 GiB（logits 缓冲、查询回放、
-   组装暂存）不在它的激活画像里。应改为显式钉池：
-   `kv_cache_memory_bytes=2254857830`（2.1 GiB）+ `prefill_chunk_tokens=1024` +
-   `query_replay_budget=2048`，80K 冷 prompt 还剩约 0.8 GiB 余量；而
-   `gpu_memory_utilization=0.92`（3.4 GiB 池）只剩约 1.4 GiB，申请显存失败。
-   想把池再做大只能压瞬态——最大的杠杆是把 BF16 `lm_head` 量化（每 rank 约 2.5 GB）。
+   `gpu_memory_utilization` 从剩余量里切池，而长 prompt 的瞬态（logits 缓冲、查询回放、组装暂存）
+   不在它的激活画像里——应改为显式钉池：`kv_cache_memory_bytes=4294967296`（4 GiB）+
+   `prefill_chunk_tokens=1024` + `query_replay_budget=2048`，每卡空闲余量约 0.4 GiB，200K 冷 prompt
+   实测 0 次分配重试。约 1.5 GiB 是能启动的最小池，低于 ~0.8 GiB 准入会被拒绝。
+   池再大只会挤占瞬态——最大的杠杆是把 BF16 `lm_head` 量化（每 rank 约 2.5 GB）。
 
 ## 仓库结构
 
@@ -211,7 +215,7 @@ docs/                    上游 kvmem-vllm 文档（未改动）
 |---|---|---|
 | [`kvmem/kvmem-vllm`](https://github.com/kvmem/kvmem-vllm) | KVMem 机制本体：调度器、连接器、归档、会话 —— 本仓库是它的衍生 | Apache-2.0 |
 | [`vLLM`](https://github.com/vllm-project/vllm) | 模型执行、attention 后端、调度器、MTP | Apache-2.0 |
-| `vLLM-2080Ti-Definitive`（私有 fork）| SM75/图灵适配：SM75 上的 FlashInfer、FP8 仅权重路径、全图 CUDA graph 配方、MTP 草稿契约 | Apache-2.0（vLLM 衍生）|
+| [`vLLM-2080Ti-Definitive`](https://github.com/weicj/vLLM-2080Ti-Definitive)（SM75 版 vLLM fork）| SM75/图灵适配：SM75 上的 FlashInfer、FP8 仅权重路径、全图 CUDA graph 配方、MTP 草稿契约 | Apache-2.0（vLLM 衍生）|
 | [FlashInfer](https://github.com/flashinfer-ai/flashinfer) | paged attention 内核 | Apache-2.0 |
 | [Triton](https://github.com/triton-lang/triton) | GDN / M-RoPE / 装配内核 | MIT |
 | [Qwen](https://github.com/QwenLM) 模型家族 | 被服务的 checkpoint | 依其模型许可 |

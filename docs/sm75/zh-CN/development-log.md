@@ -66,7 +66,7 @@
 ## 5. 现成资产（迁移来源）
 
 - `vLLM-2080Ti-Definitive` 分支 `kvmem-0.2.2-clean` 有 **20 个未推送提交**（已备份为 bundle 文件），其中 `a156cf2bfd` 是“kvmem 集成补丁（同步自旧 adapter 仓库）”，P3 的实现可以直接参考/迁移。
-- 旧适配器代码已删除，但**已推送到私有仓库** `srjFreedom/kvmem-vllm-adapter`，保留在 `legacy-adapter-v0.5` 分支。
+- 旧适配器代码已删除，但**已推送到** `srjFreedom/kvmem-vllm-adapter`，保留在 `legacy-adapter-v0.5` 分支。
 
 ## 6. 待你拍板
 

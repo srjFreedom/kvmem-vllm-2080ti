@@ -72,19 +72,17 @@ cd vLLM-2080Ti-Definitive
 git checkout v0.2.2-post3 && ./build.sh                           # produces .venv (uv) + the SM75 kernels
 cd ..
 
-git clone git@github.com:srjFreedom/kvmem-vllm-adapter.git kvmem-vllm-2080ti   # this repo (private)
+git clone https://github.com/srjFreedom/kvmem-vllm-adapter.git kvmem-vllm-2080ti
 cd kvmem-vllm-2080ti
 
 export KVMEM_ENGINE_DIR=$PWD/../vLLM-2080Ti-Definitive
 export KVMEM_MODEL_DIR=/path/to/checkpoint
-./deploy/install.sh                                               # patch, plugin, smoke
+./deploy/install.sh              # patch the engine, install the plugin (editable), smoke-test
 ```
 
-# 1. check the host, patch the engine, install this plugin (editable) and smoke-test
-cd /path/to/kvmem-vllm-2080ti
-./deploy/install.sh
+Serve and verify (polls `/v1/models`, samples `nvidia-smi`, detects stalls):
 
-# 2. serve and verify (polls /v1/models, samples nvidia-smi, detects stalls)
+```bash
 ./deploy/run-kvmem-vllm.sh start
 ./scripts/serve_watch.py status
 ./scripts/serve_watch.py params                 # effective window / history / sessions / MTP depth
@@ -177,6 +175,12 @@ Defaults (verified): B = 36K, R = 4K (window 40,960), CTX = 256K, `gpu_memory_ut
 > `query_replay_budget` defaults to R and costs ~180 KiB of VRAM per token. Leaving it at 16K is what
 > made a 48K window look impossible; set it explicitly.
 
+`generation_config` selects the sampling defaults: `vllm` (repository default) keeps vLLM's neutral
+defaults, while `auto` applies the checkpoint's `generation_config.json` to requests that omit
+sampling parameters. A reasoning model left at the engine default (temperature 1.0) degrades into
+rambling on long outputs and its draft acceptance collapses; the shipped launcher sets `auto` and the
+verified checkpoint records temperature 0.6, top_p 0.95, top_k 20.
+
 Full tables, the parameter mapping from the old adapter (`B/R/CTX/HOST_MIB/SESSIONS`) and capacity
 arithmetic: [docs/sm75/CONFIGURATION.md](docs/sm75/CONFIGURATION.md).
 
@@ -208,18 +212,16 @@ arithmetic: [docs/sm75/CONFIGURATION.md](docs/sm75/CONFIGURATION.md).
 8. **Per-card VRAM is dominated by weights.** The 27B FP8 checkpoint plus its BF16 `lm_head` and
    MTP head load as 14.54 GiB per rank, and the CUDA context/NCCL/Triton add ~1.2 GiB, so ~15.8 GiB
    of the 21.1 GiB usable on a 22 GB card are gone before any KV. `gpu_memory_utilization` then sizes
-   the pool from the remainder while the real long-prompt transient (~2.7 GiB: logits buffer, query
-   replay, assembly staging) is not part of its activation profile. Pin the pool explicitly instead:
-   `kv_cache_memory_bytes=2254857830` (2.1 GiB) with `prefill_chunk_tokens=1024` and
-   `query_replay_budget=2048` leaves ~0.8 GiB slack for an 80K-token cold prompt, where
-   `gpu_memory_utilization=0.92` (3.4 GiB pool) had only ~1.4 GiB and failed to allocate. Raising the
-   pool further needs a smaller transient — the largest lever is quantizing the BF16 `lm_head`
-   (~2.5 GB per rank). The allocator expands into every free byte regardless of pool size, so its
-   occasional `memory allocation failed ... retry` lines at 200K are occupancy artefacts, not a
-   fixed per-request overhead. `enable_cumem_allocator=true` with
-   `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` removes them (200K peak 21,990 -> 19,680 MiB,
-   12 -> 0 retries) but needs `disable_custom_all_reduce=true`: the VMM segments break the custom
-   all-reduce setup, and NCCL costs about 5% of decode throughput.
+   the pool from the remainder while the real long-prompt transient (logits buffer, query replay,
+   assembly staging) is not part of its activation profile — pin the pool instead:
+   `kv_cache_memory_bytes=4294967296` (4 GiB) with `prefill_chunk_tokens=1024` and
+   `query_replay_budget=2048` boots with ~0.4 GiB free per card and serves a 200K cold prompt with
+   zero allocator retries; ~1.5 GiB is the smallest pool that boots, and below ~0.8 GiB admission is
+   refused. A larger pool only eats the transient — the biggest lever is quantizing the BF16
+   `lm_head` (~2.5 GB per rank). `enable_cumem_allocator=true` with
+   `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` removes the occasional retry lines (200K peak
+   21,990 -> 19,680 MiB) but needs `disable_custom_all_reduce=true`: the VMM segments break the
+   custom all-reduce setup, and NCCL costs about 5% of decode throughput.
 
 ## Repository layout
 
@@ -242,7 +244,7 @@ This work exists only because others built the foundation. We are a patch on top
 |---|---|---|
 | [`kvmem/kvmem-vllm`](https://github.com/kvmem/kvmem-vllm) | the KVMem mechanism, scheduler, connector, archive, sessions — this repository is a derivative | Apache-2.0 |
 | [`vLLM`](https://github.com/vllm-project/vllm) | model execution, attention backends, scheduler, MTP | Apache-2.0 |
-| `vLLM-2080Ti-Definitive` (private fork) | SM75/Turing enablement: FlashInfer on SM75, FP8 weight-only path, full CUDA graph recipe, MTP draft contract | Apache-2.0 (vLLM derivative) |
+| [`vLLM-2080Ti-Definitive`](https://github.com/weicj/vLLM-2080Ti-Definitive) (SM75 vLLM fork) | SM75/Turing enablement: FlashInfer on SM75, FP8 weight-only path, full CUDA graph recipe, MTP draft contract | Apache-2.0 (vLLM derivative) |
 | [FlashInfer](https://github.com/flashinfer-ai/flashinfer) | paged attention kernels | Apache-2.0 |
 | [Triton](https://github.com/triton-lang/triton) | GDN / M-RoPE / assembly kernels | MIT |
 | [Qwen](https://github.com/QwenLM) model family | the served checkpoint | its model license |

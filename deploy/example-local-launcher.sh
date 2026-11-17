@@ -13,7 +13,8 @@ REPO=${REPO:-/path/to/kvmem-vllm-2080ti}
 export KVMEM_ENGINE_DIR=${KVMEM_ENGINE_DIR:-/path/to/vllm-0.2.2.post3-sm75}
 export KVMEM_MODEL_DIR=${KVMEM_MODEL_DIR:-/path/to/checkpoint}
 export CONFIG=${CONFIG:-$REPO/local/serve-2080ti-default.json}
-export RUN_DIR=${RUN_DIR:-/var/tmp/kvmem-run-prod}
+export RUN_DIR=${RUN_DIR:-/var/tmp/kvmem-run}
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True   # needs enable_cumem_allocator=true
 
 ACTION=${1:-start}
 shift || true
@@ -28,6 +29,7 @@ OVERRIDES=(
   --set execution_mode=full_graph
   --set tensor_parallel_size=2
   --set dtype=float16
+  --set generation_config=auto     # sampling defaults from the checkpoint's generation_config.json
   --set max_model_len=262144
   --set host=127.0.0.1        # 127.0.0.1 = local only; 0.0.0.0 exposes the API (no auth)
   --set port=18200
@@ -35,9 +37,12 @@ OVERRIDES=(
   # batching and VRAM
   --set max_num_seqs=1
   --set max_num_batched_tokens=2048
-  --set prefill_chunk_tokens=2048
-  --set gpu_memory_utilization=0.92
+  --set prefill_chunk_tokens=1024      # logits transient ≈ 0.5 GB; 2048 doubles it
+  --set gpu_memory_utilization=0.92    # only a ceiling: the pool below is pinned explicitly
+  --set kv_cache_memory_bytes=4294967296   # 4 GiB; 200K cold prefill, 0 allocator retries
   --set cudagraph_capture_sizes=[5]
+  --set enable_cumem_allocator=true    # required before expandable_segments
+  --set disable_custom_all_reduce=true # VMM segments break custom all-reduce
 
   # MTP speculative decoding
   --set draft_method=mtp
@@ -48,7 +53,7 @@ OVERRIDES=(
   # GPU window
   --set kvmem.select_budget=36864
   --set kvmem.gen_budget=4096
-  --set query_replay_budget=4096
+  --set query_replay_budget=2048
   --set kvmem.block_tokens=32
   --set kvmem.sink_blocks=128
   --set kvmem.recent_blocks=64
@@ -68,7 +73,7 @@ OVERRIDES=(
 )
 
 if [ "$ACTION" = "start" ]; then
-  echo "[kvmem] window B+R=40960 ctx=262144 MTP=4 util=0.92 chunk=2048"
+  echo "[kvmem] window B+R=40960 ctx=262144 MTP=4 util=0.92 chunk=1024 pool=4G"
   echo "[kvmem] engine log: $RUN_DIR/serve.log  params: $RUN_DIR/launch.json"
   exec "$REPO/deploy/run-kvmem-vllm.sh" start "${OVERRIDES[@]}" "$@"
 fi

@@ -9,7 +9,7 @@ theirs; the SM75 adaptation, the deployment profiles and the verification data a
 |---|---|---|---|
 | [`kvmem/kvmem-vllm`](https://github.com/kvmem/kvmem-vllm) | the whole mechanism: `vllm_kvmem` package, KVMem scheduler, `KVMemConnector`, CPU archive, sessions, request planning, prefix images, docs | Apache-2.0 | `src/vllm_kvmem` compatibility edits (see below) |
 | [`vLLM`](https://github.com/vllm-project/vllm) `v0.2.2.post3` | model execution, paged attention, scheduler, spec decode (MTP), CUDA graphs, API server | Apache-2.0 | one 15-line patch in `vllm/v1/core/kv_cache_utils.py` (`KVMEM_SKIP_KV_CHECK`) |
-| `vLLM-2080Ti-Definitive` (private fork of vLLM, SM75 enablement) | FlashInfer on SM75, FP8 weight-only (Marlin) path, the SM75 full-CUDA-graph recipe for MTP, MTP draft contract, `VLLM_SM75_SPEC_SYNC_MODE` / `VLLM_ALLOW_MAMBA_SPEC_FULL_CUDAGRAPH` | Apache-2.0 | we use it as the engine; no changes beyond the patch above |
+| [`vLLM-2080Ti-Definitive`](https://github.com/weicj/vLLM-2080Ti-Definitive) (SM75 vLLM fork) | FlashInfer on SM75, FP8 weight-only (Marlin) path, the SM75 full-CUDA-graph recipe for MTP, MTP draft contract, `VLLM_SM75_SPEC_SYNC_MODE` / `VLLM_ALLOW_MAMBA_SPEC_FULL_CUDAGRAPH` | Apache-2.0 | we use it as the engine; no changes beyond the patch above |
 | [FlashInfer](https://github.com/flashinfer-ai/flashinfer) | paged prefill/decode kernels | Apache-2.0 | none |
 | [Triton](https://github.com/triton-lang/triton) | GDN / M-RoPE / assembly kernels | MIT | none |
 | [PyTorch](https://github.com/pytorch/pytorch) | tensors, CUDA streams | BSD-3-Clause | none |
