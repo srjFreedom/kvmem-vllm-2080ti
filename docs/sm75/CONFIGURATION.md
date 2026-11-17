@@ -148,3 +148,15 @@ large windows for many short requests → 0.96.
 reach nested objects, JSON values keep their type, and an unknown key is rejected. This is how a machine
 launcher can keep local differences while the committed profile stays the reference default
 (see `deploy/example-local-launcher.sh`).
+
+## Common failures
+
+| symptom | cause | fix |
+|---|---|---|
+| `ValueError: GPU page pool cannot fit one worst-case KVMem request (admission tokens=40960 …)` at boot | pool smaller than one window plus headroom | raise `kv_cache_memory_bytes`; ~1.5 GiB is the smallest pool that boots, below ~0.8 GiB admission is refused |
+| `memory allocation failed … retry` or `CUDA out of memory … 71303168 bytes` during a long prefill | pool pinned above the free VRAM left for the prefill transient, or no VMM allocator | pin 4 GiB with `prefill_chunk_tokens=1024` and `query_replay_budget=2048`, plus `enable_cumem_allocator=true` and `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` |
+| `custom_all_reduce … 'invalid argument'` after enabling expandable segments | VMM segments break the custom all-reduce setup | `disable_custom_all_reduce=true` (NCCL; ~5% of decode throughput) |
+| engine refuses the expandable-segments environment | the VMM allocator is off | add `enable_cumem_allocator=true` |
+| long answers drift into repetition and MTP acceptance falls to ≈1.0 | the client omits sampling parameters, so vLLM's default (temperature 1.0) applies | `generation_config=auto` with a sane checkpoint `generation_config.json` |
+| `400 Explicit Query coordinates require a token-ID completion prompt` | KVMem query coordinates were sent through the chat endpoint | send token IDs to `/v1/completions`, or let the scheduler plan the query |
+| `KVMem: skipping the KV capacity check (… pool has X GiB)` | expected: `max_model_len` intentionally exceeds the pool | informational; the window, not the logical context, has to fit |
