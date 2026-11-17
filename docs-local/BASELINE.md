@@ -191,3 +191,39 @@ sink/recent=4,096/2,048            max_num_seqs=1  capture=[5]  draft=4  full_gr
 `plan.replay_end - plan.replay_begin > query_replay_budget ⇒ 拒绝`，只对**显式带
 `kvmem_request_plan` 的客户端**生效；auto-session 路径（我们的默认）不传 plan，
 所以 replay 只当"缓冲区大小"，设 4,096 不会限制提问长度。
+
+## 8. 输出到达 R（窗口边界）之后怎么处理
+
+**触发条件**（`serving/request_plan.py::action`）
+```python
+boundary = capacity - block_tokens          # capacity = B + R
+if history - offset >= boundary:
+    return 'pressure' if rolling_decode or prefill_window != 'keep_selected' else 'exhausted'
+```
+即生成把本地窗口填满时（`B+R-block_tokens`），计划返回 `pressure`。
+
+**处理动作：bounded refresh（有界刷新）**，与旧设计的"R 满了 → 追加 RAM → 重新检索 → 继续"一致：
+1. 把新生成的 token 追加进历史归档；
+2. 从**全量历史**重新选 `B` 个 token（sink 头 + recent 尾 + 中间按 Query 分数）；
+3. **只重建增量**（`rebuilt_tokens`），不是重算全量；
+4. 保持同一个 request / sampler / 工具帧，流式响应不中断。
+
+**实测（B=4,096、R=2,048，窗口 6,144，让模型连续数到 9000）**
+```
+请求: prompt 42 token，max_tokens 9,000
+结果: 200 OK，completion 9,000，wall 89.54 s ⇒ 100.5 tok/s，无卡顿（GPU busy 205/208 采样）
+bounded_refresh.jsonl: 2 条
+  ① history_begin=6112  selected_tokens=4096  query_tokens=5  rebuilt_tokens=2848
+  ② history_begin=8128  selected_tokens=4096  query_tokens=5  rebuilt_tokens=3072
+```
+⇒ 9,000 token 输出只触发 **2 次刷新**，每次重建约 2.8–3.1K token
+（按 ~1,000 tok/s 的 prefill 速度 ≈ 3 s/次 ⇒ 整体开销 **约 7%**）。
+
+**两种模式**
+| 模式 | 行为 |
+|---|---|
+| 默认（`rolling_active_window=false`）| 到 `B+R-block` 才刷新一次，重建增量；`max_tokens > R` 在**显式 plan** 路径会被拒（auto-session 路径不受限）|
+| `rolling_active_window=true` | 把 G 当"纯物理余量"（文档原话：*G is physical decode headroom in rolling mode, not a response limit*），边界更频繁、每次更小 |
+
+**失败边界**：若刷新无法准入（容量耗尽），计划返回 `exhausted`（会中断而非静默降级）。
+本机测试未出现。
