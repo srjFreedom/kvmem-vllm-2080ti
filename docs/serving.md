@@ -162,7 +162,7 @@ payload = {
     "cache_salt": "local-demo",
     "kvmem_query_span": [0, len(prompt)],
     "max_tokens": 128,
-    "temperature": 0.6,
+    "temperature": 0.3,
     "stream": True,
     "stream_options": {"include_usage": True},
 }

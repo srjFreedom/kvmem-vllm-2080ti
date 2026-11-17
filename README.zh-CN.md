@@ -163,7 +163,7 @@ GPU KV 需求       ≈ 17,408 B/token × (B + R) + 0.39 GiB（3 个 GDN 组的�
 `generation_config` 决定采样默认值：`vllm`（仓库默认）用 vLLM 的中性默认；`auto` 则把模型目录
 `generation_config.json` 应用到"未显式传采样参数"的请求。推理模型停在引擎默认（temperature 1.0）
 时，长输出会退化成绕圈子、草稿接受率同步崩塌；随附启动脚本设 `auto`，实测 checkpoint 记录
-temperature 0.6、top_p 0.95、top_k 20。
+temperature 0.3、top_p 0.95、top_k 20。
 
 参数全表、与旧适配器（`B/R/CTX/HOST_MIB/SESSIONS`）的对应关系、容量算式：
 [docs/sm75/zh-CN/parameter-map.md](docs/sm75/zh-CN/parameter-map.md) 与

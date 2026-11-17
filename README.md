@@ -179,7 +179,7 @@ Defaults (verified): B = 36K, R = 4K (window 40,960), CTX = 256K, `gpu_memory_ut
 defaults, while `auto` applies the checkpoint's `generation_config.json` to requests that omit
 sampling parameters. A reasoning model left at the engine default (temperature 1.0) degrades into
 rambling on long outputs and its draft acceptance collapses; the shipped launcher sets `auto` and the
-verified checkpoint records temperature 0.6, top_p 0.95, top_k 20.
+verified checkpoint records temperature 0.3, top_p 0.95, top_k 20.
 
 Full tables, the parameter mapping from the old adapter (`B/R/CTX/HOST_MIB/SESSIONS`) and capacity
 arithmetic: [docs/sm75/CONFIGURATION.md](docs/sm75/CONFIGURATION.md).
