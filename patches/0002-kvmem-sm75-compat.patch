@@ -1,13 +1,13 @@
 diff --git a/local/serve-2080ti-128k.json b/local/serve-2080ti-128k.json
 new file mode 100644
-index 0000000..c157649
+index 0000000..1f57c40
 --- /dev/null
 +++ b/local/serve-2080ti-128k.json
 @@ -0,0 +1,60 @@
 +{
-+  "model": "/home/srj/models/Coder390/FP8-fp8mtp",
-+  "tokenizer": "/home/srj/models/Coder390/FP8-fp8mtp",
-+  "hf_config_path": "/home/srj/models/Coder390/FP8-fp8mtp",
++  "model": "${KVMEM_MODEL_DIR}",
++  "tokenizer": "${KVMEM_MODEL_DIR}",
++  "hf_config_path": "${KVMEM_MODEL_DIR}",
 +  "model_format": "safetensors",
 +  "draft_method": "mtp",
 +  "draft_tokens": 4,
@@ -67,14 +67,14 @@ index 0000000..c157649
 \ No newline at end of file
 diff --git a/local/serve-2080ti-200k.json b/local/serve-2080ti-200k.json
 new file mode 100644
-index 0000000..ef03af0
+index 0000000..a9a144a
 --- /dev/null
 +++ b/local/serve-2080ti-200k.json
 @@ -0,0 +1,59 @@
 +{
-+  "model": "/home/srj/models/Coder390/FP8-fp8mtp",
-+  "tokenizer": "/home/srj/models/Coder390/FP8-fp8mtp",
-+  "hf_config_path": "/home/srj/models/Coder390/FP8-fp8mtp",
++  "model": "${KVMEM_MODEL_DIR}",
++  "tokenizer": "${KVMEM_MODEL_DIR}",
++  "hf_config_path": "${KVMEM_MODEL_DIR}",
 +  "model_format": "safetensors",
 +  "draft_method": "mtp",
 +  "draft_tokens": 4,
@@ -133,14 +133,14 @@ index 0000000..ef03af0
 \ No newline at end of file
 diff --git a/local/serve-2080ti-256k.json b/local/serve-2080ti-256k.json
 new file mode 100644
-index 0000000..12c2aa8
+index 0000000..4e75196
 --- /dev/null
 +++ b/local/serve-2080ti-256k.json
 @@ -0,0 +1,60 @@
 +{
-+  "model": "/home/srj/models/Coder390/FP8-fp8mtp",
-+  "tokenizer": "/home/srj/models/Coder390/FP8-fp8mtp",
-+  "hf_config_path": "/home/srj/models/Coder390/FP8-fp8mtp",
++  "model": "${KVMEM_MODEL_DIR}",
++  "tokenizer": "${KVMEM_MODEL_DIR}",
++  "hf_config_path": "${KVMEM_MODEL_DIR}",
 +  "model_format": "safetensors",
 +  "draft_method": "mtp",
 +  "draft_tokens": 4,
@@ -200,14 +200,14 @@ index 0000000..12c2aa8
 \ No newline at end of file
 diff --git a/local/serve-2080ti-baseline.json b/local/serve-2080ti-baseline.json
 new file mode 100644
-index 0000000..f42a120
+index 0000000..35d216d
 --- /dev/null
 +++ b/local/serve-2080ti-baseline.json
 @@ -0,0 +1,64 @@
 +{
-+  "model": "/home/srj/models/Coder390/FP8-fp8mtp",
-+  "tokenizer": "/home/srj/models/Coder390/FP8-fp8mtp",
-+  "hf_config_path": "/home/srj/models/Coder390/FP8-fp8mtp",
++  "model": "${KVMEM_MODEL_DIR}",
++  "tokenizer": "${KVMEM_MODEL_DIR}",
++  "hf_config_path": "${KVMEM_MODEL_DIR}",
 +  "model_format": "safetensors",
 +  "draft_method": "mtp",
 +  "draft_tokens": 4,
@@ -271,14 +271,14 @@ index 0000000..f42a120
 \ No newline at end of file
 diff --git a/local/serve-2080ti-default.json b/local/serve-2080ti-default.json
 new file mode 100644
-index 0000000..6a64852
+index 0000000..c131cff
 --- /dev/null
 +++ b/local/serve-2080ti-default.json
 @@ -0,0 +1,59 @@
 +{
-+  "model": "/home/srj/models/Coder390/FP8-fp8mtp",
-+  "tokenizer": "/home/srj/models/Coder390/FP8-fp8mtp",
-+  "hf_config_path": "/home/srj/models/Coder390/FP8-fp8mtp",
++  "model": "${KVMEM_MODEL_DIR}",
++  "tokenizer": "${KVMEM_MODEL_DIR}",
++  "hf_config_path": "${KVMEM_MODEL_DIR}",
 +  "model_format": "safetensors",
 +  "draft_method": "mtp",
 +  "draft_tokens": 4,
@@ -337,14 +337,14 @@ index 0000000..6a64852
 \ No newline at end of file
 diff --git a/local/serve-2080ti-lean.json b/local/serve-2080ti-lean.json
 new file mode 100644
-index 0000000..24986b5
+index 0000000..81abfda
 --- /dev/null
 +++ b/local/serve-2080ti-lean.json
 @@ -0,0 +1,59 @@
 +{
-+  "model": "/home/srj/models/Coder390/FP8-fp8mtp",
-+  "tokenizer": "/home/srj/models/Coder390/FP8-fp8mtp",
-+  "hf_config_path": "/home/srj/models/Coder390/FP8-fp8mtp",
++  "model": "${KVMEM_MODEL_DIR}",
++  "tokenizer": "${KVMEM_MODEL_DIR}",
++  "hf_config_path": "${KVMEM_MODEL_DIR}",
 +  "model_format": "safetensors",
 +  "draft_method": "mtp",
 +  "draft_tokens": 4,
@@ -403,14 +403,14 @@ index 0000000..24986b5
 \ No newline at end of file
 diff --git a/local/serve-2080ti-oldequiv.json b/local/serve-2080ti-oldequiv.json
 new file mode 100644
-index 0000000..5c0d322
+index 0000000..c4b9b3a
 --- /dev/null
 +++ b/local/serve-2080ti-oldequiv.json
 @@ -0,0 +1,54 @@
 +{
-+  "model": "/home/srj/models/Coder390/FP8-fp8mtp",
-+  "tokenizer": "/home/srj/models/Coder390/FP8-fp8mtp",
-+  "hf_config_path": "/home/srj/models/Coder390/FP8-fp8mtp",
++  "model": "${KVMEM_MODEL_DIR}",
++  "tokenizer": "${KVMEM_MODEL_DIR}",
++  "hf_config_path": "${KVMEM_MODEL_DIR}",
 +  "model_format": "safetensors",
 +  "draft_method": "mtp",
 +  "draft_tokens": 1,
@@ -464,14 +464,14 @@ index 0000000..5c0d322
 \ No newline at end of file
 diff --git a/local/serve-2080ti-smoke.json b/local/serve-2080ti-smoke.json
 new file mode 100644
-index 0000000..f42a120
+index 0000000..35d216d
 --- /dev/null
 +++ b/local/serve-2080ti-smoke.json
 @@ -0,0 +1,64 @@
 +{
-+  "model": "/home/srj/models/Coder390/FP8-fp8mtp",
-+  "tokenizer": "/home/srj/models/Coder390/FP8-fp8mtp",
-+  "hf_config_path": "/home/srj/models/Coder390/FP8-fp8mtp",
++  "model": "${KVMEM_MODEL_DIR}",
++  "tokenizer": "${KVMEM_MODEL_DIR}",
++  "hf_config_path": "${KVMEM_MODEL_DIR}",
 +  "model_format": "safetensors",
 +  "draft_method": "mtp",
 +  "draft_tokens": 4,
@@ -811,10 +811,10 @@ index f712268..0342075 100644
                      request._json = payload
              except ValueError as error:
 diff --git a/src/vllm_kvmem/serving/serve.py b/src/vllm_kvmem/serving/serve.py
-index 8ad0a8e..fd223f7 100644
+index 8ad0a8e..91c3cc6 100644
 --- a/src/vllm_kvmem/serving/serve.py
 +++ b/src/vllm_kvmem/serving/serve.py
-@@ -42,6 +42,18 @@ DEFAULTS = {
+@@ -42,8 +42,38 @@ DEFAULTS = {
      'recall_experiment': None,
      'model_adapter': None,
      'full_history_benchmark': False,
@@ -832,8 +832,39 @@ index 8ad0a8e..fd223f7 100644
 +    'allow_mamba_spec_full_cudagraph': True,
  }
  PATHS = ('model', 'tokenizer', 'hf_config_path', 'draft_model', 'mm_proj')
++
++
++def _expand_environment(value):
++    """Expand ``$VAR`` / ``${VAR}`` in every string of a serving profile.
++
++    Keeps machine-specific paths out of the repository: a profile can say
++    ``"model": "${KVMEM_MODEL_DIR}"`` and the launcher resolves it at start.
++    Unknown variables are left untouched so a typo fails loudly on the path check.
++    """
++    import os as _os
++    if isinstance(value, str):
++        return _os.path.expandvars(value)
++    if isinstance(value, list):
++        return [_expand_environment(item) for item in value]
++    if isinstance(value, dict):
++        return {key: _expand_environment(item) for key, item in value.items()}
++    return value
++
  # Explicit experiment controls for NVFP4 and FP8 checkpoints.
-@@ -356,7 +368,10 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
+ # Exclude weight-only/emulation backends: they change the activation precision.
+ LINEAR_BACKENDS = {
+@@ -165,6 +195,10 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
+         if name == 'mm_proj' and not is_gguf:
+             continue
+         value = cfg.get(name)
++        if isinstance(value, str) and '$' in value:
++            raise ValueError(
++                f'{name} still contains an unexpanded variable ({value}); '
++                'export it (e.g. KVMEM_MODEL_DIR) before serving')
+         if not isinstance(value, str) or not value:
+             raise ValueError(f'Serving profile requires local {name}')
+         path = Path(value).expanduser()
+@@ -356,7 +390,10 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
                          if cfg['draft_quantization'] else {})})
      argv = ['serve', cfg['model'], '--served-model-name', cfg['served_model_name'],
          '--host', cfg['host'], '--port', str(cfg['port']), '--tokenizer', cfg['tokenizer'],
@@ -845,7 +876,7 @@ index 8ad0a8e..fd223f7 100644
          '--language-model-only', *loader_args,
          '--kv-cache-dtype', 'fp8_e4m3', '--max-model-len', str(cfg['max_model_len']),
          '--max-num-seqs', str(cfg['max_num_seqs']), '--max-num-batched-tokens', str(cfg['max_num_batched_tokens']),
-@@ -435,6 +450,24 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
+@@ -435,6 +472,24 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
          env['KVMEM_FULL_HISTORY_BENCHMARK'] = '1'
      if cfg['prefill_chunk_tokens']:
          env['KVMEM_PREFILL_CHUNK_TOKENS'] = str(cfg['prefill_chunk_tokens'])
@@ -870,6 +901,15 @@ index 8ad0a8e..fd223f7 100644
      if cfg['reasoning_end_str'] is not None:
          argv += ['--reasoning-config',json.dumps({'reasoning_end_str':cfg['reasoning_end_str']})]
      if cfg['execution_mode'] in ('full_graph', 'compiled_graph'):
+@@ -615,7 +670,7 @@ def main(argv=None):
+         profile, base = load_default_profile(), Path.cwd()
+     else:
+         source = args.config.expanduser().resolve()
+-        profile, base = json.loads(source.read_text()), source.parent
++        profile, base = _expand_environment(json.loads(source.read_text())), source.parent
+     if args.tensor_parallel_size is not None:
+         profile['tensor_parallel_size'] = args.tensor_parallel_size
+     if isinstance(profile.get('kvmem'), dict):
 diff --git a/src/vllm_kvmem/serving/session_control.py b/src/vllm_kvmem/serving/session_control.py
 index df4640a..24fce6c 100644
 --- a/src/vllm_kvmem/serving/session_control.py
