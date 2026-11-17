@@ -197,6 +197,13 @@ arithmetic: [docs/sm75/CONFIGURATION.md](docs/sm75/CONFIGURATION.md).
 5. Session overflow is not evicted by default: a request that cannot get archive credit **queues**.
    Size `cpu_read_cache_bytes` for the sessions you keep, or enable
    `KVMEM_SESSION_IDLE_LRU_EVICTION=1` and a small `session_capacity`.
+6. **The API has no authentication.** The default profile binds `127.0.0.1`; a profile that sets
+   `host=0.0.0.0` serves the whole network, so put it behind a firewall or a reverse proxy that
+   adds auth.
+7. **Long cold prompts need VRAM headroom.** A prompt far above the window is prefilled while the
+   window is rebuilt every 256 tokens, and the assembly transient plus the logits buffer can exhaust
+   the pool; `gpu_memory_utilization=0.88` with `prefill_chunk_tokens=1024` keeps an 80K-token cold
+   prompt inside 20.5 GB per GPU (an 80K prompt at 0.92 / chunk 2048 failed to allocate).
 
 ## Repository layout
 

@@ -29,7 +29,7 @@ OVERRIDES=(
   --set tensor_parallel_size=2
   --set dtype=float16
   --set max_model_len=262144
-  --set host=127.0.0.1
+  --set host=127.0.0.1        # 127.0.0.1 = local only; 0.0.0.0 exposes the API (no auth)
   --set port=18200
 
   # batching and VRAM

@@ -179,6 +179,12 @@ GPU KV 需求       ≈ 17,408 B/token × (B + R) + 0.39 GiB（3 个 GDN 组的�
 5. 会话超额默认**不淘汰**：拿不到归档额度的请求会**排队**。要么按会话数配足
    `cpu_read_cache_bytes`，要么开启 `KVMEM_SESSION_IDLE_LRU_EVICTION=1` 并把
    `session_capacity` 设小。
+6. **API 没有鉴权**。默认 profile 绑 `127.0.0.1`；设成 `host=0.0.0.0` 就是全网可访问，
+   应放在防火墙或带鉴权的反向代理后面。
+7. **长冷 prompt 需要显存余量**。远超窗口的 prompt 在 prefill 时每 256 token 重建一次窗口，
+   组装瞬态加 logits 缓冲可能吃光池；`gpu_memory_utilization=0.88` 配
+   `prefill_chunk_tokens=1024` 时 80K 冷 prompt 稳定在每卡 20.5 GB 以内
+   （0.92 / chunk 2048 时 80K prompt 申请显存失败）。
 
 ## 仓库结构
 
