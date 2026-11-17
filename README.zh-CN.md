@@ -181,10 +181,14 @@ GPU KV 需求       ≈ 17,408 B/token × (B + R) + 0.39 GiB（3 个 GDN 组的�
    `session_capacity` 设小。
 6. **API 没有鉴权**。默认 profile 绑 `127.0.0.1`；设成 `host=0.0.0.0` 就是全网可访问，
    应放在防火墙或带鉴权的反向代理后面。
-7. **长冷 prompt 需要显存余量**。远超窗口的 prompt 在 prefill 时每 256 token 重建一次窗口，
-   组装瞬态加 logits 缓冲可能吃光池；`gpu_memory_utilization=0.88` 配
-   `prefill_chunk_tokens=1024` 时 80K 冷 prompt 稳定在每卡 20.5 GB 以内
-   （0.92 / chunk 2048 时 80K prompt 申请显存失败）。
+7. **每卡显存主要被权重吃掉**。27B FP8 权重 + BF16 `lm_head` + MTP 头每 rank 加载 14.54 GiB，
+   CUDA 上下文/NCCL/Triton 再占约 1.2 GiB，22 GB 卡可用的 21.1 GiB 里约 15.8 GiB 在 KV 之前就没了。
+   `gpu_memory_utilization` 从剩余量里切池，而长 prompt 实测瞬态约 2.7 GiB（logits 缓冲、查询回放、
+   组装暂存）不在它的激活画像里。应改为显式钉池：
+   `kv_cache_memory_bytes=2254857830`（2.1 GiB）+ `prefill_chunk_tokens=1024` +
+   `query_replay_budget=2048`，80K 冷 prompt 还剩约 0.8 GiB 余量；而
+   `gpu_memory_utilization=0.92`（3.4 GiB 池）只剩约 1.4 GiB，申请显存失败。
+   想把池再做大只能压瞬态——最大的杠杆是把 BF16 `lm_head` 量化（每 rank 约 2.5 GB）。
 
 ## 仓库结构
 

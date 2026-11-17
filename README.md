@@ -200,10 +200,16 @@ arithmetic: [docs/sm75/CONFIGURATION.md](docs/sm75/CONFIGURATION.md).
 6. **The API has no authentication.** The default profile binds `127.0.0.1`; a profile that sets
    `host=0.0.0.0` serves the whole network, so put it behind a firewall or a reverse proxy that
    adds auth.
-7. **Long cold prompts need VRAM headroom.** A prompt far above the window is prefilled while the
-   window is rebuilt every 256 tokens, and the assembly transient plus the logits buffer can exhaust
-   the pool; `gpu_memory_utilization=0.88` with `prefill_chunk_tokens=1024` keeps an 80K-token cold
-   prompt inside 20.5 GB per GPU (an 80K prompt at 0.92 / chunk 2048 failed to allocate).
+7. **Per-card VRAM is dominated by weights.** The 27B FP8 checkpoint plus its BF16 `lm_head` and
+   MTP head load as 14.54 GiB per rank, and the CUDA context/NCCL/Triton add ~1.2 GiB, so ~15.8 GiB
+   of the 21.1 GiB usable on a 22 GB card are gone before any KV. `gpu_memory_utilization` then sizes
+   the pool from the remainder while the real long-prompt transient (~2.7 GiB: logits buffer, query
+   replay, assembly staging) is not part of its activation profile. Pin the pool explicitly instead:
+   `kv_cache_memory_bytes=2254857830` (2.1 GiB) with `prefill_chunk_tokens=1024` and
+   `query_replay_budget=2048` leaves ~0.8 GiB slack for an 80K-token cold prompt, where
+   `gpu_memory_utilization=0.92` (3.4 GiB pool) had only ~1.4 GiB and failed to allocate. Raising the
+   pool further needs a smaller transient — the largest lever is quantizing the BF16 `lm_head`
+   (~2.5 GB per rank).
 
 ## Repository layout
 
