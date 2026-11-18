@@ -33,7 +33,8 @@ def test_opaque_source_is_bound_to_native_compile_key_and_saved_launch(tmp_path)
     assert len(expected[CAPTURE_COMPILE_KEY]) == 64
     assert runtime(worker_payload(launch)).capture_opaque_projection
     assert json.loads(argv[argv.index('--compilation-config')+1]) == {
-        'mode': 3, 'cudagraph_mode': 'FULL_AND_PIECEWISE'}
+        'mode': 3, 'cudagraph_mode': 'FULL_AND_PIECEWISE',
+        'cudagraph_capture_sizes': [5, 10, 15, 20]}
     assert '--enforce-eager' not in argv
     replay = build_launch(launch['profile'], tmp_path, tmp_path/'replay')
     assert json.loads(replay['vllm_argv'][replay['vllm_argv'].index('--additional-config')+1]) == expected

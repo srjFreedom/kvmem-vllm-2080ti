@@ -52,8 +52,5 @@
   "dtype": "float16",
   "auto_session": true,
   "skip_kv_check": true,
-  "cudagraph_capture_sizes": [
-    5
-  ],
   "query_replay_budget": 4096
 }

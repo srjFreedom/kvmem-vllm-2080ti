@@ -147,7 +147,8 @@ def test_full_graph_launch_keeps_original_selector_scheduler_and_archive(tmp_pat
     argv = plan['vllm_argv']
     assert '--enforce-eager' not in argv
     assert json.loads(argv[argv.index('--compilation-config') + 1]) == {
-        'mode': 0, 'cudagraph_mode': 'FULL'}
+        'mode': 0, 'cudagraph_mode': 'FULL',
+        'cudagraph_capture_sizes': [8, 16, 24, 32]}
     assert argv[argv.index('--scheduler-cls') + 1] == 'vllm_kvmem.serving.scheduler.KVMemScheduler'
     assert plan['environment']['KVMEM_FULL_GRAPH'] == '1'
     assert plan['environment']['KVMEM_BOUNDED_TARGET'] == '1'
@@ -571,7 +572,8 @@ def test_compiled_mtp_capture_uses_native_compiler_without_changing_memory_polic
     plan = build_launch(cfg, tmp_path, tmp_path/'compiled')
     argv = plan['vllm_argv']
     assert json.loads(argv[argv.index('--compilation-config')+1]) == {
-        'mode': 3, 'cudagraph_mode': 'FULL_AND_PIECEWISE'}
+        'mode': 3, 'cudagraph_mode': 'FULL_AND_PIECEWISE',
+        'cudagraph_capture_sizes': [4, 8, 12, 16]}
     assert '--no-async-scheduling' in argv and '--no-enable-prefix-caching' in argv
     assert plan['environment']['KVMEM_FULL_GRAPH'] == '1'
     assert '--enforce-eager' not in argv

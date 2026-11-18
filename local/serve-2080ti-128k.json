@@ -51,10 +51,5 @@
   "tensor_parallel_size": 2,
   "dtype": "float16",
   "auto_session": true,
-  "skip_kv_check": true,
-  "cudagraph_capture_sizes": [
-    5,
-    10,
-    15
-  ]
+  "skip_kv_check": true
 }

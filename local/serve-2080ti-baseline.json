@@ -52,11 +52,6 @@
   "dtype": "float16",
   "auto_session": true,
   "skip_kv_check": true,
-  "cudagraph_capture_sizes": [
-    5,
-    10,
-    15
-  ],
   "profiler_config": {
     "profiler": "torch",
     "torch_profiler_dir": "/tmp/vllm-prof2"

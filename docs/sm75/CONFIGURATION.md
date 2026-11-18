@@ -55,7 +55,7 @@ Measured archive cost per token (this model): **17,408 B/rank** = 17 full-attent
 | `kvmem.session_checkpoint_policy` | `pm` | P + terminal checkpoints; required for continuation hits |
 | `execution_mode` | `full_graph` | SM75 recipe: `cudagraph_mode=FULL` + `cudagraph_capture_sizes=[K+1]` |
 | `draft_tokens` | 4 | MTP drafts; acceptance decides the win (code ≈ 4/5, prose ≈ 2/5) |
-| `cudagraph_capture_sizes` | `[5]` | must equal `{query_len × batch}` for batch 1..`max_num_seqs` |
+| `cudagraph_capture_sizes` | *derived* | leave unset: derived as `(draft_tokens + 1) × 1..max_num_seqs`, which is exactly the set of reachable decode batch sizes. An explicit list is still honoured but must match, or decode silently drops to eager |
 | `prefill_chunk_tokens` / `max_num_batched_tokens` | 2,048 | logits buffer ≈ 1.0 GB; 4,096 ⇒ 1.94 GB and a max-length prefill can OOM at high utilization |
 | `chat_prefill_blocks` | 8 (256 tokens at block 32) | tokens per native-chat prefill step; a chat request carries no request plan, so `prefill_chunk_tokens` never sized it |
 | `max_num_seqs` | 1 | windowed requests are serialized anyway; raise only for spare authority slots |

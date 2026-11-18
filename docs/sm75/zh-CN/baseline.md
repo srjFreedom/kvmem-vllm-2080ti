@@ -28,7 +28,7 @@
 | `repository_blocks` | 16,384（× 32 = 524,288 token 名义）| 历史块数上限 |
 | `cpu_read_cache_bytes` | 4 GiB | **RAM 实际约束**（17,408 B/token ⇒ ~241K token）|
 | 会话 | `session_capacity=8`、`session_checkpoint_bytes=512 MiB`、`policy=pm`、`capture_terminal=true`、`freeze_prompt=false` | pm 才能多轮续写命中 |
-| 执行 | `execution_mode=full_graph`、`draft_tokens=4`、`cudagraph_capture_sizes=[5,10,15]`、`max_num_seqs=3` | SM75 全图 + 融合多步 draft |
+| 执行 | `execution_mode=full_graph`、`draft_tokens=4`、`max_num_seqs=3` | SM75 全图 + 融合多步 draft；`cudagraph_capture_sizes` 不填，按 `(draft_tokens+1) × 1..max_num_seqs` 自动推导（此处即 `[5,10,15]`）|
 | 引擎开关 | `VLLM_SM75_SPEC_SYNC_MODE=nosync`、`VLLM_ALLOW_MAMBA_SPEC_FULL_CUDAGRAPH=1` | 从 fork fast 档移植 |
 | 显存 | `gpu_memory_utilization=0.82`（池 **60,074** token）| 0.96 可到 30 万 token，dev 用小值省时间 |
 

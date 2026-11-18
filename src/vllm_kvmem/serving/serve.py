@@ -548,6 +548,21 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
                        if cfg['execution_mode'] == 'compiled_graph' else
                        {'mode': 0, 'cudagraph_mode': 'FULL'})
         sizes = cfg['cudagraph_capture_sizes']
+        if sizes is None:
+            # A decode step schedules one accepted token plus its drafts for every
+            # running sequence, so the reachable token counts are exactly
+            # (draft_tokens + 1) x 1..max_num_seqs. Deriving the set here keeps it
+            # in step with MTP depth and concurrency instead of making the operator
+            # restate both numbers, and removes the failure mode where a stale
+            # hand-written set silently drops decode back to eager.
+            step = cfg['draft_tokens'] + 1
+            sizes = [step * n for n in range(1, cfg['max_num_seqs'] + 1)]
+            if sizes[-1] > cfg['max_num_batched_tokens']:
+                raise ValueError(
+                    'max_num_batched_tokens cannot admit one MTP step per sequence: '
+                    f'{cfg["max_num_seqs"]} sequences with draft_tokens='
+                    f'{cfg["draft_tokens"]} need {sizes[-1]} tokens, '
+                    f'limit is {cfg["max_num_batched_tokens"]}')
         if sizes is not None:
             if (not isinstance(sizes, list) or not sizes or
                     any(type(n) is not int or not 1 <= n <= cfg['max_num_batched_tokens'] for n in sizes) or

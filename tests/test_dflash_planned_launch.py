@@ -85,7 +85,8 @@ def test_experimental_query_plan_retains_native_draft_cache_and_full_graphs(tmp_
     argv=plan['vllm_argv'];spec=json.loads(argv[argv.index('--speculative-config')+1])
     assert spec['method']=='dflash' and spec['num_speculative_tokens']==7
     assert spec['kv_cache_dtype']=='bfloat16'
-    assert json.loads(argv[argv.index('--compilation-config')+1])=={'mode':0,'cudagraph_mode':'FULL'}
+    assert json.loads(argv[argv.index('--compilation-config')+1])=={
+        'mode':0,'cudagraph_mode':'FULL','cudagraph_capture_sizes':[8,16,24,32]}
     assert plan['profile']['kvmem']['pressure_policy']=='graph'
     assert 'KVMEM_REQUEST_PLAN_CONFIG' in plan['environment']
     assert build_launch(plan['profile'],tmp_path,tmp_path/'replay')['vllm_argv']==argv
