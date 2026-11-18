@@ -3,7 +3,7 @@
 Importing this package never imports torch or initializes CUDA.
 """
 
-__version__ = "0.6.0"
+__version__ = "0.6.1"
 
 # Measured-effective optimizations are on by default (see defaults.py). This
 # runs before any submodule reads a KVMEM_* flag; explicit values still win and

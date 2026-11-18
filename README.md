@@ -48,7 +48,7 @@ layers, weight-only FP8, BF16 `lm_head`), TP = 2, `dtype=float16`, `kv-cache-dty
 | session continuation, under window | 2.4 s → **0.25 s** |
 | long generation past the window | 9,000 tokens, 100.5 tok/s, 2 bounded refreshes |
 | multi-session alternation | each session hits (0.25–0.40 s) |
-| concurrency | admitted, but **scheduled serially** (one windowed request per step) |
+| concurrency | independent sessions **decode in one step**; refresh and archive stay serial |
 
 Details and the exact commands: [docs/sm75/VERIFICATION.md](docs/sm75/VERIFICATION.md).
 
@@ -231,6 +231,7 @@ local/                   serving profiles
 deploy/                  launcher + systemd unit
 scripts/serve_watch.py   start/stop/status/req with GPU sampling
 patches/                 engine + plugin patches with base commits
+CHANGELOG.md             release notes
 docs/sm75/               architecture, configuration, verification, credits (English)
 docs/sm75/zh-CN/         Chinese design log, baseline, parameter map
 docs/                    upstream kvmem-vllm documentation (unchanged)

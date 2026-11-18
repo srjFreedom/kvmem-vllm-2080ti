@@ -65,7 +65,7 @@ and TP all-reduce is 2 %. MTP acceptance decides the speed: ~4/5 on code, ~2/5 o
 | 300K prompt with the 49,152 window at util 0.96/0.88 | CUDA OOM during prefill (128 MiB request) — VRAM, not a context cap |
 | same window at util **0.90** | 258,743-token prefill passes, pool 167,889, base 19,760 MiB, peak ~21,290 MiB |
 | same window at util **0.92** | 258,743-token prefill passes, pool **191,453**, base 20,188 MiB, **peak 21,822 of 22,528 MiB** |
-| concurrency | 2 tiny prompts overlap (0.30 s total); 2 windowed prompts serialize (4.3 s for 2×2.2 s); `authority_limit=3`, `rejections=0` |
+| concurrency | 2 tiny prompts overlap (0.30 s total); windowed prefills serialize (4.3 s for 2×2.2 s) while decode batches independent sessions into one step; `authority_limit=3`, `rejections=0` |
 | rolling mode | booted; `/v1/chat/completions` → 400 (needs token-ID completions); 100.6 tok/s vs 100.5 default |
 
 ## Reproducing
