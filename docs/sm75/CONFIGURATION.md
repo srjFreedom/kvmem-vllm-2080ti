@@ -76,6 +76,25 @@ Measured archive cost per token (this model): **17,408 B/rank** = 17 full-attent
 | `SPECULATIVE_TOKENS` | `draft_tokens` | same |
 | `GPU_UTIL` | `gpu_memory_utilization` | same |
 
+## Vision / multimodal (opt-in)
+
+The default profile is **text-only**: the vision tower is not loaded and image inputs are rejected.
+Image understanding is a launch choice, enabled by two top-level keys (not in the committed profile —
+add them to your profile or pass them with `--set`):
+
+| key | default | meaning |
+|---|---|---|
+| `mm_image_limit` | `0` | `0` keeps `--language-model-only` (no vision tower, text only). A positive value sets `--limit-mm-per-prompt` for images and loads the vision tower; `64` is the tested value. Video and audio stay `0`. |
+| `mm_gdn_prefill_backend` | `null` | `null` lets vLLM pick the GDN prefill backend. `flashqla_legacy` selects the SM75 FlashQLA backend, which the hybrid (GDN + full-attention) checkpoint needs on this hardware. |
+
+Where it runs and at what precision (measured on this checkpoint):
+
+- **On the GPU**, in the same workers as the language model (TP0/TP1), as part of prefill — not offloaded to the host. Image → patch embed → 27 ViT blocks → merger → visual embeddings, then scattered into the KV window.
+- **Vision tower: BF16.** Its weights ship in a separate `vision-bf16.safetensors` and the whole `model.visual.*` is excluded from FP8 quantization (`modules_to_not_convert`), so it loads at native BF16. The language model stays FP8. Keeping the ViT unquantized is deliberate — quantizing it measurably degrades image understanding.
+- **Dynamic resolution, no fixed input size** (`Qwen2VLImageProcessorFast`). Each visual token covers 32×32 px (`patch_size 16` × `merge_size 2`); the image is scaled so its total pixel count falls in **[65,536, 16,777,216]** with both edges on a multiple of 32. That is 64 visual tokens at 256×256 up to ~16,384 at 4096×4096, any aspect ratio in between. The encoder cache is budgeted at 16,384 tokens, so one maximum-size image fits exactly.
+
+Image conversations reuse sessions exactly like text ones: the visual embeddings enter the KVMem window and M-RoPE positions keep vLLM's native per-axis values, so a picture mid-conversation is retrieved on a later refresh like any other token.
+
 ## Generation past the window
 
 When the resident window fills (`B+R−block_tokens`), the plan returns `pressure` and KVMem runs a
