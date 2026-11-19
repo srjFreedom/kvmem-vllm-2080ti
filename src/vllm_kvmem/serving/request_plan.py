@@ -22,14 +22,23 @@ class RequestCapacityError(ValueError):
     """A supported plan whose combined reservations cannot fit this engine."""
 
 
-def selection_config(config, select_budget, *, selection, pressure_policy='recency'):
+def selection_config(config, select_budget, *, selection, pressure_policy='recency',
+                     sink_blocks=None, recent_blocks=None):
     """Fit reservations using the bands of the actual native picker.
 
     Attention/graph pressure keeps sink and mandatory pages but has no fixed
     recent band. Keep the owner configuration unchanged for subsequent Queries.
+    ``sink_blocks``/``recent_blocks`` override the bands for one selection: a
+    prefill slide keeps none of them, the decode-entry Query keeps both.
     """
-    recent = 0 if selection == 'pressure' and pressure_policy in ('attention', 'graph') else config.recent_blocks
-    return replace(config, select_budget=select_budget, recent_blocks=recent)
+    recent = (0 if selection == 'pressure' and pressure_policy in ('attention', 'graph')
+              else config.recent_blocks)
+    if recent_blocks is not None:
+        recent = recent_blocks
+    changes = dict(select_budget=select_budget, recent_blocks=recent)
+    if sink_blocks is not None:
+        changes['sink_blocks'] = sink_blocks
+    return replace(config, **changes)
 
 
 def _parts(value):

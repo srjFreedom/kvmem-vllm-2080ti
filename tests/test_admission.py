@@ -88,3 +88,17 @@ def test_semantic_prefill_keeps_the_query_picker_mid_prefill():
                              max_batched_tokens=2048) == 'pressure'
     assert refresh_selection(planned=False, remaining=80000, action=None,
                              max_batched_tokens=2048, semantic_prefill=True) == 'chunk'
+
+
+def test_selection_config_bands_can_be_zeroed_for_a_prefill_slide():
+    from dataclasses import make_dataclass
+    from vllm_kvmem.serving.request_plan import selection_config
+    Memory = make_dataclass('Memory', [('select_budget', int), ('sink_blocks', int),
+                                       ('recent_blocks', int), ('block_tokens', int),
+                                       ('gen_budget', int)])
+    cfg = Memory(select_budget=53248, sink_blocks=512, recent_blocks=32,
+                 block_tokens=32, gen_budget=4096)
+    step = selection_config(cfg, 16384, selection='query', sink_blocks=0, recent_blocks=0)
+    assert (step.sink_blocks, step.recent_blocks, step.select_budget) == (0, 0, 16384)
+    final = selection_config(cfg, 53248, selection='chunk')
+    assert (final.sink_blocks, final.recent_blocks) == (512, 32)

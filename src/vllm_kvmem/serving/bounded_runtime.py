@@ -263,8 +263,15 @@ def install_bounded_target(runner):
             from .request_plan import RequestPlan, selection_config
             pressure_policy = getattr(runtime.options, 'pressure_policy', None) or (
                 'attention' if getattr(runtime.options, 'action_pressure', False) else 'recency')
+            # A prefill slide keeps only retrieved history: no fixed sink/recent band.
+            # The refresh inside the last chunk (the decode-entry Query) keeps both.
+            remaining = int(batch.prefill_len_np[i]) - history
+            prefill_slide = remaining > int(getattr(runner.vllm_config.scheduler_config,
+                                                    'max_num_batched_tokens', 0))
             selected_cfg = selection_config(cfg,job.command.groups[0][1].window_tokens,
-                selection=job.command.selection,pressure_policy=pressure_policy)
+                selection=job.command.selection,pressure_policy=pressure_policy,
+                sink_blocks=0 if prefill_slide else None,
+                recent_blocks=0 if prefill_slide else None)
             mandatory_fit = RequestPlan(None,block_tokens=cfg.block_tokens,gen_budget=cfg.gen_budget,
                 mandatory=getattr(job.command,'mandatory_spans',())).mandatory_fit(history,selected_cfg)
             required = set(mandatory_fit['hard_blocks'])
