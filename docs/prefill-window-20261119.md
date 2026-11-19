@@ -68,3 +68,29 @@ NIAH at 131,072 with the 24,576 extent: needle at 65,536 and at 122,000 answer
 correctly; a needle at 30,000 is missed — with the default 57,344 extent it is
 missed as well, so that case is the existing outside-the-window behaviour rather
 than a regression from the smaller extent.
+
+## Final shape: one retrieval per slide, no probe forward
+
+Every refresh now composes the same window: a fixed sink band, a fixed recent
+band, and a scored middle, filled to `select_budget`. Sink and recent are what
+keep the chunks after a slide connected to the text right before them; the
+middle is what carries long-range evidence.
+
+The queries for that scoring come from `_kvmem_graph_captures`, the buffers the
+previous public forward already wrote. A slide therefore costs a slice and a
+`clone` (~1–2 ms) instead of a private forward (~1.0–1.3 s). Requests that are
+not alone in the batch still fall back to the probe.
+
+`gen_budget` (R) is no longer just generation headroom: it sets how far the
+window slides between refreshes, `R − lookahead − block_tokens`. With
+`B = 49,152`, `R = 8,192`, `sink = 10,240`, `recent = 2,048`:
+
+| Prompt | Chunks | Refreshes | Per-refresh growth | Probes | Prefill |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 87,035 | 85 | 6 | 6,144 (6 chunks) | 0 | 86.3 s (1,020 tok/s) |
+| 204,951 | 201 | 26 | 6,144 | 0 | 220.8 s (928 tok/s) |
+
+For reference, the same 204,951-token prompt took 351 s when every refresh ran a
+private probe forward, and 189 s with the fixed 16K prefill pool (which keeps
+B-sized recall out of the window). Dropping R to 4,096 pushed the refresh count
+to ~50 and cost 17.7 s, which is why the shared profile now defaults to 8,192.

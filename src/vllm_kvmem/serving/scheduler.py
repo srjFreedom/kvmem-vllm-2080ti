@@ -175,6 +175,11 @@ class KVMemScheduler(Scheduler):
         self._kvmem_prefill_select = int(_kv_prefill_settings.get('KVMEM_PREFILL_SELECT_TOKENS', '0') or 0)
         if self._kvmem_prefill_window < 0 or self._kvmem_prefill_window % config.block_tokens:
             raise ValueError('KVMEM_PREFILL_WINDOW_TOKENS must be a non-negative multiple of the block size')
+        # A single step is not bounded by the chat cap alone: the native MTP
+        # lookahead is re-applied after it (see _reserve_kvmem_lookahead), so a
+        # step can still reach max_num_batched_tokens. Keep the batch budget here.
+        self._kvmem_prefill_lookahead = int(
+            getattr(self, 'scheduler_config').max_num_batched_tokens)
         self.query_policy = QueryPolicy(config.block_tokens, config.select_budget, config.gen_budget)
         if self.draft_contract is not None:
             from .speculative_admission import SpeculativeQueryPolicy
@@ -1198,7 +1203,7 @@ class KVMemScheduler(Scheduler):
                                not getattr(request, '_kvmem_entry_query_done', False))
                 if ((plan is None and (imported_query or entry_query or self.query_policy.refresh(
                         request.num_computed_tokens, request.num_prompt_tokens, offset,
-                        lookahead=int(self.scheduler_config.max_num_batched_tokens),
+                        lookahead=self._kvmem_prefill_lookahead,
                         capacity=prefill_capacity))) or
                         (action is not None and request.num_computed_tokens >= selected_budget)):
                     asynchronous = getattr(self, 'async_refresh', False)

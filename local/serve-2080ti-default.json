@@ -18,10 +18,10 @@
   "kvmem": {
     "block_tokens": 32,
     "select_budget": 36864,
-    "gen_budget": 4096,
+    "gen_budget": 8192,
     "repository_blocks": 16384,
-    "sink_blocks": 0,
-    "recent_blocks": 0,
+    "sink_blocks": 256,
+    "recent_blocks": 256,
     "cpu_read_cache_bytes": 6442450944,
     "archive_backend": "cpu",
     "archive_io_max_bytes": 134217728,
@@ -47,8 +47,8 @@
     "session_freeze_prompt": false,
     "session_capture_decode": false,
     "query_history": false,
-    "decode_sink_blocks": 512,
-    "decode_recent_blocks": 32
+    "decode_sink_blocks": 256,
+    "decode_recent_blocks": 256
   },
   "tensor_parallel_size": 2,
   "dtype": "float16",

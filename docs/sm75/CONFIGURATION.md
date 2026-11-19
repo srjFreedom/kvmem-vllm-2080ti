@@ -44,7 +44,8 @@ Measured archive cost per token (this model): **17,408 B/rank** = 17 full-attent
 | `max_model_len` | 262,144 | logical CTX; must be ≥ B+R; the launcher allows up to 10,000,000 for MTP (needs `request_planning` and `B+R ≤ 262,144`) |
 | `gpu_memory_utilization` | **0.92** | weights + activation + graphs + KV pool; 0.90 leaves ~2.8 GiB free for the long-prefill transient (at 0.96 a max-length prefill hit CUDA OOM) |
 | `kvmem.select_budget` | 36,864 | selected history per step; must be divisible by `block_tokens`, ≥ sink+recent |
-| `kvmem.gen_budget` | 4,096 | generation headroom; also the model's per-request output reserve |
+| `kvmem.sink_blocks` / `kvmem.recent_blocks` | 256 / 256 | 8,192 / 8,192 tokens head and tail kept on every retrieval, prefill and decode alike; the middle band is scored |
+| `kvmem.gen_budget` | 8,192 | generation headroom; also the model's per-request output reserve. Keep it at 8,192 or above: after a refresh the window slides by `R − lookahead − block_tokens`, so a smaller R fills the window every ~2K tokens and turns prefill into a refresh loop |
 | `kvmem.block_tokens` | 32 | selection grid; sink/recent/`repository_blocks` are counted in these |
 | `kvmem.sink_blocks` / `recent_blocks` | 64 / 32 | 2,048 / 1,024 tokens kept unconditionally |
 | `kvmem.repository_blocks` | 16,384 | × 32 = 524,288 nominal tokens |
