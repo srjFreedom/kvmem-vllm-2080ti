@@ -21,7 +21,7 @@
     "gen_budget": 8192,
     "repository_blocks": 16384,
     "sink_blocks": 256,
-    "recent_blocks": 256,
+    "recent_blocks": 64,
     "cpu_read_cache_bytes": 6442450944,
     "archive_backend": "cpu",
     "archive_io_max_bytes": 134217728,
@@ -46,9 +46,7 @@
     "verify_archive_on_finish": false,
     "session_freeze_prompt": false,
     "session_capture_decode": false,
-    "query_history": false,
-    "decode_sink_blocks": 256,
-    "decode_recent_blocks": 256
+    "query_history": false
   },
   "tensor_parallel_size": 2,
   "dtype": "float16",

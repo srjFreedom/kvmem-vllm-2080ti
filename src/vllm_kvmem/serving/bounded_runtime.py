@@ -282,12 +282,11 @@ def install_bounded_target(runner):
             # A prefill slide keeps only retrieved history: no fixed sink/recent band.
             # The refresh inside the last chunk (the decode-entry Query) keeps both.
             prefill_slide = job.command.selection == 'query'
-            # One retrieval composes every window: sink band + recent band + scored
-            # middle. A prefill slide keeps no extra bands beyond those two.
+            # One retrieval composes every window, prefill slide and decode entry
+            # alike: sink band + recent band + scored middle.
             selected_cfg = selection_config(cfg,job.command.groups[0][1].window_tokens,
                 selection=job.command.selection,pressure_policy=pressure_policy,
-                sink_blocks=cfg.sink_blocks if prefill_slide else cfg.decode_sink_blocks,
-                recent_blocks=cfg.recent_blocks if prefill_slide else cfg.decode_recent_blocks)
+                sink_blocks=cfg.sink_blocks, recent_blocks=cfg.recent_blocks)
             mandatory_fit = RequestPlan(None,block_tokens=cfg.block_tokens,gen_budget=cfg.gen_budget,
                 mandatory=getattr(job.command,'mandatory_spans',())).mandatory_fit(history,selected_cfg)
             required = set(mandatory_fit['hard_blocks'])

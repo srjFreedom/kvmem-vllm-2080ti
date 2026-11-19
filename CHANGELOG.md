@@ -15,10 +15,10 @@ Prefill runs as chunked prefill with one windowed retrieval per slide.
 - **`gen_budget` sets the slide distance.** The window slides by
   `R − lookahead − block_tokens`, so keep `R` at 8,192 or above; at 4,096 the
   window refilled every ~2K tokens and the refresh count roughly doubled.
-- **Bands are configurable per phase.** `kvmem.sink_blocks` / `recent_blocks`
-  size the prefill window, `kvmem.decode_sink_blocks` / `decode_recent_blocks`
-  the decode-entry one, and `prefill_select_tokens` / `prefill_recent_tokens`
-  bound the prefill retention when a smaller window is wanted.
+- **One band pair.** `kvmem.sink_blocks` / `recent_blocks` size the head and
+  tail kept on every retrieval, prefill and decode alike;
+  `prefill_select_tokens` / `prefill_recent_tokens` bound the prefill retention
+  when a smaller window is wanted.
 
 ## 0.6.2
 
