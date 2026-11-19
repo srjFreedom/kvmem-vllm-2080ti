@@ -265,9 +265,7 @@ def install_bounded_target(runner):
                 'attention' if getattr(runtime.options, 'action_pressure', False) else 'recency')
             # A prefill slide keeps only retrieved history: no fixed sink/recent band.
             # The refresh inside the last chunk (the decode-entry Query) keeps both.
-            remaining = int(batch.prefill_len_np[i]) - history
-            prefill_slide = remaining > int(getattr(runner.vllm_config.scheduler_config,
-                                                    'max_num_batched_tokens', 0))
+            prefill_slide = job.command.selection == 'query'
             selected_cfg = selection_config(cfg,job.command.groups[0][1].window_tokens,
                 selection=job.command.selection,pressure_policy=pressure_policy,
                 sink_blocks=0 if prefill_slide else None,

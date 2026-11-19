@@ -20,8 +20,8 @@
     "select_budget": 36864,
     "gen_budget": 4096,
     "repository_blocks": 16384,
-    "sink_blocks": 64,
-    "recent_blocks": 32,
+    "sink_blocks": 0,
+    "recent_blocks": 0,
     "cpu_read_cache_bytes": 6442450944,
     "archive_backend": "cpu",
     "archive_io_max_bytes": 134217728,
@@ -46,7 +46,9 @@
     "verify_archive_on_finish": false,
     "session_freeze_prompt": false,
     "session_capture_decode": false,
-    "query_history": false
+    "query_history": false,
+    "decode_sink_blocks": 512,
+    "decode_recent_blocks": 32
   },
   "tensor_parallel_size": 2,
   "dtype": "float16",

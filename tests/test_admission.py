@@ -87,7 +87,7 @@ def test_semantic_prefill_keeps_the_query_picker_mid_prefill():
     assert refresh_selection(planned=False, remaining=80000, action=None,
                              max_batched_tokens=2048) == 'pressure'
     assert refresh_selection(planned=False, remaining=80000, action=None,
-                             max_batched_tokens=2048, semantic_prefill=True) == 'chunk'
+                             max_batched_tokens=2048, semantic_prefill=True) == 'query'
 
 
 def test_selection_config_bands_can_be_zeroed_for_a_prefill_slide():

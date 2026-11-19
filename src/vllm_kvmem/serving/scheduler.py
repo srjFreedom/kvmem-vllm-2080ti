@@ -1173,7 +1173,11 @@ class KVMemScheduler(Scheduler):
                 # Opt-in: retain only a retrieved set during prefill, leaving the rest of
                 # B+G as room for the next chunks; the slide then pays a Query selection
                 # (and its probe forward) but happens far less often.
-                if plan is None and prefilling and self._kvmem_prefill_select:
+                if (plan is None and prefilling and self._kvmem_prefill_select and
+                        request.num_prompt_tokens - request.num_computed_tokens >
+                        int(self.scheduler_config.max_num_batched_tokens)):
+                    # Only a real slide retains the smaller retrieved set; the refresh
+                    # inside the last chunk is the decode-entry Query and keeps B.
                     selected_budget = min(selected_budget, self._kvmem_prefill_select)
                 fork_pool = getattr(connector, 'systemone_pool', None)
                 if (fork_pool is not None and action is None and

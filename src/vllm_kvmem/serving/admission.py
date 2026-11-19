@@ -67,6 +67,7 @@ def refresh_selection(*, planned, remaining, action, max_batched_tokens, semanti
         return ('pressure' if action == 'pressure' else
                 'query' if action in ('query', 'guided') else 'chunk')
     # The last chunk's refresh and every decode refresh stay Query-selected.
-    if remaining <= max(1, int(max_batched_tokens)) or semantic_prefill:
+    if remaining <= max(1, int(max_batched_tokens)):
         return 'chunk'
-    return 'pressure'
+    # A prefill slide keeps retrieved history only: Query-selected, no bands.
+    return 'query' if semantic_prefill else 'pressure'
