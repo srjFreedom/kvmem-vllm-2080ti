@@ -1245,7 +1245,10 @@ class KVMemScheduler(Scheduler):
                         remaining=request.num_prompt_tokens - request.num_computed_tokens,
                         action=action,
                         max_batched_tokens=self.scheduler_config.max_num_batched_tokens,
-                        semantic_prefill=bool(self._kvmem_prefill_select) and plan is None)
+                        # A plan-less prefill slide always runs the Query selection:
+                        # sink band + recent band + scored middle, up to the retention
+                        # budget (prefill_select_tokens, 0 = the full B).
+                        semantic_prefill=plan is None)
                     if entry_query:
                         request._kvmem_entry_query_done = True
                         # The window may hold fewer than B tokens: the manager only

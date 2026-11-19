@@ -392,6 +392,11 @@ def make_probe_runner(base):
             if fork is not None:
                 public = fork.public_batch(public)
             sessions = getattr(self, '_kvmem_sessions', None)
+            # The capture buffers always hold the previous public forward. Track its
+            # token extent so a refresh can score with those queries instead of
+            # running a private probe forward.
+            self._kvmem_prev_capture_tokens = getattr(self, '_kvmem_capture_tokens', 0)
+            self._kvmem_capture_tokens = int(getattr(public, 'num_tokens_after_padding', 0))
             _marks = getattr(self, '_kvmem_step_timing', None) if not projecting else None
             if _marks is not None:
                 _marks.mark('prepare_attn')

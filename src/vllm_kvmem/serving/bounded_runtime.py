@@ -209,13 +209,22 @@ def install_bounded_target(runner):
                     raise RuntimeError('Guided refresh has neither a generated nor an accepted original Query: '
                                        + str(diagnostics['guided_fallback']))
                 automatic_queries[rid], automatic_reports[rid] = queries, diagnostics
+        reuse_captures = False
         if needs_probe:
-            if getattr(runner, '_kvmem_graph', False):
-                original(*args, **kwargs)
-                captured = runner._kvmem_graph_captures
-            else:
-                with capture_to(captured.append):
+            # The previous public forward already wrote Q into the persistent buffers.
+            # Scoring against that (1 chunk older) Q saves a private forward per slide.
+            previous = getattr(runner, '_kvmem_prev_capture_tokens', 0)
+            existing = getattr(runner, '_kvmem_graph_captures', None)
+            if existing and previous and len(batch.req_ids) == 1:
+                captured = list(existing)
+                reuse_captures = True
+            if not reuse_captures:
+                if getattr(runner, '_kvmem_graph', False):
                     original(*args, **kwargs)
+                    captured = runner._kvmem_graph_captures
+                else:
+                    with capture_to(captured.append):
+                        original(*args, **kwargs)
             if tuple(c.name for c in captured) != tuple(runner._kvmem_layers):
                 raise RuntimeError("Native provisional batch missed attention layers")
 
@@ -244,7 +253,14 @@ def install_bounded_target(runner):
                 end = begin + SpeculativeQueryPolicy.authoritative_probe_tokens(
                     history,int(batch.prefill_len_np[i]),query)
             # Private forwards overwrite the persistent capture buffers.
-            public_queries[request_id] = torch.stack([c.query[begin:end] for c in captured]).clone()
+            if reuse_captures:
+                # Queries come from the previous forward: their layout starts at 0 and
+                # spans that step's tokens, not this batch's query range.
+                limit = int(getattr(runner, '_kvmem_prev_capture_tokens', 0))
+                public_queries[request_id] = torch.stack(
+                    [c.query[:limit] for c in captured]).clone()
+            else:
+                public_queries[request_id] = torch.stack([c.query[begin:end] for c in captured]).clone()
         for request_id, job in jobs.items():
             i, history, query = extents[request_id]
             local_tokens_before = history - runner._kvmem_window_adapter.offsets.get(request_id, 0)
@@ -266,10 +282,12 @@ def install_bounded_target(runner):
             # A prefill slide keeps only retrieved history: no fixed sink/recent band.
             # The refresh inside the last chunk (the decode-entry Query) keeps both.
             prefill_slide = job.command.selection == 'query'
+            # One retrieval composes every window: sink band + recent band + scored
+            # middle. A prefill slide keeps no extra bands beyond those two.
             selected_cfg = selection_config(cfg,job.command.groups[0][1].window_tokens,
                 selection=job.command.selection,pressure_policy=pressure_policy,
-                sink_blocks=0 if prefill_slide else None,
-                recent_blocks=0 if prefill_slide else None)
+                sink_blocks=cfg.sink_blocks if prefill_slide else cfg.decode_sink_blocks,
+                recent_blocks=cfg.recent_blocks if prefill_slide else cfg.decode_recent_blocks)
             mandatory_fit = RequestPlan(None,block_tokens=cfg.block_tokens,gen_budget=cfg.gen_budget,
                 mandatory=getattr(job.command,'mandatory_spans',())).mandatory_fit(history,selected_cfg)
             required = set(mandatory_fit['hard_blocks'])
@@ -345,7 +363,7 @@ def install_bounded_target(runner):
                 "rolling_active_window": options.rolling_active_window,
                 "local_tokens_before": local_tokens_before,
                 "rebuilt_tokens": assembly.rebuilt_tokens, "skipped_tokens": assembly.skipped_tokens,
-                "batch_requests": list(batch.req_ids), "probe_executed": needs_probe,
+                "batch_requests": list(batch.req_ids), "probe_executed": needs_probe and not reuse_captures,
                 "query_score_tokens": score_query, "draft_groups": list(draft_groups),
                 "guided_query_tokens":guided_tokens,"guided_prompt_tokens":guided_prompt_tokens,
                 "guided_seconds":guided_seconds,
