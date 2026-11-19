@@ -19,8 +19,10 @@ than keeping the newest window in order.
 | mid-prefill (more than one batch of tokens left) | `pressure` (newest first) | none |
 | refresh inside the last chunk, and every decode refresh | `chunk` (Query) | yes |
 
-The mid-prefill refresh still re-assembles the retained window (0.13 s, 638 MB);
-it no longer probes.
+The mid-prefill refresh still re-assembles the retained window: 36,851 tokens,
+642 MB at 17,408 bytes per token, 0.13 s. That is 73 × 642 MB ≈ 47 GB of PCIe
+traffic per 204,800-token prompt, unchanged by this work — the saving here is the
+74 probe forwards, not the copies.
 
 Measured on the 2×2080Ti SM75 profile, 204,800-token cold prompt, `R = 4096`:
 
@@ -30,7 +32,7 @@ Measured on the 2×2080Ti SM75 profile, 204,800-token cold prompt, `R = 4096`:
 | prefill tok/s | 584 | **790** |
 | maintenance | 113 s | 13 s |
 | probe forwards | 74 | 1 |
-| host→device re-assembly | 47 GB | ~10 GB |
+| host→device re-assembly | 47 GB | 47 GB (unchanged) |
 
 Needle at 131,072 tokens: the final Query refresh is what recovers a needle that
 the recency window no longer holds. With a needle at 65,536 the model answered
