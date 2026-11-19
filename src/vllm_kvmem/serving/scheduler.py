@@ -1186,7 +1186,15 @@ class KVMemScheduler(Scheduler):
                     action = 'pressure'  # Explicit byte-audit injection; ordinary admission is unchanged.
                 if action == 'exhausted':
                     raise RuntimeError('keep_selected append headroom was exhausted')
-                if ((plan is None and (imported_query or self.query_policy.refresh(
+                # The decode-entry Query is mandatory, not a side effect of the window
+                # filling near the end: every plan-less prompt refreshes once inside its
+                # last chunk so decode starts from a fully composed B window.
+                entry_query = (plan is None and
+                               request.num_computed_tokens < request.num_prompt_tokens and
+                               request.num_prompt_tokens - request.num_computed_tokens <=
+                               int(self.scheduler_config.max_num_batched_tokens) and
+                               not getattr(request, '_kvmem_entry_query_done', False))
+                if ((plan is None and (imported_query or entry_query or self.query_policy.refresh(
                         request.num_computed_tokens, request.num_prompt_tokens, offset,
                         lookahead=int(self.scheduler_config.max_num_batched_tokens),
                         capacity=prefill_capacity))) or
@@ -1236,6 +1244,12 @@ class KVMemScheduler(Scheduler):
                         action=action,
                         max_batched_tokens=self.scheduler_config.max_num_batched_tokens,
                         semantic_prefill=bool(self._kvmem_prefill_select) and plan is None)
+                    if entry_query:
+                        request._kvmem_entry_query_done = True
+                        # The window may hold fewer than B tokens at this boundary; the
+                        # manager only selects within the admitted working window.
+                        selected_budget = max(1, min(selected_budget,
+                                                     request.num_computed_tokens - offset))
                     self.begin_refresh(request, selected_budget, replay_tokens=replay_tokens,
                         query_span=plan.query if action == 'query' else None,
                         selection=selection,
