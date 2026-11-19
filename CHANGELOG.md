@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.6.3
+
+Prefill runs as chunked prefill with one windowed retrieval per slide.
+
+- **One retrieval per slide.** Every prefill slide recomposes the working window
+  as a fixed sink band, a fixed recent band and a scored middle filled to
+  `select_budget`. The chunks after a slide keep the text right before them and
+  the long-range evidence in the same window.
+- **No probe forward.** The queries that score the middle come from the capture
+  buffers the previous public forward already wrote, so a slide costs a slice and
+  a clone instead of a private forward. A 204,951-token prefill drops from 351 s
+  to 220.8 s while still selecting the full `B` on every slide.
+- **`gen_budget` sets the slide distance.** The window slides by
+  `R − lookahead − block_tokens`, so keep `R` at 8,192 or above; at 4,096 the
+  window refilled every ~2K tokens and the refresh count roughly doubled.
+- **Bands are configurable per phase.** `kvmem.sink_blocks` / `recent_blocks`
+  size the prefill window, `kvmem.decode_sink_blocks` / `decode_recent_blocks`
+  the decode-entry one, and `prefill_select_tokens` / `prefill_recent_tokens`
+  bound the prefill retention when a smaller window is wanted.
+
 ## 0.6.2
 
 Image requests through KVMem session reuse.
