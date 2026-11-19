@@ -5,41 +5,41 @@
 Measured on **2026-11-19** on the SM75 serving profile: 2 × RTX 2080 Ti, Qwen3.5
 Coder FP8 with four native MTP draft tokens, FP8 KV, `full_graph` execution, a
 195,871-token GPU pool and a 53,248 + 4,096-token resident window. Each row is a
-cold streaming request with a distinct prompt of the stated length, built from
-this repository's documentation and source and checked with `/tokenize`, then 512
-forced output tokens (`ignore_eos`, greedy). Prefill and decode seconds are the
-engine's per-request histograms; client time to first token matched them within
-40 ms.
+cold streaming request with a distinct text prompt of the stated length, built
+from this repository's documentation and source and checked with `/tokenize`,
+followed by forced output tokens (`ignore_eos`, greedy). Prefill and decode
+seconds are the engine's per-request histograms; client time to first token
+matched them within 40 ms.
 
-| Prompt tokens | Prefill tok/s | Prefill s | Decode tok/s | Decode s |
-| ---: | ---: | ---: | ---: | ---: |
-| 8,192 | 956 / 971 | 8.58 / 8.43 | 71 / 87 | 7.21 / 5.88 |
-| 32,768 | 869 / 871 | 37.72 / 37.59 | 68 / 74 | 7.52 / 6.88 |
-| 65,536 | 747 / 748 | 87.67 / 87.59 | 72 / 71 | 7.07 / 7.24 |
-| 204,800 | 600 / 601 | 341.0 / 341.0 | 78 / 78 | 6.57 / 6.59 |
+| Prompt tokens | Prefill tok/s | Decode tok/s |
+| ---: | ---: | ---: |
+| 8,192 | 1,108 | 71–87 |
+| 32,768 | 1,020 | 68–74 |
+| 65,536 | 828 | 71–72 |
+| 204,800 | 570 | 78 |
 
-The two values are passes with different prompts per length. The 204,800-token
-row is above the 195,871-token pool, so it includes the compression that keeps
-the window resident.
-
-Prefill throughput falls with length because every prompt chunk is written to
-the host archive and scored before decode. Decode stays in a narrow band because
-the resident window is bounded at `B + R` whatever the prompt length; the spread
-between rows and passes tracks MTP draft acceptance, which depends on the
-continuation text.
+Prefill is a single cold pass at the shipped default (`chat_prefill_blocks=32`,
+1,024 tokens per native prefill step) and repeats within 2%; it falls with
+length because every chunk is written to the host archive and scored before
+decode. The 204,800-token row is above the 195,871-token pool, so it includes
+the compression that keeps the window resident. Decode is the range of two
+passes: it stays in a narrow band because the resident window is bounded at
+`B + R` whatever the prompt length, and the spread tracks MTP draft acceptance,
+which depends on the continuation text.
 
 Repeating a prompt returns from its session checkpoint instead of prefilling:
 8,192 tokens 8.64 s → **0.19 s**, 32,768 tokens 36.94 s → **0.47 s** (time to
 first token, with the window restored from the external KV transfer).
 
 Reproduce with `python3 scripts/benchmark_context_baseline.py --lengths 8192
-32768 65536 204800` against a running engine; raw rows are in
-[context-baseline-20261119-a.json](benchmarks/context-baseline-20261119-a.json)
-and [context-baseline-20261119-b.json](benchmarks/context-baseline-20261119-b.json).
-The rows above are text requests. The same token sequences sent as
-`prompt_token_ids` measure higher — 1,112 tok/s at 8,192 tokens and 1,018 tok/s
-at 32,768 tokens — so text and pre-tokenized requests are not interchangeable
-when quoting throughput.
+32768 65536 204800` against a running engine. The
+[first](benchmarks/context-baseline-20261119-a.json) and
+[second](benchmarks/context-baseline-20261119-b.json) raw passes were recorded
+before the native prefill step was raised from 256 to 1,024 tokens, so their
+prefill columns read 956/869/747/600; decode and the replay timings are
+unaffected. Text and pre-tokenized requests are not interchangeable when quoting
+throughput: the same tokens sent as `prompt_token_ids` measure 1,112 tok/s at
+8,192 and 1,018 tok/s at 32,768 on the 256-token step.
 
 ## Local Terminal-Bench deadlines
 

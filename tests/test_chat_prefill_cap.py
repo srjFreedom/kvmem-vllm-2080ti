@@ -11,9 +11,9 @@ from vllm_kvmem.serving.serve import build_launch
 from test_serving_launcher import profile as serving_profile
 
 
-def test_the_default_is_eight_blocks(monkeypatch):
+def test_the_default_is_1024_tokens(monkeypatch):
     monkeypatch.delenv('KVMEM_CHAT_PREFILL_BLOCKS', raising=False)
-    assert chat_prefill_cap(32, 4096) == 256
+    assert chat_prefill_cap(32, 4096) == 1024
 
 
 @pytest.mark.parametrize('blocks,expected', [(8, 256), (32, 1024), (64, 2048)])
@@ -40,7 +40,7 @@ def test_invalid_values_are_refused(monkeypatch):
 def test_the_launch_records_and_validates_the_block_count(tmp_path):
     profile = serving_profile(tmp_path)
     plan = build_launch(profile, tmp_path, tmp_path/'run')
-    assert plan['environment']['KVMEM_CHAT_PREFILL_BLOCKS'] == '8'
+    assert plan['environment']['KVMEM_CHAT_PREFILL_BLOCKS'] == '32'
     profile['chat_prefill_blocks'] = 64
     plan = build_launch(profile, tmp_path, tmp_path/'run64')
     assert plan['environment']['KVMEM_CHAT_PREFILL_BLOCKS'] == '64'

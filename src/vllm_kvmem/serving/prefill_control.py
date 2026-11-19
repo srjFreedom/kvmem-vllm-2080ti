@@ -191,13 +191,14 @@ def chat_prefill_cap(block_tokens, gen_budget, blocks=None):
 
     A native chat request carries no request plan, so KVMEM_PREFILL_CHUNK_TOKENS (which
     only the planned token-ID path applies) never sizes its prefill. This cap does, and
-    the default of eight blocks exists because the chunk must leave room inside G for the
-    native MTP lookahead; raising it trades prefill step count against a larger logits
-    transient (vocab x chunk x 2 bytes).
+    the chunk must leave room inside G for the native MTP lookahead. The default of 32
+    blocks (1024 tokens) keeps the forward count down; every step above that buys cheaper
+    forwards but publishes more per window refresh, which costs more than it saves once
+    the prompt is long enough to refresh during prefill.
     """
     if blocks is None:
         from ..core import settings as _settings
-        blocks = int(_settings.get('KVMEM_CHAT_PREFILL_BLOCKS', '8'))
+        blocks = int(_settings.get('KVMEM_CHAT_PREFILL_BLOCKS', '32'))
     if type(blocks) is not int or blocks <= 0:
         raise ValueError('Chat prefill blocks must be a positive integer')
     if type(block_tokens) is not int or type(gen_budget) is not int or block_tokens <= 0:

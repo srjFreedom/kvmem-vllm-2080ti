@@ -36,3 +36,14 @@ vllm_kvmem.serving.window_manager.RefreshRequired: chatcmpl-...
 defensive everywhere and a single unexpected chunk size is fatal rather than a clean step
 retry. Raising the rotation quantum (fewer publications, then larger chunks) and catching the
 guard at the native schedule boundary are the two follow-ups this measurement points at.
+
+## Later measurement (2026-11-19)
+
+The 134K prompt above is the regime where the refresh publication dominates. On
+shorter cold prefill the step count wins: 8,192 tokens 956 → 1,108 tok/s and
+32,768 tokens 869 → 1,020 tok/s going from 256 to 1,024 tokens per step, with
+200K at 600 → 570 tok/s. The default is now 32 blocks; 64 blocks still dies with
+`RefreshRequired` on a 200K prompt.
+
+The split suggests a length-dependent cap: large steps while the prompt fits the
+resident window (no refresh during prefill), the 256-token cap once it does not.

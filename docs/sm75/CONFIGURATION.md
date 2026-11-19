@@ -57,7 +57,7 @@ Measured archive cost per token (this model): **17,408 B/rank** = 17 full-attent
 | `draft_tokens` | 4 | MTP drafts; acceptance decides the win (code ≈ 4/5, prose ≈ 2/5) |
 | `cudagraph_capture_sizes` | *derived* | leave unset: derived as `(draft_tokens + 1) × 1..max_num_seqs`, which is exactly the set of reachable decode batch sizes. An explicit list is still honoured but must match, or decode silently drops to eager |
 | `prefill_chunk_tokens` / `max_num_batched_tokens` | 2,048 | logits buffer ≈ 1.0 GB; 4,096 ⇒ 1.94 GB and a max-length prefill can OOM at high utilization |
-| `chat_prefill_blocks` | 8 (256 tokens at block 32) | tokens per native-chat prefill step; a chat request carries no request plan, so `prefill_chunk_tokens` never sized it |
+| `chat_prefill_blocks` | 32 (1,024 tokens at block 32) | tokens per native-chat prefill step; a chat request carries no request plan, so `prefill_chunk_tokens` never sized it. Bigger steps cut the forward count but publish more per window refresh; 1,024 tokens measures 15–17% faster than 256 on 8K/32K cold prefill and ~5% slower above ~130K, and 2,048 tokens kills the engine on a 200K prompt (`RefreshRequired`) |
 | `max_num_seqs` | 1 | windowed requests are serialized anyway; raise only for spare authority slots |
 | `auto_session` | `true` | derive `session_id` from the conversation opening; no frontend change |
 | `generation_config` | `vllm` (repo) / `auto` (launcher) | `auto` applies the checkpoint's `generation_config.json` to requests that omit sampling params; `vllm` keeps vLLM's neutral defaults (temperature 1.0, which degenerates long generations on reasoning models) |

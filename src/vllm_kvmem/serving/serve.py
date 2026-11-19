@@ -35,7 +35,7 @@ DEFAULTS = {
     'kv_cache_memory_bytes': None,
     'max_model_len': 262144, 'q8_tensorcore': False,
     'prefill_chunk_tokens': 0,
-    'chat_prefill_blocks': 8,
+    'chat_prefill_blocks': 32,
     'query_replay_budget': None,
     'request_planning_batch_tokens': None,
     'reasoning_end_str': None,
