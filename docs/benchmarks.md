@@ -13,16 +13,20 @@ matched them within 40 ms.
 
 | Prompt tokens | Prefill tok/s | Decode tok/s |
 | ---: | ---: | ---: |
-| 8,192 | 1,108 | 71–87 |
-| 32,768 | 1,020 | 68–74 |
-| 65,536 | 828 | 71–72 |
-| 204,800 | 570 | 78 |
+| 8,192 | 1,392 | 71–87 |
+| 32,768 | 1,238 | 68–74 |
+| 65,536 | 1,051 | 71–72 |
+| 204,800 | 918 | 78 |
 
 Prefill is a single cold pass at the shipped default (`chat_prefill_blocks=32`,
-1,024 tokens per native prefill step) and repeats within 2%; it falls with
-length because every chunk is written to the host archive and scored before
-decode. The 204,800-token row is above the 195,871-token pool, so it includes
-the compression that keeps the window resident. Decode is the range of two
+1,024 tokens per native prefill step, FlashQLA GDN prefill kernel when the
+prebuilt SM70/SM75 extension is present) and repeats within 2%. Mid-prefill the
+window slides by recency; the refresh inside the last chunk is the one Query
+retrieval that fills B before decode (see
+[the prefill-window note](prefill-window-20261119.md)). Prefill falls with
+length because every chunk is written to the host archive before decode. The
+204,800-token row is above the 195,871-token pool, so it includes the compression
+that keeps the window resident. Decode is the range of two
 passes: it stays in a narrow band because the resident window is bounded at
 `B + R` whatever the prompt length, and the spread tracks MTP draft acceptance,
 which depends on the continuation text.
@@ -35,9 +39,9 @@ Reproduce with `python3 scripts/benchmark_context_baseline.py --lengths 8192
 32768 65536 204800` against a running engine. The
 [first](benchmarks/context-baseline-20261119-a.json) and
 [second](benchmarks/context-baseline-20261119-b.json) raw passes were recorded
-before the native prefill step was raised from 256 to 1,024 tokens, so their
-prefill columns read 956/869/747/600; decode and the replay timings are
-unaffected. Text and pre-tokenized requests are not interchangeable when quoting
+before the native prefill step was raised from 256 to 1,024 tokens and before
+FlashQLA replaced the Triton GDN prefill kernel, so their prefill columns read
+956/869/747/600; decode and the replay timings are unaffected. Text and pre-tokenized requests are not interchangeable when quoting
 throughput: the same tokens sent as `prompt_token_ids` measure 1,112 tok/s at
 8,192 and 1,018 tok/s at 32,768 on the 256-token step.
 
