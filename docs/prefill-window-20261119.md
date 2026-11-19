@@ -47,3 +47,24 @@ requests without a request plan fell into the semantic branch.
 What is left: the window is still rebuilt from the archive on every slide. A
 ring/offset layout would make a slide a page-table update, and the per-chunk cap‑
 ture cost (1.16 ms/token against the pristine engine's 0.68) is a separate item.
+
+## Fixed prefill extent
+
+Mid-prefill the resident set is `sink + newest fill`, so the attended length is
+whatever the window holds. Pinning it (`prefill_window_tokens`, block-aligned,
+0 disables) makes a prefill chunk cost the same at any history length:
+
+| prefill extent | 200K prefill | rebuilt per slide |
+| --- | ---: | ---: |
+| 57,344 (`B + R`, default) | 918 tok/s (223 s) | 36,851 tokens, 642 MB |
+| 32,768 | 1,011 tok/s (202 s) | 16,384 tokens |
+| 24,576 | **1,082 tok/s (189 s)** | 8,192 tokens, 140 MB |
+
+Per-chunk model time is bounded instead of climbing to 1,243 ms and staying
+there: 663 ms while the prompt still fits, ~850 ms once the window slides.
+32K prefill is unaffected (it fits under every setting).
+
+NIAH at 131,072 with the 24,576 extent: needle at 65,536 and at 122,000 answer
+correctly; a needle at 30,000 is missed — with the default 57,344 extent it is
+missed as well, so that case is the existing outside-the-window behaviour rather
+than a regression from the smaller extent.

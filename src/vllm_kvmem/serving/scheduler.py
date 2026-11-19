@@ -170,6 +170,10 @@ class KVMemScheduler(Scheduler):
         self._mixed_steps = 0
         self._scheduled_queries = {"prefill": {}, "decode": {}}
         self._cadence_requested = 0
+        from ..core import settings as _kv_prefill_settings
+        self._kvmem_prefill_window = int(_kv_prefill_settings.get('KVMEM_PREFILL_WINDOW_TOKENS', '0') or 0)
+        if self._kvmem_prefill_window < 0 or self._kvmem_prefill_window % config.block_tokens:
+            raise ValueError('KVMEM_PREFILL_WINDOW_TOKENS must be a non-negative multiple of the block size')
         self.query_policy = QueryPolicy(config.block_tokens, config.select_budget, config.gen_budget)
         if self.draft_contract is not None:
             from .speculative_admission import SpeculativeQueryPolicy
@@ -1157,6 +1161,14 @@ class KVMemScheduler(Scheduler):
                     continue
                 selected_budget = (plan.selection_budget(request.num_computed_tokens, request.num_prompt_tokens,
                     self.query_policy.capacity) if plan is not None else self.query_policy.select_budget)
+                # Opt-in prefill extent: keep the working window at a fixed size so a
+                # prefill chunk costs the same at any history length. Only the decode
+                # window (B) is sized by select_budget.
+                prefill_capacity = self.query_policy.capacity
+                if (plan is None and self._kvmem_prefill_window
+                        and request.num_computed_tokens < request.num_prompt_tokens):
+                    prefill_capacity = min(prefill_capacity, self._kvmem_prefill_window)
+                    selected_budget = min(selected_budget, prefill_capacity)
                 fork_pool = getattr(connector, 'systemone_pool', None)
                 if (fork_pool is not None and action is None and
                         request.num_computed_tokens >= request.num_prompt_tokens and
@@ -1166,7 +1178,8 @@ class KVMemScheduler(Scheduler):
                     raise RuntimeError('keep_selected append headroom was exhausted')
                 if ((plan is None and (imported_query or self.query_policy.refresh(
                         request.num_computed_tokens, request.num_prompt_tokens, offset,
-                        lookahead=int(self.scheduler_config.max_num_batched_tokens)))) or
+                        lookahead=int(self.scheduler_config.max_num_batched_tokens),
+                        capacity=prefill_capacity))) or
                         (action is not None and request.num_computed_tokens >= selected_budget)):
                     asynchronous = getattr(self, 'async_refresh', False)
                     tokens = ()

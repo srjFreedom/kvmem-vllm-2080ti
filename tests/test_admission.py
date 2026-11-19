@@ -70,3 +70,13 @@ def test_planless_prefill_keeps_recency_until_the_last_chunk():
     # Planned requests keep their explicit policy.
     assert refresh_selection(planned=True, remaining=100000, action='pressure', max_batched_tokens=2048) == 'pressure'
     assert refresh_selection(planned=True, remaining=1024, action=None, max_batched_tokens=2048) == 'chunk'
+
+
+def test_prefill_capacity_argument_triggers_a_slide_earlier():
+    policy = QueryPolicy(128, 8192, 4096)               # capacity 12,288
+    assert policy.refresh(12288, 20000, 0) is True       # default capacity: full window
+    assert policy.refresh(8192, 20000, 0) is False
+    # A capped prefill extent slides at the same history earlier, and a wider
+    # one later; the default stays untouched.
+    assert policy.refresh(8192, 20000, 0, capacity=8192) is True
+    assert policy.refresh(12288, 20000, 0, capacity=16384) is False

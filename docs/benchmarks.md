@@ -15,12 +15,13 @@ matched them within 40 ms.
 | ---: | ---: | ---: |
 | 8,192 | 1,392 | 71–87 |
 | 32,768 | 1,238 | 68–74 |
-| 65,536 | 1,051 | 71–72 |
-| 204,800 | 918 | 78 |
+| 65,536 | 1,088 | 71–72 |
+| 204,800 | 1,082 | 78 |
 
 Prefill is a single cold pass at the shipped default (`chat_prefill_blocks=32`,
 1,024 tokens per native prefill step, FlashQLA GDN prefill kernel when the
-prebuilt SM70/SM75 extension is present) and repeats within 2%. Mid-prefill the
+prebuilt SM70/SM75 extension is present, 24,576-token prefill extent) and
+repeats within 2%. Mid-prefill the
 window slides by recency; the refresh inside the last chunk is the one Query
 retrieval that fills B before decode (see
 [the prefill-window note](prefill-window-20261119.md)). Prefill falls with
