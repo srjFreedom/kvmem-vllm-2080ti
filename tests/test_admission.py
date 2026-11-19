@@ -80,3 +80,11 @@ def test_prefill_capacity_argument_triggers_a_slide_earlier():
     # one later; the default stays untouched.
     assert policy.refresh(8192, 20000, 0, capacity=8192) is True
     assert policy.refresh(12288, 20000, 0, capacity=16384) is False
+
+
+def test_semantic_prefill_keeps_the_query_picker_mid_prefill():
+    from vllm_kvmem.serving.admission import refresh_selection
+    assert refresh_selection(planned=False, remaining=80000, action=None,
+                             max_batched_tokens=2048) == 'pressure'
+    assert refresh_selection(planned=False, remaining=80000, action=None,
+                             max_batched_tokens=2048, semantic_prefill=True) == 'chunk'

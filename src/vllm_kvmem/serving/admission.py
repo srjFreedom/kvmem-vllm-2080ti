@@ -55,7 +55,7 @@ class QueryPolicy:
         return local >= capacity - self.block_tokens
 
 
-def refresh_selection(*, planned, remaining, action, max_batched_tokens):
+def refresh_selection(*, planned, remaining, action, max_batched_tokens, semantic_prefill=False):
     """Which picker a refresh uses.
 
     A plan-less request is ordinary chunked prefill: there is no decode query
@@ -67,4 +67,6 @@ def refresh_selection(*, planned, remaining, action, max_batched_tokens):
         return ('pressure' if action == 'pressure' else
                 'query' if action in ('query', 'guided') else 'chunk')
     # The last chunk's refresh and every decode refresh stay Query-selected.
-    return 'chunk' if remaining <= max(1, int(max_batched_tokens)) else 'pressure'
+    if remaining <= max(1, int(max_batched_tokens)) or semantic_prefill:
+        return 'chunk'
+    return 'pressure'

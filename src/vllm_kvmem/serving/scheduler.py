@@ -172,6 +172,7 @@ class KVMemScheduler(Scheduler):
         self._cadence_requested = 0
         from ..core import settings as _kv_prefill_settings
         self._kvmem_prefill_window = int(_kv_prefill_settings.get('KVMEM_PREFILL_WINDOW_TOKENS', '0') or 0)
+        self._kvmem_prefill_select = int(_kv_prefill_settings.get('KVMEM_PREFILL_SELECT_TOKENS', '0') or 0)
         if self._kvmem_prefill_window < 0 or self._kvmem_prefill_window % config.block_tokens:
             raise ValueError('KVMEM_PREFILL_WINDOW_TOKENS must be a non-negative multiple of the block size')
         self.query_policy = QueryPolicy(config.block_tokens, config.select_budget, config.gen_budget)
@@ -1165,10 +1166,15 @@ class KVMemScheduler(Scheduler):
                 # prefill chunk costs the same at any history length. Only the decode
                 # window (B) is sized by select_budget.
                 prefill_capacity = self.query_policy.capacity
-                if (plan is None and self._kvmem_prefill_window
-                        and request.num_computed_tokens < request.num_prompt_tokens):
+                prefilling = request.num_computed_tokens < request.num_prompt_tokens
+                if plan is None and prefilling and self._kvmem_prefill_window:
                     prefill_capacity = min(prefill_capacity, self._kvmem_prefill_window)
                     selected_budget = min(selected_budget, prefill_capacity)
+                # Opt-in: retain only a retrieved set during prefill, leaving the rest of
+                # B+G as room for the next chunks; the slide then pays a Query selection
+                # (and its probe forward) but happens far less often.
+                if plan is None and prefilling and self._kvmem_prefill_select:
+                    selected_budget = min(selected_budget, self._kvmem_prefill_select)
                 fork_pool = getattr(connector, 'systemone_pool', None)
                 if (fork_pool is not None and action is None and
                         request.num_computed_tokens >= request.num_prompt_tokens and
@@ -1224,7 +1230,8 @@ class KVMemScheduler(Scheduler):
                         planned=plan is not None,
                         remaining=request.num_prompt_tokens - request.num_computed_tokens,
                         action=action,
-                        max_batched_tokens=self.scheduler_config.max_num_batched_tokens)
+                        max_batched_tokens=self.scheduler_config.max_num_batched_tokens,
+                        semantic_prefill=bool(self._kvmem_prefill_select) and plan is None)
                     self.begin_refresh(request, selected_budget, replay_tokens=replay_tokens,
                         query_span=plan.query if action == 'query' else None,
                         selection=selection,

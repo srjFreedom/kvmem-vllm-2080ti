@@ -37,6 +37,7 @@ DEFAULTS = {
     'prefill_chunk_tokens': 0,
     'chat_prefill_blocks': 32,
     'prefill_window_tokens': 0,
+    'prefill_select_tokens': 0,
     'query_replay_budget': None,
     'request_planning_batch_tokens': None,
     'reasoning_end_str': None,
@@ -368,6 +369,10 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
             cfg['prefill_window_tokens'] % options.memory.block_tokens or
             cfg['prefill_window_tokens'] > options.memory.select_budget + options.memory.gen_budget):
         raise ValueError('Prefill window must be a non-negative block-aligned size within B+G')
+    if (type(cfg['prefill_select_tokens']) is not int or cfg['prefill_select_tokens'] < 0 or
+            cfg['prefill_select_tokens'] % options.memory.block_tokens or
+            cfg['prefill_select_tokens'] > options.memory.select_budget):
+        raise ValueError('Prefill selection must be a non-negative block-aligned size within B')
     if options.prefill_attention:
         chunk=cfg['prefill_chunk_tokens']
         if not chunk or (options.prefill_attention_stride and
@@ -551,6 +556,7 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
         env['KVMEM_PREFILL_CHUNK_TOKENS'] = str(cfg['prefill_chunk_tokens'])
     env['KVMEM_CHAT_PREFILL_BLOCKS'] = str(cfg['chat_prefill_blocks'])
     env['KVMEM_PREFILL_WINDOW_TOKENS'] = str(cfg['prefill_window_tokens'])
+    env['KVMEM_PREFILL_SELECT_TOKENS'] = str(cfg['prefill_select_tokens'])
     # KVMem bounds the GPU window by select+gen, so max_model_len is a logical
     # context bound: let the engine start even when it exceeds the KV pool.
     # The resident worst case is the KVMem window, so the page-pool admission check
