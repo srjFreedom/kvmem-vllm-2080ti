@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.2
+
+Image requests through KVMem session reuse.
+
+- **Multimodal requests.** Image inputs are prefilled by vLLM's own vision tower
+  and the resulting KV enters the KVMem window, so image conversations reuse
+  sessions like text ones. M-RoPE positions keep vLLM's native per-axis values
+  and follow the window offset; text requests are unaffected.
+- **Vision tower is a launch choice.** `mm_image_limit` (default 0) sets
+  `--limit-mm-per-prompt` for images; text-only launches keep
+  `--language-model-only`. `mm_gdn_prefill_backend` selects an alternate GDN
+  prefill backend for hybrid checkpoints and defaults to vLLM's own choice.
+
 ## 0.6.1
 
 Concurrent decode and multi-session reuse.
