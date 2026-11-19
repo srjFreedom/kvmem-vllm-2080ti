@@ -1206,9 +1206,15 @@ class KVMemScheduler(Scheduler):
                                 # own step after the refresh; it starts the next ordinary
                                 # (coalesced) group. Selection uses accepted history only.
                                 replay_tokens, tokens = 0, ()
+                    from .admission import refresh_selection
+                    selection = refresh_selection(
+                        planned=plan is not None,
+                        remaining=request.num_prompt_tokens - request.num_computed_tokens,
+                        action=action,
+                        max_batched_tokens=self.scheduler_config.max_num_batched_tokens)
                     self.begin_refresh(request, selected_budget, replay_tokens=replay_tokens,
                         query_span=plan.query if action == 'query' else None,
-                        selection='pressure' if action == 'pressure' else 'query' if action in ('query', 'guided') else 'chunk',
+                        selection=selection,
                         mandatory_spans=plan.mandatory if plan is not None else (),
                         message_spans=plan.message_spans if plan is not None else (),
                         locality_spans=plan.locality_spans if plan is not None else (),

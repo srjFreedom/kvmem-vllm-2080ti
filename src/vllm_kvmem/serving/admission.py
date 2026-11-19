@@ -52,3 +52,18 @@ class QueryPolicy:
         # Leave one block for the provisional target query. Speculative batches
         # require their own accepted-boundary checkpoint policy, not this rule.
         return local >= self.capacity - self.block_tokens
+
+
+def refresh_selection(*, planned, remaining, action, max_batched_tokens):
+    """Which picker a refresh uses.
+
+    A plan-less request is ordinary chunked prefill: there is no decode query
+    yet, so every refresh before the last chunk keeps the newest window in order
+    (`pressure`) instead of running the semantic query-probe selection. The one
+    refresh inside the last chunk fills B with the Query selection.
+    """
+    if planned:
+        return ('pressure' if action == 'pressure' else
+                'query' if action in ('query', 'guided') else 'chunk')
+    # The last chunk's refresh and every decode refresh stay Query-selected.
+    return 'chunk' if remaining <= max(1, int(max_batched_tokens)) else 'pressure'

@@ -57,3 +57,16 @@ def test_repeated_prefill_queries_keep_live_extent_bounded_without_shortening_hi
         history += tokens
     assert history == prompt and refreshes > 100
     assert history - offset <= policy.select_budget + 1024
+
+
+def test_planless_prefill_keeps_recency_until_the_last_chunk():
+    from vllm_kvmem.serving.admission import refresh_selection
+    # Mid-prefill: no decode query exists yet, so the window slides by recency.
+    assert refresh_selection(planned=False, remaining=100000, action=None, max_batched_tokens=2048) == 'pressure'
+    # The refresh inside the last chunk is the one retrieval that fills B.
+    assert refresh_selection(planned=False, remaining=1024, action=None, max_batched_tokens=2048) == 'chunk'
+    # Decode: nothing left to prefill, keep the semantic selection.
+    assert refresh_selection(planned=False, remaining=0, action=None, max_batched_tokens=2048) == 'chunk'
+    # Planned requests keep their explicit policy.
+    assert refresh_selection(planned=True, remaining=100000, action='pressure', max_batched_tokens=2048) == 'pressure'
+    assert refresh_selection(planned=True, remaining=1024, action=None, max_batched_tokens=2048) == 'chunk'
