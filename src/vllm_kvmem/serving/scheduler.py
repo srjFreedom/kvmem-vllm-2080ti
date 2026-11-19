@@ -1176,9 +1176,17 @@ class KVMemScheduler(Scheduler):
                 if (plan is None and prefilling and self._kvmem_prefill_select and
                         request.num_prompt_tokens - request.num_computed_tokens >
                         int(self.scheduler_config.max_num_batched_tokens)):
-                    # Only a real slide retains the smaller retrieved set; the refresh
-                    # inside the last chunk is the decode-entry Query and keeps B.
-                    selected_budget = min(selected_budget, self._kvmem_prefill_select)
+                    # A real slide keeps the small retrieved set only when the rest of the
+                    # prompt still grows the window to B. Otherwise it keeps B now, so the
+                    # decode-entry Query can fill K without allocating new pages.
+                    remaining = request.num_prompt_tokens - request.num_computed_tokens
+                    keep = self._kvmem_prefill_select
+                    reach_b = keep + remaining >= self.query_policy.select_budget
+                    # Keeping B costs a Query probe on every later slide; once the window
+                    # carries B, plain recency slides keep it full until the entry Query.
+                    request._kvmem_wide_prefill = not reach_b
+                    selected_budget = (min(selected_budget, keep) if reach_b
+                                       else self.query_policy.select_budget)
                 fork_pool = getattr(connector, 'systemone_pool', None)
                 if (fork_pool is not None and action is None and
                         request.num_computed_tokens >= request.num_prompt_tokens and
@@ -1190,6 +1198,8 @@ class KVMemScheduler(Scheduler):
                 # filling near the end: every plan-less prompt refreshes once inside its
                 # last chunk so decode starts from a fully composed B window.
                 entry_query = (plan is None and
+                               request.num_prompt_tokens > self.query_policy.select_budget and
+                               request.num_computed_tokens - offset < self.query_policy.select_budget and
                                request.num_computed_tokens < request.num_prompt_tokens and
                                request.num_prompt_tokens - request.num_computed_tokens <=
                                int(self.scheduler_config.max_num_batched_tokens) and
@@ -1243,7 +1253,8 @@ class KVMemScheduler(Scheduler):
                         remaining=request.num_prompt_tokens - request.num_computed_tokens,
                         action=action,
                         max_batched_tokens=self.scheduler_config.max_num_batched_tokens,
-                        semantic_prefill=bool(self._kvmem_prefill_select) and plan is None)
+                        semantic_prefill=(bool(self._kvmem_prefill_select) and plan is None and
+                                          not getattr(request, '_kvmem_wide_prefill', False)))
                     if entry_query:
                         request._kvmem_entry_query_done = True
                         # The window may hold fewer than B tokens at this boundary; the
