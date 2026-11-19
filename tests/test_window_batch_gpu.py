@@ -99,6 +99,92 @@ def test_graph_positions_and_attention_lengths_share_stable_storage_across_refre
     assert changed.groups[0].seq_lens.tolist() == [13, 6, 0, 0]
 
 
+def mrope_positions(rows, columns, width):
+    """vLLM-style M-RoPE positions: a [AXES, width] buffer sliced to [AXES, columns].
+
+    `RopeState.positions` is allocated one column wider than the token capacity,
+    so the slice the model receives is non-contiguous and its row stride is the
+    buffer width rather than the token count. `columns` is the padded token
+    extent, matching the native `positions[:, :num_tokens_after_padding]`.
+    """
+    buffer = torch.full((len(rows), width), 999, dtype=torch.int64, device="cuda")
+    for axis, values in enumerate(rows):
+        buffer[axis, :len(values)] = torch.tensor(values, dtype=torch.int64, device="cuda")
+    return buffer[:, :columns]
+
+
+def native_mrope(columns, width):
+    """vLLM-style M-RoPE positions: [AXES, width] buffer sliced to [AXES, columns].
+
+    `RopeState.positions` is allocated wider than the token capacity, so the slice
+    the model receives is non-contiguous and its row stride is the buffer width,
+    not the token count.
+    """
+    return mrope_positions([
+        [70, 71, 72, 100, 101],
+        [170, 171, 172, 200, 201],
+        [270, 271, 272, 300, 301],
+    ], columns, width)
+
+
+def test_mrope_axis_major_positions_translate_on_every_axis():
+    batch = make_batch()
+    native = native_mrope(columns=8, width=64)
+    assert native.stride(0) == 64 > 8
+    adapter = WindowBatchAdapter((0,), 128)
+    adapter.reserve_graph_buffers(16, 4, "cuda", position_axes=3)
+    assert adapter.buffers[0].shape == (16,)          # dense per-token window
+    assert adapter.model_positions.shape == (3, 16)   # axis-major model buffer
+    adapter.commit("b", 70, 6)
+    adapter.commit("a", 100, 4)
+    window = adapter.prepare(batch)
+    assert window.positions.tolist() == [6, 7, 8, 4, 5, 0, 0, 0]
+    # Each axis keeps its own values: a shared row stride would alias the axes.
+    positions = adapter.translate_axes(native, batch)
+    assert positions.shape == (3, 8)
+    assert positions[0].tolist() == [6, 7, 8, 4, 5, 0, 0, 0]
+    assert positions[1].tolist() == [106, 107, 108, 104, 105, 0, 0, 0]
+    assert positions[2].tolist() == [206, 207, 208, 204, 205, 0, 0, 0]
+
+
+def test_mrope_translation_reuses_one_buffer_for_graph_replay():
+    batch = make_batch()
+    adapter = WindowBatchAdapter((0,), 128)
+    adapter.reserve_graph_buffers(16, 4, "cuda", position_axes=3)
+    adapter.commit("b", 70, 6)
+    adapter.commit("a", 100, 4)
+    address = adapter.model_positions.data_ptr()
+    first = adapter.translate_axes(native_mrope(columns=8, width=64), batch)
+    assert first.data_ptr() == address
+    # A later decode step rewrites the same storage, so a captured graph reads
+    # live positions instead of the capture-time values.
+    second = adapter.translate_axes(native_mrope(columns=8, width=64) + 1, batch)
+    assert second.data_ptr() == address
+    assert second[0].tolist() == [7, 8, 9, 5, 6, 0, 0, 0]
+
+
+def test_one_dimensional_reservation_rejects_mrope_translation():
+    batch = make_batch()
+    adapter = WindowBatchAdapter((0,), 128)
+    adapter.reserve_graph_buffers(16, 4, "cuda")
+    adapter.commit("b", 70, 6)
+    adapter.commit("a", 100, 4)
+    adapter.prepare(batch)
+    with pytest.raises(ValueError, match="no M-RoPE position buffer"):
+        adapter.translate_axes(native_mrope(columns=8, width=64), batch)
+
+
+def test_dense_batch_positions_must_be_one_dimensional():
+    batch = make_batch()
+    batch.positions = native_mrope(columns=8, width=64)
+    adapter = WindowBatchAdapter((0,), 128)
+    adapter.reserve_graph_buffers(16, 4, "cuda", position_axes=3)
+    adapter.commit("b", 70, 6)
+    adapter.commit("a", 100, 4)
+    with pytest.raises(ValueError, match="1D per-token"):
+        adapter.prepare(batch)
+
+
 def random_batch(generator, requests, padded_requests, pad_tokens):
     counts = torch.randint(1, 400, (requests,), generator=generator)
     tokens = int(counts.sum())

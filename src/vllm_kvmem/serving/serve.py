@@ -51,6 +51,15 @@ DEFAULTS = {
     'auto_session_chars': None,
     # KVMEM_SKIP_KV_CHECK: max_model_len (logical CTX) may exceed what the KV pool holds.
     'skip_kv_check': False,
+    # Images per prompt. 0 keeps the engine language-model-only, which is what
+    # vLLM reports as "embedding-only, all modality limits=0". A positive limit
+    # loads the checkpoint's vision tower and accepts raw media.
+    'mm_image_limit': 0,
+    # Optional GDN prefill kernel override for media-enabled Qwen hybrids. The
+    # native launcher forces flashqla_legacy, which needs the SM75 FlashQLA
+    # extension exported on PYTHONPATH; this engine keeps vLLM's own resolution
+    # (Triton on SM75), which is what the validated KVMem baselines ran.
+    'mm_gdn_prefill_backend': None,
     # VLLM_SM75_SPEC_SYNC_MODE=auto|safe|nosync; nosync removes speculative-graph syncs.
     'sm75_spec_sync_mode': 'nosync',
     # Keep FULL CUDA graph replay for the hybrid Mamba/GDN decode path.
@@ -199,6 +208,10 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
         raise ValueError('Digest verification requires enabled session restore verification')
     if type(cfg['experimental_dflash_query_planning']) is not bool:
         raise ValueError('experimental_dflash_query_planning must be boolean')
+    if type(cfg['mm_image_limit']) is not int or cfg['mm_image_limit'] < 0:
+        raise ValueError('mm_image_limit must be a non-negative integer')
+    if cfg['mm_gdn_prefill_backend'] not in (None, 'flashqla_legacy'):
+        raise ValueError('mm_gdn_prefill_backend must be null or flashqla_legacy')
     if cfg['draft_method'] not in ('dflash', 'mtp'):
         raise ValueError('draft_method must be dflash or mtp')
     allowed_depths = (1, 3, 7) if cfg['draft_method'] == 'dflash' else (1, 2, 3, 4, 7)
@@ -435,7 +448,7 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
         # SM75 (2080 Ti) has no native bfloat16: default the profile's dtype, which the
         # 2080 Ti fork resolves to float16 (vLLM refuses bf16 below compute capability 8.0).
         '--dtype', str(cfg.get('dtype', 'bfloat16')),
-        '--language-model-only', *loader_args,
+        *loader_args,
         '--kv-cache-dtype', 'fp8_e4m3', '--max-model-len', str(cfg['max_model_len']),
         '--max-num-seqs', str(cfg['max_num_seqs']), '--max-num-batched-tokens', str(cfg['max_num_batched_tokens']),
         '--tensor-parallel-size', str(cfg['tensor_parallel_size']),
@@ -451,6 +464,17 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
         # slow answer: fail it fast so the client retries instead of hitting its own timeout.
         '--middleware', 'vllm_kvmem.serving.http_stream_watchdog.StreamWatchdogMiddleware',
         '--enable-auto-tool-choice', '--tool-call-parser', 'qwen3_xml', '--reasoning-parser', 'qwen3']
+    # Media handling mirrors the native launcher's text+image recipe: a positive
+    # image limit replaces --language-model-only and enables raw media, and a
+    # Qwen hybrid GDN engine additionally needs the legacy prefill backend.
+    additional_config = {}
+    if cfg['mm_image_limit']:
+        argv += ['--limit-mm-per-prompt',
+                 json.dumps({'image': cfg['mm_image_limit'], 'video': 0, 'audio': 0})]
+        if cfg['mm_gdn_prefill_backend']:
+            additional_config['gdn_prefill_backend'] = cfg['mm_gdn_prefill_backend']
+    else:
+        argv += ['--language-model-only']
     env = {'KVMEM_SERVING': '1', 'KVMEM_RUNNER_PROBE_DIR': str(run_dir / 'capture'),
         'KVMEM_ARCHIVE_PROBE': '1', 'KVMEM_LIFECYCLE_TRACE': '1',
         'KVMEM_BOUNDED_TARGET': '1', 'KVMEM_WINDOW_METADATA': '1',
@@ -585,8 +609,9 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
         # its ABI and source to the supported additional-config hash instead of
         # reusing the old mutation/copy graph or clearing shared caches.
         from ..adapters.capture_compile import CAPTURE_COMPILE_KEY, capture_compile_fingerprint
-        argv += ['--additional-config', json.dumps({
-            CAPTURE_COMPILE_KEY: capture_compile_fingerprint()})]
+        additional_config[CAPTURE_COMPILE_KEY] = capture_compile_fingerprint()
+    if additional_config:
+        argv += ['--additional-config', json.dumps(additional_config)]
     if cfg['verify_session_restore']:
         env['KVMEM_VERIFY_SESSION_RESTORE'] = '1'
         if cfg['verify_session_restore_digest']:

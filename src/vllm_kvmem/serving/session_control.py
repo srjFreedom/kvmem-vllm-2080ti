@@ -296,8 +296,8 @@ class SessionLedger:
             return None
         if (not isinstance(session, str) or getattr(request, 'resumable', False) or
                 getattr(request, 'prompt_embeds', None) is not None or
-                getattr(request, 'mm_features', None) or getattr(request, 'lora_request', None)):
-            raise ValueError('Prompt sessions require non-streaming, text-only native requests')
+                getattr(request, 'lora_request', None)):
+            raise ValueError('Prompt sessions require non-streaming native requests without prompt embeds or LoRA')
         return session_namespace(session, getattr(request, 'cache_salt', None))
 
     def lookup(self, request, local_tokens):

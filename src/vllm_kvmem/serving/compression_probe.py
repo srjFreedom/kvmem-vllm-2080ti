@@ -108,9 +108,18 @@ def install_compression_probe(runner):
         context.attn_metadata.update(metadata)
         context.slot_mapping.clear()
         context.slot_mapping.update(build_slot_mappings_by_layer(slots, runner.kv_cache_config))
-        dense_positions = runner._kvmem_window_batch.positions
-        if kwargs["positions"].ndim == 2:
-            dense_positions = dense_positions.unsqueeze(0).expand(kwargs["positions"].shape[0], -1)
+        dense_positions = kwargs["positions"]
+        adapter = getattr(runner, '_kvmem_window_adapter', None)
+        windowed = (adapter is not None and adapter.model_positions is not None and
+                    dense_positions is not None and
+                    dense_positions.data_ptr() == adapter.model_positions.data_ptr())
+        if dense_positions is not None and dense_positions.ndim == 2:
+            # M-RoPE: shift the native per-axis values; a 1D dense tensor cannot
+            # carry the media grid. An already-windowed tensor is left alone.
+            if not windowed and adapter is not None and adapter.model_positions is not None:
+                dense_positions = adapter.translate_axes(dense_positions, batch)
+        else:
+            dense_positions = runner._kvmem_window_batch.positions
         replay_kwargs = {**kwargs, "positions": dense_positions}
         with capture_to(lambda _: None):
             replayed = _clone(original(*args, **replay_kwargs))

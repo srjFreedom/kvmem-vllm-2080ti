@@ -205,7 +205,10 @@ def make_probe_runner(base):
                     if self._kvmem_graph and self._kvmem_window_adapter is not None:
                         return self._kvmem_window_adapter.capture_window(batch)
                     return None
-                install_window_bridge(self.model_state, current_window)
+                def translate_positions(positions, batch):
+                    adapter = getattr(self, '_kvmem_window_adapter', None)
+                    return positions if adapter is None else adapter.translate_axes(positions, batch)
+                install_window_bridge(self.model_state, current_window, translate_positions)
             if _settings.get("KVMEM_REBUILD_PROBE") == "1" and self.speculative_config is not None:
                 raise ValueError("Rebuild probe needs target-only qualification before draft lifecycle integration")
             from .profile_scopes import install_profile_scopes

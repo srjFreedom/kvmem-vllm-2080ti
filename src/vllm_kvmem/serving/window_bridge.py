@@ -4,8 +4,13 @@ from types import MethodType
 from .window_batch import attention_windows
 
 
-def install_window_bridge(model_state, current_window):
-    """The runner supplies its current batch; native recurrent metadata is intact."""
+def install_window_bridge(model_state, current_window, translate_positions):
+    """The runner supplies its current batch; native recurrent metadata is intact.
+
+    `translate_positions(native, batch)` shifts native M-RoPE positions [AXES, T]
+    into the dense window. It is resolved lazily because graph buffers are
+    reserved after this bridge is installed.
+    """
     if hasattr(model_state, "_kvmem_original_prepare_attn"):
         raise ValueError("Window bridge already installed")
     model_state._kvmem_original_prepare_attn = model_state.prepare_attn
@@ -26,13 +31,14 @@ def install_window_bridge(model_state, current_window):
             # Attention lengths/slots still use window.groups. Only model
             # RoPE inputs retain the native original-history positions.
             return result
-        # Initial support is text-only. MRoPE's axes coincide for text tokens;
-        # multimodal position maps need a separate qualified model adapter.
-        original_positions = result.get("positions")
-        positions = window.positions
-        if original_positions is not None and original_positions.ndim == 2:
-            positions = positions.unsqueeze(0).expand(original_positions.shape[0], -1)
-        return {**result, "positions": positions}
+        positions = result.get("positions")
+        if positions is not None and positions.ndim == 2:
+            # vLLM built this axis-major tensor from the request's own media
+            # grids. Shifting every axis by the request's window offset keeps
+            # the M-RoPE geometry that a 1D expansion would collapse.
+            return {**result, "positions": translate_positions(positions, input_batch)}
+        # 1D RoPE keeps the dense per-token window positions.
+        return {**result, "positions": window.positions}
 
     model_state.prepare_attn = MethodType(prepare_attn, model_state)
     model_state.prepare_inputs = MethodType(prepare_inputs, model_state)

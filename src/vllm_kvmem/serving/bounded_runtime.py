@@ -406,9 +406,19 @@ def install_bounded_target(runner):
         context.slot_mapping.update(build_slot_mappings_by_layer(slots, runner.kv_cache_config))
         window = runner._kvmem_window_batch
         if window is not None:
-            positions = window.positions
-            if kwargs["positions"].ndim == 2:
-                positions = positions.unsqueeze(0).expand(kwargs["positions"].shape[0], -1)
+            positions = kwargs["positions"]
+            adapter = getattr(runner, '_kvmem_window_adapter', None)
+            windowed = (adapter is not None and adapter.model_positions is not None and
+                        positions is not None and
+                        positions.data_ptr() == adapter.model_positions.data_ptr())
+            if positions is not None and positions.ndim == 2:
+                # M-RoPE: shift the native per-axis values instead of replacing
+                # them with a 1D dense tensor. A tensor already backed by the
+                # window buffer was shifted by the bridge and must not shift again.
+                if not windowed and adapter is not None and adapter.model_positions is not None:
+                    positions = adapter.translate_axes(positions, batch)
+            else:
+                positions = window.positions
             kwargs = {**kwargs, "positions": positions}
         result = original(*args, **kwargs)
         completed = torch.cuda.Event()

@@ -52,10 +52,8 @@ def rebuild_native_batch(runner, captured, output):
         k, v = native_vllm_fp8_views(attn.kv_cache, heads, dim)
         slots = runner.block_tables.slot_mappings[layer_names[attn.layer_name], :tokens].clone()
         positions = c.positions[..., :tokens]
-        if positions.ndim == 2:
-            if not torch.equal(positions, positions[:1].expand_as(positions)):
-                raise ValueError("Multimodal MRoPE remapping is not yet qualified")
-            positions = positions[0]
+        # Text-only: 1D [T]. MRoPE multimodal: 2D [T, 3] (temporal/height/width).
+        # Both shapes are carried through to the native-page assembly unchanged.
         native_views.append((k, v, module))
         slots_by_layer.append(slots)
         positions_by_layer.append(positions.clone())
