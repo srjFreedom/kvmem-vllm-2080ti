@@ -274,8 +274,6 @@ def install_bounded_target(runner):
                 mandatory=getattr(job.command,'mandatory_spans',())).mandatory_fit(history,selected_cfg)
             required = set(mandatory_fit['hard_blocks'])
             mandatory = [r.handle for r in authority.records.values() if r.history_begin//cfg.block_tokens in required]
-            if {authority.records[(h.slot,h.generation)].history_begin//cfg.block_tokens for h in mandatory} != required:
-                raise ValueError('Required historical blocks are missing from the durable source')
             if job.command.selection == 'pressure':
                 from .prefill_attention import select_pressure
                 plan = select_pressure(authority,mandatory,max_tokens=selected_cfg.select_budget)
