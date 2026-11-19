@@ -1,0 +1,58 @@
+[
+  {
+    "target_tokens": 8192,
+    "prompt_tokens": 8200,
+    "generation_tokens": 512,
+    "prefill_seconds_engine": 8.579,
+    "decode_seconds_engine": 7.209,
+    "prefill_tokens_per_s": 955.8,
+    "decode_tokens_per_s": 71.0,
+    "ttft_seconds_engine": 8.592,
+    "ttft_seconds_client": 8.597,
+    "decode_tokens_per_s_stream": 70.9,
+    "total_seconds_client": 15.802,
+    "external_kv_tokens": 0
+  },
+  {
+    "target_tokens": 32768,
+    "prompt_tokens": 32786,
+    "generation_tokens": 512,
+    "prefill_seconds_engine": 37.719,
+    "decode_seconds_engine": 7.52,
+    "prefill_tokens_per_s": 869.2,
+    "decode_tokens_per_s": 68.1,
+    "ttft_seconds_engine": 37.78,
+    "ttft_seconds_client": 37.792,
+    "decode_tokens_per_s_stream": 68.0,
+    "total_seconds_client": 45.303,
+    "external_kv_tokens": 0
+  },
+  {
+    "target_tokens": 65536,
+    "prompt_tokens": 65482,
+    "generation_tokens": 512,
+    "prefill_seconds_engine": 87.671,
+    "decode_seconds_engine": 7.069,
+    "prefill_tokens_per_s": 746.9,
+    "decode_tokens_per_s": 72.4,
+    "ttft_seconds_engine": 87.773,
+    "ttft_seconds_client": 87.796,
+    "decode_tokens_per_s_stream": 72.5,
+    "total_seconds_client": 94.847,
+    "external_kv_tokens": 0
+  },
+  {
+    "target_tokens": 204800,
+    "prompt_tokens": 204534,
+    "generation_tokens": 512,
+    "prefill_seconds_engine": 341.039,
+    "decode_seconds_engine": 6.567,
+    "prefill_tokens_per_s": 599.7,
+    "decode_tokens_per_s": 78.0,
+    "ttft_seconds_engine": 341.318,
+    "ttft_seconds_client": 341.374,
+    "decode_tokens_per_s_stream": 78.4,
+    "total_seconds_client": 347.895,
+    "external_kv_tokens": 0
+  }
+]
