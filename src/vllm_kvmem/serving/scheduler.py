@@ -18,6 +18,9 @@ from .window_manager import WorkingSetManager
 from .admission import QueryPolicy
 from ..core import settings as _settings
 
+from vllm.logger import init_logger
+logger = init_logger('vllm.kvmem.scheduler')
+
 # Placeholder for KVMEM_LIFECYCLE_SNAPSHOT_CACHE (spliced after json.dumps).
 _SESSION_VIEWS_SLOT = '\x00kvmem-session-views\x00'
 
@@ -58,6 +61,8 @@ class KVMemScheduler(Scheduler):
             require_contract('scheduler')
         options = RuntimeOptions.from_vllm(self.vllm_config)
         self._deferred_prefill_validation = options.prefill_deferred_validation
+        # Prompt prefill progress logging (legacy C++ fork prompt_progress parity).
+        self.prompt_progress_log = os.environ.get("KVMEM_PROMPT_PROGRESS_LOG", "1") != "0"
         self.connector.request_plan_memory = options.memory if options.request_planning else None
         self.connector.request_plan_pressure_policy = options.pressure_policy
         if options.rolling_active_window and not (self.draft_contract is not None and (
@@ -1864,6 +1869,7 @@ class KVMemScheduler(Scheduler):
         self._reconcile_coalescing(output)
         self._record_coalescing(output)
         self._record_phase(output)
+        self._log_prefill_progress(output)
         if hasattr(self, '_scheduled_queries') and output.total_num_scheduled_tokens:
             # Actual admitted sizes, including native draft reservations and
             # alignment, are the evidence for a matched query-policy comparison.
@@ -1887,6 +1893,30 @@ class KVMemScheduler(Scheduler):
         if getattr(self, 'offline_policy', None) is not None:
             self.offline_policy.record(output)
         return output
+
+    def _log_prefill_progress(self, output):
+        """Log prompt prefill progress (processed/total tokens) per chunk.
+
+        Mirrors the legacy C++ fork's prompt_progress observability: after each
+        prefill chunk is scheduled, report how many prompt tokens are done.
+        """
+        if not getattr(self, 'prompt_progress_log', True):
+            return
+        scheduled = getattr(output, 'num_scheduled_tokens', None) or {}
+        for rid, tokens in scheduled.items():
+            request = self.requests.get(rid)
+            if request is None:
+                continue
+            # Scheduler.schedule() has already run _update_after_schedule(), so
+            # num_computed_tokens includes this step's chunk. Only log while the
+            # request is still within its prompt; decode steps exceed the total.
+            total = request.num_prompt_tokens
+            computed = request.num_computed_tokens
+            if total <= 0 or tokens <= 0 or computed > total:
+                continue  # decode / already past the prompt
+            logger.info(
+                "prompt progress: req=%s %d/%d tokens (%.1f%%) chunk=%d",
+                rid, computed, total, 100.0 * computed / total, tokens)
 
     def _select_waiting_queue_for_scheduling(self):
         if getattr(self, 'offline_policy', None) is not None:
