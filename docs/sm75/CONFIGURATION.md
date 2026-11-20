@@ -33,7 +33,7 @@ Measured archive cost per token (this model): **17,408 B/rank** = 17 full-attent
 |---|---|
 | window | 40,960 tokens |
 | GPU KV needed | ceil(40,960/1,616) + 15 pages = **41 pages ≈ 1.07 GiB** |
-| pool at `gpu_memory_utilization=0.92` | 118 pages ≈ 3.09 GiB (2.9× margin — the window is a product choice, not a limit) |
+| pool at `kv_cache_memory_bytes=3.5 GiB` | ~120 pages ≈ 3.5 GiB (3.3× margin — the window is a product choice, not a limit) |
 | history for one 256K session | 262,144 × 17,408 = **4.25 GiB/rank** ⇒ 8.5 GiB host |
 | `cpu_read_cache_bytes` | 6 GiB (1.41× margin) |
 
@@ -42,7 +42,8 @@ Measured archive cost per token (this model): **17,408 B/rank** = 17 full-attent
 | key | default here | notes |
 |---|---|---|
 | `max_model_len` | 262,144 | logical CTX; must be ≥ B+R; the launcher allows up to 10,000,000 for MTP (needs `request_planning` and `B+R ≤ 262,144`) |
-| `gpu_memory_utilization` | **0.92** | weights + activation + graphs + KV pool; 0.90 leaves ~2.8 GiB free for the long-prefill transient (at 0.96 a max-length prefill hit CUDA OOM) |
+| `kv_cache_memory_bytes` | **3,758,096,384 (3.5 GiB)** | **the knob that actually sizes the KV pool.** When set, vLLM reserves exactly this many bytes, skips memory profiling, and **ignores `gpu_memory_utilization`** (the engine log says so verbatim). This is the production setting. |
+| `gpu_memory_utilization` | 0.92 | **a no-op while `kv_cache_memory_bytes` is set** — vLLM skips profiling and never reads it. It only takes effect if you remove `kv_cache_memory_bytes`, in which case it sizes the pool as a fraction of free VRAM (0.90 leaves ~2.8 GiB for the long-prefill transient; 0.96 OOMs a max-length prefill). Do not tune it expecting a window change. |
 | `kvmem.select_budget` | 36,864 | selected history per step; must be divisible by `block_tokens`, ≥ sink+recent |
 | `kvmem.sink_blocks` / `kvmem.recent_blocks` | 256 / 64 | 8,192 / 2,048 tokens head and tail kept on every retrieval, prefill and decode alike; the middle band is scored |
 | `kvmem.gen_budget` | 8,192 | generation headroom; also the model's per-request output reserve. Keep it at 8,192 or above: after a refresh the window slides by `R − lookahead − block_tokens`, so a smaller R fills the window every ~2K tokens and turns prefill into a refresh loop |
@@ -118,13 +119,14 @@ With R = 16,384 that is one refresh per ~16K generated tokens.
 | faster code generation | `draft_tokens=4` + `cudagraph_capture_sizes=[5]` + `execution_mode=full_graph` (80–87 tok/s verified) |
 | longer logical context | raise `max_model_len` and `cpu_read_cache_bytes` together; keep `sessions × CTX ≤ history tokens` |
 | more warm sessions | `session_capacity` up **and** `cpu_read_cache_bytes` up by 4.25 GiB/rank per extra 256K session |
-| free VRAM for another service | lower `gpu_memory_utilization` (0.80 leaves ~4.7 GB) and/or R |
+| free VRAM for another service | lower `kv_cache_memory_bytes` (the effective pool knob; `gpu_memory_utilization` is ignored while it is set) and/or R |
 | avoid a hard failure when sessions overflow | `KVMEM_SESSION_IDLE_LRU_EVICTION=1` + small `session_capacity` |
 
 ## Beyond 262,144 tokens
 
 The logical context is **not** capped at 262,144. Measured on this host with
-`max_model_len = 524,288`, `B = R = 8,192`, `gpu_memory_utilization = 0.90`:
+`max_model_len = 524,288`, `B = R = 8,192`, `gpu_memory_utilization = 0.90` (utilization-controlled
+mode — `kv_cache_memory_bytes` unset, so the utilization fraction actually sized the pool):
 
 | prompt | result |
 |---|---|
@@ -143,6 +145,13 @@ Cost: prefill runs at ~390–1,000 tok/s depending on the window, so a 270K prom
 
 ## Window capacity vs utilization (measured on 2 × 22 GB)
 
+> **These rows only apply when `kv_cache_memory_bytes` is unset**, so that
+> `gpu_memory_utilization` is the knob sizing the pool. The production profile sets
+> `kv_cache_memory_bytes = 3.5 GiB`, which **fixes the pool and ignores
+> `gpu_memory_utilization` entirely** (vLLM skips profiling and never reads it). To move the
+> window in production, change `kv_cache_memory_bytes`, not the utilization. The table below is
+> kept as the reference for what each utilization fraction would buy if you drop the fixed pool.
+
 The pool holds `pages × 1,616` attention tokens; the 15 pages of GDN state are fixed.
 
 | `gpu_memory_utilization` | pool | usable window | code-gen decode | max-length (258K) prefill |
@@ -160,7 +169,7 @@ large windows for many short requests → 0.96.
 
 ```bash
 ./deploy/run-kvmem-vllm.sh start \
-  --set gpu_memory_utilization=0.92 \
+  --set kv_cache_memory_bytes=3758096384 \
   --set kvmem.select_budget=36864 \
   --set kvmem.gen_budget=4096
 ```
