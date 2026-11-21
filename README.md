@@ -118,7 +118,7 @@ export KVMEM_MODEL_DIR=/path/to/checkpoint
 OVERRIDES=(
   --set gpu_memory_utilization=0.92
   --set kvmem.select_budget=36864
-  --set kvmem.gen_budget=4096
+  --set kvmem.gen_budget=8192
 )
 exec /path/to/kvmem-vllm-2080ti/deploy/run-kvmem-vllm.sh start "${OVERRIDES[@]}" "$@"
 ```

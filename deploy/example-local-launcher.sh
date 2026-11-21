@@ -50,12 +50,12 @@ OVERRIDES=(
   --set sm75_spec_sync_mode=nosync
   --set allow_mamba_spec_full_cudagraph=true
 
-  # GPU window
+  # GPU window (matches local/serve-2080ti-default.json; override per host)
   --set kvmem.select_budget=36864
-  --set kvmem.gen_budget=4096
-  --set query_replay_budget=2048
+  --set kvmem.gen_budget=8192
+  --set query_replay_budget=4096
   --set kvmem.block_tokens=32
-  --set kvmem.sink_blocks=128
+  --set kvmem.sink_blocks=256
   --set kvmem.recent_blocks=64
 
   # host history
