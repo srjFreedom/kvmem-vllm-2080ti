@@ -5,10 +5,10 @@
 > **once**, in the refresh inside the last batch. The per-slide Query picker is
 > opt-in (`semantic_prefill=True`) and is not the shipped default. Shipped
 > profile `local/serve-2080ti-default.json`: `B = 36,864`, `R = 8,192`,
-> `sink = 8,192`, `recent = 2,048`, MTP4, FP8 weights, `max_num_seqs = 1`;
-> 200,052-token prefill = **230.0 s / 870 tok/s** on 2×2080Ti SM75
-> (38 `pressure` slides + 1 `chunk` refresh). The earlier local override
-> (`B = 49,152`, `B + R = 57,344`, 3.5 GiB pool) measured 918 tok/s / 223 s.
+> `sink = 8,192`, `recent = 2,048`, MTP4, FP8 weights, `max_num_seqs = 1`,
+> `mm_gdn_prefill_backend = flashqla_legacy`; 200,052-token prefill = **196.2 s /
+> 1,020 tok/s** on 2×2080Ti SM75 (38 `pressure` slides + 1 `chunk` refresh).
+> The portable Triton GDN fallback measures 230.0 s / 870 tok/s.
 
 Plan-less requests (every plain `/v1/completions` or chat call) used to run the
 semantic refresh during prefill: a 204,800-token prompt refreshed **74 times**,
@@ -70,11 +70,19 @@ attended length is whatever the window holds:
 Measured 2026-11-21 on 2×2080Ti SM75 with the shipped profile
 `local/serve-2080ti-default.json` (`B = 36,864`, `R = 8,192`, `sink = 8,192`,
 `recent = 2,048`, MTP4, FP8 weights, `max_num_seqs = 1`,
-`max_num_batched_tokens = 4101`, pool sized by `gpu_memory_utilization = 0.92`):
+`max_num_batched_tokens = 4101`, pool sized by `gpu_memory_utilization = 0.92`,
+`mm_gdn_prefill_backend = flashqla_legacy`):
 
 | Prompt | Prefill | Refreshes |
 | ---: | ---: | ---: |
-| 200,052 | **230.0 s / 870 tok/s** | 39 (38 `pressure` + 1 `chunk`) |
+| 200,052 | **196.2 s / 1,020 tok/s** | 39 (38 `pressure` + 1 `chunk`) |
+
+The GDN prefill kernel dominates this workload: the same profile with the
+portable Triton fallback (`mm_gdn_prefill_backend = null`) measures 230.0 s /
+870 tok/s, and the per-chunk forward drops from 1,134 ms to 947 ms with the SM75
+FlashQLA build. `deploy/run-kvmem-vllm.sh` exports the FlashQLA
+`PYTHONPATH`/`TORCH_EXTENSIONS_DIR` when the engine ships the extension and
+falls back to `null` when it does not.
 
 The `prefill_window_tokens` cap trades recall for speed; on the earlier local
 override (`B = 49,152`, `B + R = 57,344`, 3.5 GiB pool) the same class of

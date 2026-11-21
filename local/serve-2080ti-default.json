@@ -14,6 +14,7 @@
   "max_num_batched_tokens": 2048,
   "gpu_memory_utilization": 0.92,
   "prefill_chunk_tokens": 2048,
+  "mm_gdn_prefill_backend": "flashqla_legacy",
   "verify_session_restore": false,
   "kvmem": {
     "block_tokens": 32,
