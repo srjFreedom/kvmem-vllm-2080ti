@@ -7,6 +7,10 @@ KVMem 的核心思路：**GPU 上只保留有界的 KV 窗口，全量历史放�
 机制来自 [`kvmem/kvmem-vllm`](https://github.com/kvmem/kvmem-vllm)，引擎是可跑 SM75 的 vLLM fork，
 我们补的是兼容层、部署 profile，以及两张 22 GB 图灵卡上的实测配置。
 
+**最抓人的数字：** 两张 22 GB RTX 2080 Ti 上，**200,052 token 的冷 prefill 只要 196 秒（≈1,020 tok/s）**
+—— 27B FP8 权重、MTP4、纯滑动 prefill（prefill 期按 recency，decode 入口做一次 Query 检索）。
+prompt 的 KV 放不进显卡：GPU 窗口是 36K（历史）+ 8K（生成长度余量），其余历史在主机内存。
+
 *English (default): [README.md](README.md)*
 
 ---
@@ -38,7 +42,8 @@ KVMem 的核心思路：**GPU 上只保留有界的 KV 窗口，全量历史放�
 | 能力 | 结果 |
 |---|---|
 | 代码类生成 decode | **80–87 tok/s**（同配置原版引擎 80.8–87.2）|
-| prefill | 1,021–1,063 tok/s（原版 1,174）|
+| **200K 冷 prefill** | **196 s，1,020 tok/s**（纯滑动、MTP4、FP8、FlashQLA GDN kernel）|
+| 短 prefill | 1,021–1,063 tok/s（原版 1,174）|
 | 4.8K needle | 答对，冷跑约 7.9 s |
 | **prompt 超过物理池** | 218,220 token 答对；重复请求 **1.36 s**（约 365×）|
 | 会话续写（超窗口）| 7.5 s → **0.33 s** |
@@ -132,7 +137,7 @@ systemctl is-active kvmem-vllm        # active
 curl -s localhost:18200/v1/models | head -c 120
 ```
 
-Profile：`local/serve-2080ti-default.json`（B 36K / R 4K、util 0.92、chunk 2,048）、
+Profile：`local/serve-2080ti-default.json`（B 36K / R 8K、util 0.92、chunk 2,048、FlashQLA GDN kernel）、
 `local/serve-2080ti-lean.json`（窗口 49K、util 0.82）、`local/serve-2080ti-200k.json`（窗口 200K、util 0.96）。
 
 ## 一页配置口径
@@ -153,9 +158,9 @@ GPU KV 需求       ≈ 17,408 B/token × (B + R) + 0.39 GiB（3 个 GDN 组的�
 会话数 × CTX      ≤ 历史 token 总量                   # 否则新会话只能排队
 ```
 
-默认（已实测）：B=36K、R=4K（窗口 40,960）、CTX=256K、`gpu_memory_utilization=0.92`、
+默认（已实测）：B=36K、R=8K（窗口 45,056）、CTX=256K、`gpu_memory_utilization=0.92`、
 `prefill_chunk_tokens=2,048`、`query_replay_budget=4,096`、`session_capacity=1`、
-`cpu_read_cache_bytes=6 GiB`。
+`cpu_read_cache_bytes=6 GiB`、`mm_gdn_prefill_backend=flashqla_legacy`。
 
 > `query_replay_budget` 默认等于 R，约 **180 KiB/token** 的显存；不显式设置它，
 > 48K 窗口看起来就"永远放不下"。这是最容易踩的坑。

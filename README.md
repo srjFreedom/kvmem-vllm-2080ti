@@ -9,6 +9,11 @@ The mechanism comes from [`kvmem/kvmem-vllm`](https://github.com/kvmem/kvmem-vll
 stock SM75-capable vLLM fork; what we add is the compatibility layer, the deployment profile and the
 measured configuration for two 22 GB Turing cards.
 
+**The headline number:** a **200,052-token cold prefill runs in 196 s (≈1,020 tok/s)** on two 22 GB
+RTX 2080 Ti cards — 27B FP8 weights, MTP4, pure-sliding prefill (recency during prefill, one Query
+retrieval at the decode entry). The prompt's KV does not fit on the cards: the GPU window is 36K
+(history) + 8K (generation headroom), and the rest of the history lives in host RAM.
+
 *中文文档：[README.zh-CN.md](README.zh-CN.md)*
 
 ---
@@ -41,7 +46,8 @@ layers, weight-only FP8, BF16 `lm_head`), TP = 2, `dtype=float16`, `kv-cache-dty
 | capability | result |
 |---|---|
 | code generation decode | **80–87 tok/s** (pristine engine on the same config: 80.8–87.2) |
-| prefill | 1,021–1,063 tok/s (pristine 1,174) |
+| **200K cold prefill** | **196 s, 1,020 tok/s** (pure sliding, MTP4, FP8, FlashQLA GDN kernel) |
+| short prefill | 1,021–1,063 tok/s (pristine 1,174) |
 | 4.8K needle request | correct, ~7.9 s cold |
 | **prompt above the KV pool** | 218,220 tokens answered correctly; repeat **1.36 s** (≈365×) |
 | session continuation, over window | 7.5 s → **0.33 s** |
@@ -148,7 +154,7 @@ systemctl is-active kvmem-vllm        # active
 curl -s localhost:18200/v1/models | head -c 120
 ```
 
-Profiles: `local/serve-2080ti-default.json` (B 36K / R 4K, util 0.92, chunk 2,048), `local/serve-2080ti-lean.json` (49K window, util 0.82), `local/serve-2080ti-200k.json` (200K window, util 0.96).
+Profiles: `local/serve-2080ti-default.json` (B 36K / R 8K, util 0.92, chunk 2,048, FlashQLA GDN kernel), `local/serve-2080ti-lean.json` (49K window, util 0.82), `local/serve-2080ti-200k.json` (200K window, util 0.96).
 
 ## Configuration in one page
 
@@ -168,9 +174,9 @@ host RAM for that      = 2 × the above               # TP=2 runs two archives o
 sessions               × CTX   ≤ history tokens total        # otherwise the next session queues
 ```
 
-Defaults (verified): B = 36K, R = 4K (window 40,960), CTX = 256K, `gpu_memory_utilization` = 0.92,
+Defaults (verified): B = 36K, R = 8K (window 45,056), CTX = 256K, `gpu_memory_utilization` = 0.92,
 `prefill_chunk_tokens` = 2,048, `query_replay_budget` = 4,096, `session_capacity` = 1,
-`cpu_read_cache_bytes` = 6 GiB.
+`cpu_read_cache_bytes` = 6 GiB, `mm_gdn_prefill_backend` = `flashqla_legacy`.
 
 > `query_replay_budget` defaults to R and costs ~180 KiB of VRAM per token. Leaving it at 16K is what
 > made a 48K window look impossible; set it explicitly.
@@ -208,7 +214,7 @@ arithmetic: [docs/sm75/CONFIGURATION.md](docs/sm75/CONFIGURATION.md).
    window rebuild when the next step would not fit in what is left of the window
    (`QueryPolicy.refresh` with the step-limit lookahead), so a long cold prompt rebuilds about
    every `R` tokens instead of every aligned block: 80K prompt 184 s -> 121 s, 200K 591 s -> 306 s
-   on this host, with the same answers.
+   -> **196 s** on this host, with the same answers.
 8. **Per-card VRAM is dominated by weights.** The 27B FP8 checkpoint plus its BF16 `lm_head` and
    MTP head load as 14.54 GiB per rank, and the CUDA context/NCCL/Triton add ~1.2 GiB, so ~15.8 GiB
    of the 21.1 GiB usable on a 22 GB card are gone before any KV. `gpu_memory_utilization` then sizes
