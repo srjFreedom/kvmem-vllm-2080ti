@@ -1255,10 +1255,11 @@ class KVMemScheduler(Scheduler):
                         remaining=request.num_prompt_tokens - request.num_computed_tokens,
                         action=action,
                         max_batched_tokens=self.scheduler_config.max_num_batched_tokens,
-                        # A plan-less prefill slide always runs the Query selection:
-                        # sink band + recent band + scored middle, up to the retention
-                        # budget (prefill_select_tokens, 0 = the full B).
-                        semantic_prefill=plan is None)
+                        # Pure sliding prefill: a plan-less prefill slide keeps the newest
+                        # window in order (recency), no Query selection. Only the refresh
+                        # inside the last chunk (the decode-entry Query) runs the Query
+                        # selection. semantic_prefill=False selects this mode.
+                        semantic_prefill=False)
                     if entry_query:
                         request._kvmem_entry_query_done = True
                         # The window may hold fewer than B tokens: the manager only
