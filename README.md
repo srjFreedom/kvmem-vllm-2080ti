@@ -72,7 +72,7 @@ cd vLLM-2080Ti-Definitive
 git checkout v0.2.2-post3 && ./build.sh                           # produces .venv (uv) + the SM75 kernels
 cd ..
 
-git clone https://github.com/srjFreedom/kvmem-vllm-adapter.git kvmem-vllm-2080ti
+git clone https://github.com/srjFreedom/kvmem-vllm-2080ti.git
 cd kvmem-vllm-2080ti
 
 export KVMEM_ENGINE_DIR=$PWD/../vLLM-2080Ti-Definitive
