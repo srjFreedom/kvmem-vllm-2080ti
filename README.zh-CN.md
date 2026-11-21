@@ -38,8 +38,8 @@ KVMem 的核心思路：**GPU 上只保留有界的 KV 窗口，全量历史放�
 | 能力 | 结果 |
 |---|---|
 | 代码类生成 decode | **80–87 tok/s**（同配置原版引擎 80.8–87.2）|
-| **200K 冷 prefill** | **196 s，1,020 tok/s**（纯滑动、MTP4、FP8、FlashQLA GDN kernel）|
-| 短 prefill | 1,021–1,063 tok/s（原版 1,174）|
+| **4K 冷 prefill** | **3.0 s，1,371 tok/s**（纯滑动、MTP4、FP8、FlashQLA GDN kernel）|
+| **200K 冷 prefill** | **196 s，1,020 tok/s**（同 profile）|
 | 4.8K needle | 答对，冷跑约 7.9 s |
 | **prompt 超过物理池** | 218,220 token 答对；重复请求 **1.36 s**（约 365×）|
 | 会话续写（超窗口）| 7.5 s → **0.33 s** |

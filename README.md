@@ -41,8 +41,8 @@ layers, weight-only FP8, BF16 `lm_head`), TP = 2, `dtype=float16`, `kv-cache-dty
 | capability | result |
 |---|---|
 | code generation decode | **80–87 tok/s** (pristine engine on the same config: 80.8–87.2) |
-| **200K cold prefill** | **196 s, 1,020 tok/s** (pure sliding, MTP4, FP8, FlashQLA GDN kernel) |
-| short prefill | 1,021–1,063 tok/s (pristine 1,174) |
+| **4K cold prefill** | **3.0 s, 1,371 tok/s** (pure sliding, MTP4, FP8, FlashQLA GDN kernel) |
+| **200K cold prefill** | **196 s, 1,020 tok/s** (same profile) |
 | 4.8K needle request | correct, ~7.9 s cold |
 | **prompt above the KV pool** | 218,220 tokens answered correctly; repeat **1.36 s** (≈365×) |
 | session continuation, over window | 7.5 s → **0.33 s** |
