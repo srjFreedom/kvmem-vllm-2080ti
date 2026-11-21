@@ -7,10 +7,6 @@ KVMem 的核心思路：**GPU 上只保留有界的 KV 窗口，全量历史放�
 机制来自 [`kvmem/kvmem-vllm`](https://github.com/kvmem/kvmem-vllm)，引擎是可跑 SM75 的 vLLM fork，
 我们补的是兼容层、部署 profile，以及两张 22 GB 图灵卡上的实测配置。
 
-**最抓人的数字：** 两张 22 GB RTX 2080 Ti 上，**200,052 token 的冷 prefill 只要 196 秒（≈1,020 tok/s）**
-—— 27B FP8 权重、MTP4、纯滑动 prefill（prefill 期按 recency，decode 入口做一次 Query 检索）。
-prompt 的 KV 放不进显卡：GPU 窗口是 36K（历史）+ 8K（生成长度余量），其余历史在主机内存。
-
 *English (default): [README.md](README.md)*
 
 ---

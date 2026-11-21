@@ -9,11 +9,6 @@ The mechanism comes from [`kvmem/kvmem-vllm`](https://github.com/kvmem/kvmem-vll
 stock SM75-capable vLLM fork; what we add is the compatibility layer, the deployment profile and the
 measured configuration for two 22 GB Turing cards.
 
-**The headline number:** a **200,052-token cold prefill runs in 196 s (≈1,020 tok/s)** on two 22 GB
-RTX 2080 Ti cards — 27B FP8 weights, MTP4, pure-sliding prefill (recency during prefill, one Query
-retrieval at the decode entry). The prompt's KV does not fit on the cards: the GPU window is 36K
-(history) + 8K (generation headroom), and the rest of the history lives in host RAM.
-
 *中文文档：[README.zh-CN.md](README.zh-CN.md)*
 
 ---
