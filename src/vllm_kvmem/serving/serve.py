@@ -41,6 +41,10 @@ DEFAULTS = {
     # logical context. The DFlash2 bounded route needs it without the
     # incremental admission flavour, which that route rejects.
     'logical_kv_capacity': False,
+    # Engine GDN state layout. 'align' keeps a small resident state set and lets
+    # the DFlash draft merge into the target page pool; it disables KVMem's own
+    # state replay, so it is only for the bounded DFlash experiment.
+    'mamba_cache_mode': 'none',
     'max_model_len': 262144, 'q8_tensorcore': False,
     'prefill_chunk_tokens': 0,
     'chat_prefill_blocks': 32,
@@ -543,6 +547,7 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
         '--dtype', str(cfg.get('dtype', 'bfloat16')),
         *loader_args,
         '--kv-cache-dtype', 'fp8_e4m3', '--max-model-len', str(cfg['max_model_len']),
+        *(['--mamba-cache-mode', cfg['mamba_cache_mode']] if cfg['mamba_cache_mode'] != 'none' else []),
         '--max-num-seqs', str(cfg['max_num_seqs']), '--max-num-batched-tokens', str(cfg['max_num_batched_tokens']),
         '--tensor-parallel-size', str(cfg['tensor_parallel_size']),
         '--gpu-memory-utilization', str(utilization), '--no-enable-prefix-caching',

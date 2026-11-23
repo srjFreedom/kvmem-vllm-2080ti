@@ -19,9 +19,12 @@ class ReservedKVCacheManager:
 
         from ..adapters.engine_api import require_contract
         require_contract('capacity')
+        from ..core import settings as _settings
+        self._align_state = _settings.get('KVMEM_DFLASH_ALIGN_STATE') == '1'
+        _state_modes = ('none', 'align') if self._align_state else ('none',)
         if ((vllm_config.speculative_config is not None) != (draft_contract is not None) or
                 vllm_config.cache_config.enable_prefix_caching or
-                vllm_config.cache_config.mamba_cache_mode != "none" or
+                vllm_config.cache_config.mamba_cache_mode not in _state_modes or
                 vllm_config.max_concurrent_batches != 1):
             raise ValueError("Capacity reservation requires synchronous APC-off execution and an explicit draft contract")
         self.native = native
@@ -95,10 +98,15 @@ class ReservedKVCacheManager:
                 continue
             if (type(manager) is not MambaManager or type(spec) is not MambaSpec or
                     spec.num_speculative_blocks != (self.lookahead - 1 if self.lookahead else 0) or
-                    spec.num_prefill_checkpoint_blocks or spec.mamba_cache_mode != "none" or
-                    spec.block_size < native.max_model_len):
+                    spec.mamba_cache_mode not in (('none', 'align') if self._align_state else ('none',)) or
+                    (spec.mamba_cache_mode == 'none' and spec.block_size < native.max_model_len)):
                 raise ValueError("Unqualified recurrent-state reservation geometry")
-            self.static_blocks[index] = spec.max_num_blocks_per_req(vllm_config, native.max_model_len)
+            if spec.mamba_cache_mode == 'align':
+                # Align keeps a small resident state set per request (the same
+                # four blocks the engine plans) instead of one full-context page.
+                self.static_blocks[index] = 4 + spec.num_speculative_blocks
+            else:
+                self.static_blocks[index] = spec.max_num_blocks_per_req(vllm_config, native.max_model_len)
         self.reservations = {}
         self._step_remaining = None
         self._step_total = 0

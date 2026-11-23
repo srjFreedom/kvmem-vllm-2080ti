@@ -83,8 +83,14 @@ class DraftContract:
             raise ValueError('Logical context exceeds the qualified draft position table')
         if config.max_concurrent_batches != 1 or config.scheduler_config.async_scheduling:
             raise ValueError('Initial bounded DFlash2 transactions require synchronous scheduling')
-        if config.cache_config.enable_prefix_caching or config.cache_config.mamba_cache_mode != 'none':
-            raise ValueError('Initial bounded DFlash2 transactions require APC-off GDN none state')
+        # 'align' lets the engine keep a small resident GDN state set and merge
+        # the draft's pages into the target pool; it costs KVMem's own state
+        # replay (sessions/swap), so it stays behind an explicit opt-in.
+        from ..core import settings as _settings
+        align_state = _settings.get('KVMEM_DFLASH_ALIGN_STATE') == '1'
+        allowed_state = ('none', 'align') if align_state else ('none',)
+        if config.cache_config.enable_prefix_caching or config.cache_config.mamba_cache_mode not in allowed_state:
+            raise ValueError('Initial bounded DFlash2 transactions require APC-off GDN none/align state')
         if config.num_lookahead_tokens != query:
             raise ValueError('Native draft lookahead differs from the qualified query block')
         return cls(query, window, hf.max_position_embeddings, layers)
