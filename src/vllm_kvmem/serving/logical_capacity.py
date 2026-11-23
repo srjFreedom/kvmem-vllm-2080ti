@@ -144,7 +144,15 @@ def check_specs(specs, *, allow_dflash=False, expected_workers=1):
 
 
 
-def window_owner_pages(group, config, frame):
+def group_page_bytes(group):
+    """Bytes one block of this group occupies across its layers."""
+    from vllm.v1.kv_cache_interface import UniformTypeKVCacheSpecs
+    spec = group.kv_cache_spec
+    per_layer = (spec.first_spec if isinstance(spec, UniformTypeKVCacheSpecs) else spec).page_size_bytes
+    return per_layer * len(group.layer_names)
+
+
+def window_owner_pages(group, config, frame, native_page_bytes=None):
     from vllm.v1.kv_cache_interface import MambaSpec, SlidingWindowSpec, UniformTypeKVCacheSpecs
     spec = group.kv_cache_spec
     first = spec.first_spec if isinstance(spec, UniformTypeKVCacheSpecs) else spec
@@ -158,8 +166,15 @@ def window_owner_pages(group, config, frame):
         # Match NativeCapacity: sliding pages recycle before allocation, while
         # one extra DFlash query block can be in flight beyond target tokens.
         lookahead = config.speculative_config.num_speculative_tokens + 1
-        return first.max_admission_blocks_per_request(
+        pages = first.max_admission_blocks_per_request(
             config.max_in_flight_tokens + lookahead, frame)
+        if native_page_bytes:
+            # A native draft group holds one layer, so its page is a fraction of
+            # the aligned target page. The pool this is compared against counts
+            # native pages: charge bytes, not draft page units.
+            import math
+            return max(1, math.ceil(pages * group_page_bytes(group) / native_page_bytes))
+        return pages
     return spec.max_num_blocks_per_req(config, frame)
 
 
@@ -198,8 +213,10 @@ def wrap_planner(original):
             'kvmem', {}).get('gpu_memory_admission') == 'incremental')
         rows = []
         for cache in result:
+            native_page_bytes = max((group_page_bytes(group)
+                                     for group in cache.kv_cache_groups), default=0) or None
             per_owner = sum(window_owner_pages(group, bounded,
-                bounded.model_config.max_model_len) for group in cache.kv_cache_groups)
+                bounded.model_config.max_model_len, native_page_bytes) for group in cache.kv_cache_groups)
             required_owners = 1 if incremental else owners
             needed = required_owners*per_owner + 1  # native null page is never available
             if needed > cache.num_blocks:
