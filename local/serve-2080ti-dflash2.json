@@ -60,12 +60,11 @@
     "system": {
       "KVMEM_CHECKPOINT_PINNED_PREWARM": "0"
     },
-    "strategy": {
-      "KVMEM_DFLASH_ALIGN_STATE": "1"
-    }
+    "strategy": {}
   },
   "mm_image_limit": 64,
   "kv_cache_memory_bytes": 3758096384,
   "logical_kv_capacity": true,
-  "mamba_cache_mode": "align"
+  "mamba_cache_mode": "none",
+  "mamba_block_size": 1648
 }

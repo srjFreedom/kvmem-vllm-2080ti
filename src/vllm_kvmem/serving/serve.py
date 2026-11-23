@@ -45,6 +45,10 @@ DEFAULTS = {
     # the DFlash draft merge into the target page pool; it disables KVMem's own
     # state replay, so it is only for the bounded DFlash experiment.
     'mamba_cache_mode': 'none',
+    # Optional GDN state page size. The engine defaults it to max_model_len
+    # under 'none', which gives the Mamba group a page size no attention group
+    # can share and splits the pool into many groups.
+    'mamba_block_size': None,
     'max_model_len': 262144, 'q8_tensorcore': False,
     'prefill_chunk_tokens': 0,
     'chat_prefill_blocks': 32,
@@ -548,6 +552,7 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
         *loader_args,
         '--kv-cache-dtype', 'fp8_e4m3', '--max-model-len', str(cfg['max_model_len']),
         *(['--mamba-cache-mode', cfg['mamba_cache_mode']] if cfg['mamba_cache_mode'] != 'none' else []),
+        *(['--mamba-block-size', str(cfg['mamba_block_size'])] if cfg['mamba_block_size'] else []),
         '--max-num-seqs', str(cfg['max_num_seqs']), '--max-num-batched-tokens', str(cfg['max_num_batched_tokens']),
         '--tensor-parallel-size', str(cfg['tensor_parallel_size']),
         '--gpu-memory-utilization', str(utilization), '--no-enable-prefix-caching',

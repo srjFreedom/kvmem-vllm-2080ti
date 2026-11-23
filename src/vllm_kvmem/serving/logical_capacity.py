@@ -145,9 +145,14 @@ def check_specs(specs, *, allow_dflash=False, expected_workers=1):
 
 
 def window_owner_pages(group, config, frame):
-    from vllm.v1.kv_cache_interface import SlidingWindowSpec, UniformTypeKVCacheSpecs
+    from vllm.v1.kv_cache_interface import MambaSpec, SlidingWindowSpec, UniformTypeKVCacheSpecs
     spec = group.kv_cache_spec
     first = spec.first_spec if isinstance(spec, UniformTypeKVCacheSpecs) else spec
+    if isinstance(first, MambaSpec):
+        # Memory is the resident state set (one live state plus one per
+        # speculative token), not the position-indexed block-table row length
+        # max_num_blocks_per_req reports.
+        return 1 + first.num_speculative_blocks
     if (getattr(config.speculative_config, 'method', None) == 'dflash' and
             type(first) is SlidingWindowSpec):
         # Match NativeCapacity: sliding pages recycle before allocation, while
@@ -172,6 +177,19 @@ def wrap_planner(original):
             expected_workers=getattr(vllm_config.parallel_config, 'tensor_parallel_size', 1))
         if len(available_memory) != len(kv_cache_specs):
             raise ValueError('Missing worker memory budget')
+        import sys as _sys
+        _row = kv_cache_specs[0]
+        _kinds = {}
+        for _name, _spec in _row.items():
+            _key = (type(_spec).__name__,
+                    getattr(_spec, 'mamba_cache_mode', None),
+                    getattr(_spec, 'block_size', None),
+                    getattr(_spec, 'num_speculative_blocks', None))
+            _kinds[_key] = _kinds.get(_key, 0) + 1
+        print('KVMem align check: cache_mode=%r frame=%d specs=%d kinds=%r'
+              % (bounded.cache_config.mamba_cache_mode,
+                 bounded.model_config.max_model_len, len(_row), _kinds),
+              file=_sys.stderr, flush=True)
         # Native code may unify the input spec dictionaries. Isolate its mapping
         # mutations as well; immutable KVCacheSpec objects themselves are shared.
         result = original(bounded, [dict(row) for row in kv_cache_specs], available_memory)

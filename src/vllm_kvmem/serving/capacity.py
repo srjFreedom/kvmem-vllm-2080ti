@@ -99,7 +99,8 @@ class ReservedKVCacheManager:
             if (type(manager) is not MambaManager or type(spec) is not MambaSpec or
                     spec.num_speculative_blocks != (self.lookahead - 1 if self.lookahead else 0) or
                     spec.mamba_cache_mode not in (('none', 'align') if self._align_state else ('none',)) or
-                    (spec.mamba_cache_mode == 'none' and spec.block_size < native.max_model_len)):
+                    (spec.mamba_cache_mode == 'none' and spec.block_size < native.max_model_len
+                     and _settings.get('KVMEM_LOGICAL_KV_CAPACITY') != '1')):
                 raise ValueError("Unqualified recurrent-state reservation geometry")
             if spec.mamba_cache_mode == 'align':
                 # Align keeps a small resident state set per request (the same
