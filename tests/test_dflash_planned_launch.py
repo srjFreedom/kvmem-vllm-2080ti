@@ -80,10 +80,12 @@ def configured(tmp_path):
     return cfg
 
 
-def test_experimental_query_plan_retains_native_draft_cache_and_full_graphs(tmp_path):
-    cfg=configured(tmp_path);plan=build_launch(cfg,tmp_path,tmp_path/'run')
+@pytest.mark.parametrize('draft_tokens', [1, 3, 7])
+def test_experimental_query_plan_retains_native_draft_cache_and_full_graphs(tmp_path,draft_tokens):
+    cfg=configured(tmp_path);cfg['draft_tokens']=draft_tokens
+    plan=build_launch(cfg,tmp_path,tmp_path/'run')
     argv=plan['vllm_argv'];spec=json.loads(argv[argv.index('--speculative-config')+1])
-    assert spec['method']=='dflash' and spec['num_speculative_tokens']==7
+    assert spec['method']=='dflash' and spec['num_speculative_tokens']==draft_tokens
     assert spec['kv_cache_dtype']=='bfloat16'
     assert json.loads(argv[argv.index('--compilation-config')+1])=={
         'mode':0,'cudagraph_mode':'FULL','cudagraph_capture_sizes':[8,16,24,32]}
@@ -95,9 +97,9 @@ def test_experimental_query_plan_retains_native_draft_cache_and_full_graphs(tmp_
 @pytest.mark.parametrize('change,match',[
     ({'experimental_dflash_query_planning':False},'explicit experimental'),
     ({'experimental_dflash_query_planning':1},'must be boolean'),
-    ({'execution_mode':'compiled_graph'},'native safetensors Qwen MTP'),
+    ({'execution_mode':'compiled_graph'},'experimental DFlash2 k=1'),
     ({'execution_mode':'eager'},'FULL graphs'),
-    ({'draft_tokens':3},'k=7'),
+    ({'draft_tokens':2},'draft_tokens must be'),
     ({'async_refresh':True},'synchronous'),
     ({'recent_blocks':63},'recent band'),
 ])
@@ -123,15 +125,122 @@ def test_guided_dflash_reserves_private_scratch_without_increasing_k_or_g(tmp_pa
     assert build_launch(plan['profile'],tmp_path,tmp_path/'again')['vllm_argv']==plan['vllm_argv']
 
 
-def test_rolling_sync_dflash_keeps_full_output_quota_and_native_graphs(tmp_path):
+@pytest.mark.parametrize('draft_tokens', [1, 3, 7])
+def test_rolling_sync_dflash_keeps_full_output_quota_and_native_graphs(tmp_path,draft_tokens):
     cfg=configured(tmp_path)
+    cfg['draft_tokens']=draft_tokens
     cfg['kvmem'].update(rolling_active_window=True,cpu_history_coordination=True,
         async_archive_retirement=True,session_capacity=4,archive_backend='cpu',repository_gc=False,
         cpu_read_cache_bytes=8*1024**3,nvme_preallocate=False,nvme_max_bytes=0)
     plan=build_launch(cfg,tmp_path,tmp_path/'rolling')
     assert json.loads(plan['environment']['KVMEM_REQUEST_PLAN_CONFIG'])['rolling_active_window']
     assert plan['profile']['kvmem']['gen_budget']==4096
-    assert plan['profile']['draft_method']=='dflash' and plan['profile']['draft_tokens']==7
+    assert plan['profile']['draft_method']=='dflash' and plan['profile']['draft_tokens']==draft_tokens
     assert not plan['profile']['kvmem'].get('async_refresh',False)
     assert not plan['profile']['kvmem'].get('async_restore',False)
     assert build_launch(plan['profile'],tmp_path,tmp_path/'again')['vllm_argv']==plan['vllm_argv']
+
+
+def test_compiled_dflash_k1_preserves_synchronous_window_and_cache(tmp_path):
+    cfg=configured(tmp_path)
+    cfg.update(draft_tokens=1,execution_mode='compiled_graph',cudagraph_capture_sizes=[2,4,8])
+    plan=build_launch(cfg,tmp_path,tmp_path/'compiled')
+    argv=plan['vllm_argv']
+    compilation=json.loads(argv[argv.index('--compilation-config')+1])
+    assert compilation==dict(mode=3,cudagraph_mode='FULL_AND_PIECEWISE',cudagraph_capture_sizes=[2,4,8])
+    assert plan['profile']['kvmem']['select_budget']==4096
+    assert plan['profile']['kvmem']['gen_budget']==4096
+    assert not plan['profile']['kvmem'].get('async_refresh',False)
+    assert not plan['profile']['kvmem'].get('async_restore',False)
+    assert plan['environment']['KVMEM_FULL_GRAPH']=='1'
+    assert json.loads(argv[argv.index('--speculative-config')+1])['kv_cache_dtype']=='bfloat16'
+    assert build_launch(plan['profile'],tmp_path,tmp_path/'again')['vllm_argv']==argv
+
+
+@pytest.mark.parametrize('change,match',[
+    ({'experimental_dflash_query_planning':False},'experimental DFlash2 k=1'),
+    ({'draft_tokens':3},'experimental DFlash2 k=1'),
+    ({'async_restore':True},'synchronous'),
+    ({'async_refresh':True},'synchronous'),
+    ({'recent_blocks':63},'recent band'),
+])
+def test_compiled_dflash_keeps_transaction_guards(tmp_path,change,match):
+    cfg=configured(tmp_path)
+    cfg.update(draft_tokens=1,execution_mode='compiled_graph')
+    for key,value in change.items():
+        (cfg['kvmem'] if key in ('async_restore','async_refresh','recent_blocks') else cfg)[key]=value
+    with pytest.raises(ValueError,match=match):
+        build_launch(cfg,tmp_path,tmp_path/'bad')
+
+
+def _dflash_async(tmp_path):
+    cfg=configured(tmp_path)
+    cfg.update(draft_tokens=1,execution_mode='compiled_graph',experimental_dflash_async_refresh=True)
+    cfg['kvmem'].update(async_refresh=True,async_restore=True,active_resident_pressure_only=False,
+                        active_resident_ttl_ms=0,maintenance_max_steps=8,session_capacity=4,
+                        session_checkpoint_bytes=2**30,rolling_active_window=True,cpu_history_coordination=True,
+                        async_archive_retirement=True,archive_backend='cpu',repository_gc=False,
+                        cpu_read_cache_bytes=8*1024**3,nvme_preallocate=False,nvme_max_bytes=0)
+    return cfg
+
+
+def test_dflash_async_refresh_opt_in_launches_on_the_asynchronous_lifecycle(tmp_path):
+    plan=build_launch(_dflash_async(tmp_path),tmp_path,tmp_path/'async')
+    assert plan['profile']['kvmem']['async_refresh'] and plan['profile']['kvmem']['async_restore']
+    assert plan['environment']['KVMEM_DFLASH_ASYNC_REFRESH']=='1'
+    assert plan['environment']['KVMEM_BOUNDED_DFLASH']=='1'
+    assert build_launch(plan['profile'],tmp_path,tmp_path/'again')['vllm_argv']==plan['vllm_argv']
+    sync=tmp_path/'sync';sync.mkdir()
+    assert 'KVMEM_DFLASH_ASYNC_REFRESH' not in build_launch(configured(sync),sync,sync/'plan')['environment']
+
+
+@pytest.mark.parametrize('change,match',[
+    ({'experimental_dflash_async_refresh':1},'must be boolean'),
+    ({'experimental_dflash_query_planning':False},'query planning'),
+    ({'active_resident_pressure_only':True},'idle active residency'),
+    ({'async_restore':False},'refresh/restore'),
+])
+def test_dflash_async_refresh_opt_in_keeps_its_guards(tmp_path,change,match):
+    cfg=_dflash_async(tmp_path)
+    for key,value in change.items():
+        (cfg['kvmem'] if key in cfg['kvmem'] else cfg)[key]=value
+    with pytest.raises(ValueError,match=match):
+        build_launch(cfg,tmp_path,tmp_path/'bad')
+
+
+@pytest.mark.parametrize('draft_tokens', [3, 7])
+def test_compiled_dflash_multi_token_needs_its_opt_in(tmp_path, draft_tokens):
+    cfg=configured(tmp_path)
+    cfg.update(draft_tokens=draft_tokens,execution_mode='compiled_graph',cudagraph_capture_sizes=[2,4,8,16,32,64])
+    with pytest.raises(ValueError,match='experimental_dflash_compiled_multi'):
+        build_launch(cfg,tmp_path,tmp_path/'refused')
+    cfg['experimental_dflash_compiled_multi']=True
+    plan=build_launch(cfg,tmp_path,tmp_path/'compiled')
+    argv=plan['vllm_argv']
+    assert json.loads(argv[argv.index('--speculative-config')+1])['num_speculative_tokens']==draft_tokens
+    assert plan['environment']['KVMEM_DFLASH_COMPILED_MULTI']=='1'
+    assert plan['environment']['KVMEM_FULL_GRAPH']=='1'
+    assert build_launch(plan['profile'],tmp_path,tmp_path/'again')['vllm_argv']==argv
+
+
+def test_compiled_dflash_multi_token_opt_in_is_validated_and_dflash_only(tmp_path):
+    cfg=configured(tmp_path)
+    cfg.update(draft_tokens=1,execution_mode='compiled_graph',experimental_dflash_compiled_multi=1)
+    with pytest.raises(ValueError,match='must be boolean'):
+        build_launch(cfg,tmp_path,tmp_path/'bad')
+    k1=tmp_path/'k1';k1.mkdir()
+    cfg=configured(k1)
+    cfg.update(draft_tokens=1,execution_mode='compiled_graph')
+    assert 'KVMEM_DFLASH_COMPILED_MULTI' not in build_launch(cfg,k1,k1/'plan')['environment']
+
+
+def test_native_max_rows_auto_resolves_to_the_rows_one_step_can_hold(tmp_path):
+    cfg=configured(tmp_path)
+    cfg.update(draft_tokens=1,execution_mode='compiled_graph',max_num_batched_tokens=1056,max_num_seqs=16)
+    cfg['kvmem']['action_native_max_rows']='auto'
+    plan=build_launch(cfg,tmp_path,tmp_path/'auto')
+    argv=plan['vllm_argv']
+    kv=json.loads(argv[argv.index('--kv-transfer-config')+1])['kv_connector_extra_config']['kvmem']
+    stride=cfg['kvmem'].get('prefill_attention_stride',32)
+    assert kv['action_native_max_rows']==-(-1056//stride)+16*3
+    assert build_launch(plan['profile'],tmp_path,tmp_path/'again')['vllm_argv']==argv

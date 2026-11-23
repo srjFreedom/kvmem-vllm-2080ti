@@ -25,7 +25,7 @@ ownership、容量预约和共享 worker。对象中的 `mode` 支持：
 | 模式 | 行为 |
 | --- | --- |
 | off | 不运行删除策略；保留新 ownership 和正常退出释放，作为对照 |
-| shadow | 计算并统计 LRU 意图，不退休历史块 |
+| shadow | 计算并统计策略意图，不退休历史块 |
 | delete | 提交不可逆退休并在后台安全释放 |
 
 ```json
@@ -47,7 +47,7 @@ ownership、容量预约和共享 worker。对象中的 `mode` 支持：
 示例中的较高水位用于在短历史中实际触发 GC，生产环境应结合保留需求调整。
 
 `policy` 选择删除策略，`policy_params` 只传递该策略的参数；`mode` 独立控制是否
-执行删除。当前注册的策略为 `lru`，参数 `keep_mandatory` 默认为 `true`，保留
+执行删除。`lru` 的 `keep_mandatory` 默认为 `true`，保留
 sink/recent 和 P/M frame 等 mandatory 块；设为 `false` 允许这些块参与 LRU 删除，
 可能使对应 checkpoint 失效。省略新增字段与原有 LRU 行为一致。未知策略、未知
 参数和错误参数类型在启动时拒绝，`off`/`shadow` 也执行配置校验。
@@ -62,6 +62,40 @@ sink/recent 和 P/M frame 等 mandatory 块；设为 `false` 允许这些块参�
 coordination 和 owned sessions。与旧 `repository_gc`、block graph 的组合会在启动时
 拒绝。支持异步 refresh/restore 和原生 MTP；首版未验收 CUDA graph serving。
 请求须携带稳定的 `session_id` 与租户隔离的 `cache_salt`。
+
+## 主动回收旧工具返回
+
+`tool_result_age` 按会话保留最近 N 条完整工具返回。下面的配置先以 `shadow` 记录回收候选。
+
+```json
+"historical_gc": {
+  "mode": "shadow",
+  "policy": "tool_result_age",
+  "policy_params": {"tool_result_age_steps": 12, "lru_fallback": false}
+}
+```
+
+`tool_result_age_steps` 默认 12，计数单位是工具返回消息。第 13 条的最后一个
+token 被接受后，第 1 条里的合格页进入后台回收，无需达到容量水位。来源是请求
+计划的 `kvmem_message_spans` 或 `kvmem_locality_spans` 中完整的 `tool` 区间。
+复用前缀的消息边界沿用会话校验，回退会重新计算完成条数。
+
+只有完整落在同一条到期工具返回里的封存页可以退休。跨消息页、角色不明、
+thinking、工具调用以及其它助手内容保留。显式必留区间、sink/recent、当前 GPU
+窗口和 P/M 检查点继续受保护。保护解除或归档完成后，后台会再次检查到期页。
+已获准的读操作随现有引用退出后释放字节，退休的页永久退出后续历史召回。
+在用的 GPU 页随正常换窗或请求结束归还。这条归档回收策略借用了 [AKV 的滚动保留规则](https://arxiv.org/pdf/2610.28577v1#page=8)。
+
+单卡可用 `shadow` 查看 `shadow_decisions`，切换到 `delete` 后用
+`tool_result_age_retired` 和 `cpu_released` 分别核对提交和实际释放。
+Tensor parallel 走已有的 rank 同步提交。默认容量吃紧时仍只删除合格的旧工具页，
+其余容量缺口由现有准入机制处理：会话的保留历史达到上限（`repository_blocks`）后，
+下一轮准入一直等待，不报错。
+
+`"lru_fallback": true` 在每轮先运行工具页的年龄扫描，再由 LRU（`keep_mandatory`）
+处理容量压力，与 thinking age 包装 redundancy 的方式相同。LRU 不会再选本轮已提交
+的工具页；它的退休计入 `retired`，不计入 `tool_result_age_retired`。TP 下 follower
+只做通用检查（已封页、非必留），不再要求记录是过期工具页。
 
 ## 资源与并发契约
 
@@ -98,6 +132,33 @@ LRU 会减少未来可检索的上下文，不能保证任务语义与保留完�
 当前 GPU 权限保证已有计算安全，P/M hold 保证受保留 frame 可恢复。精确保留内容
 应通过策略的 mandatory 规则表达。所有历史均受保护且预算不足时，准入仍需等待
 会话释放或其他容量变化。
+
+## 张量并行（TP）
+
+TP 下每个 rank 归档自己的 KV head 分片，句柄是 rank 本地的 (slot, generation)；
+所有跨 rank 的选择校验都要求同一时刻各 rank 的逻辑记录集 (history_begin, count)
+完全一致。因此 TP 只允许 `mode: delete`（或 `off`）且 `keep_mandatory: true`，
+由 leader 决策、所有 rank 在同一 engine step 提交：
+
+1. rank 0 的 native worker 以 `PROPOSE` 模式运行策略，只生成 intent，不自行退休；
+   rank ≥ 1 以 `FOLLOW` 模式运行，只执行释放任务，从不运行策略。
+2. 每个 engine step，runner 在 `advance_publication`（含 `pump_refresh`）之后于
+   主线程调用 `tensor_parallel.gc_sync`。rank 0 把待处理 intent 以逻辑块广播；
+   空 step 只有一次小广播。
+3. 每个 rank 在本地检查但不提交（`external_prepare`）：逻辑块恰好存在一次、已封页
+   且已归档、不在当前窗口/recent/hold/mandatory 中、scope 未暂停、所属请求没有
+   进行中的 refresh/restore。通过的记录保留 policy gate，scope 在 release 前不确认
+   pause。
+4. MIN all-reduce 决定后，所有 rank 按相同顺序退休同一集合（`external_commit`），
+   并在同一调用中从 `authority.records`、按层历史、action 分数和 query 边界中移除；
+   随后 `external_release` 才开始各 rank 异步的 CPU/slot 释放。TP 下 `drain` 只完成
+   已移除记录的释放；若活动记录在同步提交之外被释放，直接报错。
+5. follower 上逻辑块缺失、重复或几何不同（且在其已发布历史内）时，所有 rank 一同
+   抛出 `RuntimeError`，不继续分叉。
+
+rank 0 的策略只看到本 rank 的一半 head（Mean-K 特征、Question、importance 与余弦
+分组都是本地 KV head），是 TP=1 策略的近似，并对所有 rank 一致生效。该路径目前只有
+CPU 测试（`tests/test_tp_historical_gc.py`，含两进程 Gloo），尚无 GPU 服务验证。
 
 ## 指标
 

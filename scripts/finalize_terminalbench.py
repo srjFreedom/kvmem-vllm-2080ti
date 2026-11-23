@@ -151,8 +151,8 @@ def review(root):
     for name,digest in manifest['files'].items():
         require(sha(root/name)==digest,'Config mismatch: '+name);checked+=1
     timing_mode=manifest.get('agent_time_limit','official')
-    require(timing_mode in ('official','none','relaxed'),'Unknown Agent timing policy')
-    if timing_mode in ('none','relaxed'):
+    require(timing_mode in ('official','none','relaxed','fixed'),'Unknown Agent timing policy')
+    if timing_mode in ('none','relaxed','fixed'):
         policy=read(root/'agent-time-policy.json')
         require(policy['agent_time_limit']==timing_mode and set(policy['tasks'])==names,'Missing Agent timing audit')
         if timing_mode=='relaxed':
@@ -170,6 +170,13 @@ def review(root):
                 except ImportError:
                     from terminalbench_policy import relaxed_agent_timeout
                 expected_timeout=relaxed_agent_timeout(policy['tasks'][name]['original_agent_timeout_sec'])
+            elif timing_mode=='fixed':
+                try:
+                    from .terminalbench_policy import FIXED_AGENT_TIMEOUT_SEC
+                except ImportError:
+                    from terminalbench_policy import FIXED_AGENT_TIMEOUT_SEC
+                require(policy.get('agent_timeout_sec')==FIXED_AGENT_TIMEOUT_SEC,'Invalid fixed Agent deadline')
+                expected_timeout=FIXED_AGENT_TIMEOUT_SEC
             actual=tomllib.loads(task_path.read_text()).get('agent',{}).get('timeout_sec')
             require(actual==expected_timeout and policy['tasks'][name]['effective_agent_timeout_sec']==expected_timeout,
                     'Agent deadline differs from timing policy')
@@ -194,7 +201,7 @@ def review(root):
     for owner in owners:
         for p in sorted((root/'bridge'/owner).glob('*/plan.json')):
             plan=read(p);require(plan['seed']==1000,'Actual seed changed')
-            require(plan['max_tokens']==131072,'Actual output cap changed')
+            require(plan['max_tokens']==manifest.get('output_cap',131072),'Actual output cap changed')
             require(plan['thinking_token_budget']==4096,'Thinking cap changed')
             for name,value in [('temperature',.6),('top_p',.95),('top_k',20),('min_p',0),('repetition_penalty',1),('presence_penalty',0)]:
                 require(plan[name]==value,'Actual sampling changed: '+name)
@@ -222,7 +229,8 @@ def review(root):
     final_gc=archive.get('historical_gc') or {}
     gc_counters=('retired','redundancy_retired','lru_fallback_retired','lru_representative_retired',
                  'lossy_retired','cpu_released','slots_released','thinking_classified','thinking_pure',
-                 'policy_failures','decisions','examined','ticks')
+                 'policy_failures','decisions','examined','ticks',
+                 'thinking_age_retired','thinking_age_ineligible','thinking_age_passes')
     formal_gc=({key:final_gc.get(key,0)-before_gc.get(key,0) for key in gc_counters}
                if before_gc is not None else None)
     # Stopped task containers retain each original filesystem for diagnosis.
@@ -240,7 +248,7 @@ def review(root):
         subset=expected!=89,benchmark_total_tasks=89,
         agent_time_limit=timing_mode,official_timing_comparable=(timing_mode=='official'),
         actual_requests=request_count,accepted_completed_response_tokens=accepted,
-        actual_seed=1000,output_cap=131072,thinking_budget=4096,
+        actual_seed=1000,output_cap=manifest.get('output_cap',131072),thinking_budget=4096,
         exact_prefix_reused_requests=reuse,finish_reasons=dict(finishes),
         incomplete_native_requests=token_failures,cleanup=cleanup,
         task_containers_retained=containers,gc=archive.get('historical_gc'),
@@ -277,6 +285,7 @@ def review(root):
           'Terminus automatic summaries disabled; reasoning retained across turns; official resources/verifiers unchanged.',
           {'none': 'Agent execution deadline disabled: custom local evaluation, not directly comparable with official timed scores. Verifier/setup/tool timeouts retained.',
            'relaxed': 'Agent deadline 2x official, recorded pauses excluded: custom local evaluation, not directly comparable with official timed scores. Verifier/setup/tool timeouts retained.',
+           'fixed': 'Agent deadline 1 hour wall clock for every task: custom local evaluation, not directly comparable with official timed scores. Verifier/setup/tool timeouts retained.',
            'official': 'Official task Agent deadlines retained.'}[timing_mode],
           f'Maximum {manifest.get("max_concurrency",8)} concurrent tasks; container memory admission capped at 24 GiB without reducing any official task allocation.',
           'Synthetic smoke, thinking preflight, fixed warmup and session release requests are excluded from task scores and formal throughput.',

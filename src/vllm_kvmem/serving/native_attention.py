@@ -209,6 +209,57 @@ def _segment_scores(Lse, RowLse, Ranges, Meta, Control, Selected, Out,
             tl.store(Out + row * SEGMENTS + segment, mass)
 
 
+@triton.jit
+def _row_lse_layers(Lse, Meta, Control, Selected, Valid, RowLse, LSE_STRIDE, ROW_STRIDE,
+                    HEADS: tl.constexpr, WIDTH: tl.constexpr, BLOCK: tl.constexpr):
+    """_row_lse for every layer of a stacked bank at once (program_id(2) = layer).
+
+    The per-row arithmetic is _row_lse's, on that layer's LSE, valid flag and row-LSE slice."""
+    layer = tl.program_id(2)
+    Lse += layer * LSE_STRIDE
+    RowLse += layer * ROW_STRIDE
+    row, head = tl.load(Selected+tl.program_id(0)), tl.program_id(1)
+    if row < tl.load(Control):
+        width = tl.load(Meta + row * 3 + 1)
+        x = tl.arange(0, BLOCK)
+        values = tl.load(Lse + (row * HEADS + head) * WIDTH + x, mask=(x < width) & (x < WIDTH), other=-float('inf'))
+        maximum = tl.max(values, 0)
+        total = tl.sum(tl.exp(values - maximum), 0)
+        value=maximum+tl.log(total)
+        tl.store(RowLse + row * HEADS + head, value)
+        if not ((value > -float('inf')) & (value < float('inf'))):
+            tl.atomic_min(Valid + layer,0)
+
+
+@triton.jit
+def _segment_scores_layers(Lse, RowLse, Ranges, Meta, Control, Selected, Out, LSE_STRIDE, ROW_STRIDE, OUT_STRIDE,
+                           HEADS: tl.constexpr, WIDTH: tl.constexpr, SEGMENTS: tl.constexpr,
+                           H: tl.constexpr, B: tl.constexpr):
+    """_segment_scores for every layer of a stacked bank at once (program_id(2) = layer)."""
+    layer = tl.program_id(2)
+    Lse += layer * LSE_STRIDE
+    RowLse += layer * ROW_STRIDE
+    Out += layer * OUT_STRIDE
+    row, segment = tl.load(Selected+tl.program_id(0)), tl.program_id(1)
+    if row < tl.load(Control):
+        request, segments = tl.load(Meta + row * 3), tl.load(Meta + row * 3 + 2)
+        if segment < segments:
+            row_width=tl.load(Meta+row*3+1)
+            base = (request * SEGMENTS + segment) * 4
+            first, count = tl.load(Ranges + base + 2), tl.load(Ranges + base + 3)
+            h, p = tl.arange(0, H), tl.arange(0, B)
+            normalizer = tl.load(RowLse + row * HEADS + h, mask=h < HEADS, other=0.)
+            mass=0.
+            for tile in range(tl.cdiv(count,B)):
+                column=tile*B+p
+                logits = tl.load(Lse + (row * HEADS + h[:, None]) * WIDTH + first + column[None, :],
+                                 mask=(h[:, None] < HEADS) & (column[None, :] < count) &
+                                      (first+column[None,:]<row_width), other=-float('inf'))
+                probability = tl.exp(logits - normalizer[:, None])
+                mass += tl.sum(tl.sum(probability, 1), 0) / HEADS
+            tl.store(Out + row * SEGMENTS + segment, mass)
+
+
 _active: ContextVar = ContextVar('kvmem_native_attention', default=None)
 
 
@@ -337,6 +388,57 @@ def _batched_select():
 _BATCHED_SELECT = None
 
 
+def fa2_overlay_capability(capability):
+    """True where the score overlay runs on FlashInfer's FA2 kernels alone
+    (fa2_only: no XQA decode producer): SM80 (A800/A100) and SM89 (RTX 4090),
+    which run the same FlashInfer FA2 prefill/decode kernels; sm12x uses XQA.
+
+    SM89 qualified 2026-11-17 on 2xRTX 4090 TP=2: 124 overlay GPU tests; live
+    verify mode 18,128 comparisons per rank, max |difference| 8.0e-7; MTP4
+    layerwise 8 x 32K 219.8 -> 383.1 decode tok/s. KVMEM_NATIVE_FA2_SM89=0
+    falls back to recomputing scores there."""
+    if tuple(capability) == (8, 0):
+        return True
+    if tuple(capability) == (8, 9):
+        value = _settings.get('KVMEM_NATIVE_FA2_SM89', '1')
+        if value not in ('0', '1'):
+            raise ValueError('KVMEM_NATIVE_FA2_SM89 must be 0 or 1')
+        return value == '1'
+    return False
+
+
+def score_stack_enabled():
+    """KVMEM_NATIVE_SCORE_STACK=1 (read once): layerwise capture takes every layer's
+    native masses for a request from NativeAttentionStats.score_stack (one gather
+    per frame, same values) instead of one score() call, gather and stack per layer."""
+    global _SCORE_STACK
+    if _SCORE_STACK is None:
+        value = _settings.get('KVMEM_NATIVE_SCORE_STACK', '0')
+        if value not in ('0', '1'):
+            raise ValueError('KVMEM_NATIVE_SCORE_STACK must be 0 or 1')
+        _SCORE_STACK = value == '1'
+    return _SCORE_STACK
+
+
+_SCORE_STACK = None
+
+
+def window_frame_enabled():
+    """KVMEM_NATIVE_WINDOW_FRAME=1 (read once): a decode owner's canonical window
+    segments come from its frozen candidate frame once the native store confirms
+    they are equal (no per-step Python rows or NumPy canonicalization)."""
+    global _WINDOW_FRAME
+    if _WINDOW_FRAME is None:
+        value = _settings.get('KVMEM_NATIVE_WINDOW_FRAME', '0')
+        if value not in ('0', '1'):
+            raise ValueError('KVMEM_NATIVE_WINDOW_FRAME must be 0 or 1')
+        _WINDOW_FRAME = value == '1'
+    return _WINDOW_FRAME
+
+
+_WINDOW_FRAME = None
+
+
 class NativeAttentionStats:
     fa2_only = False
 
@@ -396,7 +498,7 @@ class NativeAttentionStats:
         # use the reference scorer instead of failing (action_attention).
         self.unavailable = False
         capability = torch.cuda.get_device_capability()
-        self.fa2_only = capability == (8, 0)
+        self.fa2_only = fa2_overlay_capability(capability)
         if _settings.get('KVMEM_NATIVE_ATTENTION_FORCE_UNSUPPORTED') == '1':
             # Frozen campaigns use this switch to reproduce the original fallback receipt.
             self.disabled = 'unsupported_architecture_requires_sm12x'
@@ -448,6 +550,16 @@ class NativeAttentionStats:
         self.host_bytes = sum(math.prod(shapes[field][0])*4 for field in host_fields)
         self.allocated_bytes += self.host_bytes
         if self.allocated_bytes > options.action_native_max_bytes:
+            if (self.mode == 'reuse' and getattr(options, 'prefill_native_plan_arm', False) and
+                    getattr(options, 'prefill_physical_coalescing', False)):
+                # Logical prefill groups have no fallback when the overlay is
+                # available but too large (only an unsupported platform uses the
+                # portable scorer), so the first prefill would fail. Say so now.
+                raise ValueError(
+                    f'Native prefill scores need {self.allocated_bytes} bytes for {len(layers)} layers x '
+                    f'{self.max_rows} rows x {self.heads} heads x width {self.width}, above '
+                    f'action_native_max_bytes={options.action_native_max_bytes}; raise action_native_max_bytes '
+                    'or turn off prefill_physical_coalescing')
             self.disabled = 'startup_buffer_capacity'
             self.allocated_bytes = 0
             self.gpu_bytes = self.host_bytes = 0
@@ -457,8 +569,11 @@ class NativeAttentionStats:
             setattr(self, name, torch.empty(shape, dtype=dtype, device=device))
         self.host = {name: torch.empty(shapes[name][0],dtype=torch.int32,pin_memory=True) for name in host_fields}
         self.upload_event = None
-        self.masses = {name: torch.empty((self.max_rows, self.max_segments), dtype=torch.float32, device=device)
-                       for name in self.names}
+        # One allocation, per-layer contiguous views (the same bytes per layer),
+        # so score_stack() can gather every layer's selected rows at once.
+        self._mass_stack = torch.empty((len(self.names), self.max_rows, self.max_segments),
+                                       dtype=torch.float32, device=device)
+        self.masses = {name: self._mass_stack[i] for i, name in enumerate(self.names)}
         self._lse_stack = None
         if batched_arm():
             # One allocation, per-layer contiguous views: the same bytes per layer,
@@ -469,6 +584,14 @@ class NativeAttentionStats:
         else:
             self.lses = {name: torch.empty((self.max_rows, self.heads, self.width), dtype=torch.float32, device=device)
                          for name in self.names}
+        self._row_lse_stack = None
+        if self._lse_stack is not None and score_stack_enabled():
+            # Opt-in score stack: per-layer row-LSE scratch (layers x rows x heads
+            # floats, ~0.3 MB) so every layer reduces in one launch per kernel.
+            self._row_lse_stack = torch.empty((len(self.names), self.max_rows, self.heads),
+                                              dtype=torch.float32, device=device)
+            self.gpu_bytes += self._row_lse_stack.numel() * 4
+            self.allocated_bytes += self._row_lse_stack.numel() * 4
         self.ranges.zero_()
         self.disarm()
         if not self.fa2_only:
@@ -488,6 +611,7 @@ class NativeAttentionStats:
         self.plans, self.slots = {}, {}
         self.reduced = set()
         self._gathered = {}
+        self._gathered_stack = None
         self.invalid = set()
         self.validation_dirty = False
         self.frame_invalid = False
@@ -616,7 +740,11 @@ class NativeAttentionStats:
                 maximum=max(maximum,segments)
                 continue
             try:
-                if '_layout' in candidate:
+                if '_layout' in candidate and plan.get('_framed') is candidate:
+                    # KVMEM_NATIVE_WINDOW_FRAME: these rows are this frame's prefix,
+                    # already confirmed equal to the live window by the native store.
+                    pass
+                elif '_layout' in candidate:
                     extent=plan['local_begin']+plan['count']
                     end=int(np.searchsorted(candidate['starts'],extent-1,side='right'))
                     expected=np.stack((candidate['starts'][:end],
@@ -702,7 +830,9 @@ class NativeAttentionStats:
                 getattr(wrapper, '_jit_module', None) is not None or
                 q_dtype not in (torch.float16, torch.bfloat16, torch.float8_e4m3fn)):
             return None, unsupported
-        if phase == 'decode':
+        # KVMEM_FA2_VERIFY_GRAPH serves uniform MTP verification as decodes
+        # through a causal FA2 prefill wrapper: it takes the prefill checks.
+        if phase == 'decode' and not getattr(wrapper, '_kvmem_verify', False):
             if (not getattr(wrapper, 'use_tensor_cores', False) or
                     wrapper._q_len_per_req < 1 or wrapper._window_right != 0):
                 return None, unsupported
@@ -976,6 +1106,82 @@ class NativeAttentionStats:
             return self.resolve_validation(self.enqueue_validation())
         return not self.frame_invalid
 
+    def _reduce(self, name):
+        """Normalize one layer's LSE rows into segment masses, once per frame."""
+        if name in self.reduced:
+            return
+        self.normalized_rows += self.reduction_rows
+        lse = self.lses[name]
+        _row_lse[(self.reduction_rows, self.heads)](lse, self.meta, self.control,self.selected,
+            self.valid_flags[self.names.index(name)],self.row_lse,
+            self.heads, self.width, triton.next_power_of_2(self.width), num_warps=8)
+        _segment_scores[(self.reduction_rows, self.active_segments)](lse, self.row_lse, self.ranges,
+            self.meta, self.control,self.selected,self.masses[name], self.heads, self.width, self.max_segments,
+            triton.next_power_of_2(self.heads), triton.next_power_of_2(math.ceil(self.options.memory.block_tokens / 16) + 1))
+        self.reduced.add(name)
+        # GPU-only check here: a host readback inside the request/layer
+        # loop would prevent enqueueing the remaining scoring work.
+        self.validation_dirty = True
+
+    def _reduce_layers(self, names):
+        """Every producer layer's reduction in one launch per kernel when none is reduced yet.
+
+        Same per-element arithmetic as _reduce on each layer (the layered kernels
+        offset into the stacked LSE, row-LSE scratch, masses and valid flags);
+        otherwise falls back to _reduce per layer."""
+        stacks = (getattr(self, '_lse_stack', None), getattr(self, '_row_lse_stack', None),
+                  getattr(self, '_mass_stack', None))
+        if self.reduced or tuple(names) != tuple(self.names) or any(stack is None for stack in stacks):
+            for name in names:
+                self._reduce(name)
+            return
+        lse, row_lse, masses = stacks
+        layers = len(self.names)
+        self.normalized_rows += self.reduction_rows * layers
+        _row_lse_layers[(self.reduction_rows, self.heads, layers)](lse, self.meta, self.control, self.selected,
+            self.valid_flags, row_lse, lse.stride(0), row_lse.stride(0),
+            self.heads, self.width, triton.next_power_of_2(self.width), num_warps=8)
+        _segment_scores_layers[(self.reduction_rows, self.active_segments, layers)](lse, row_lse, self.ranges,
+            self.meta, self.control, self.selected, masses, lse.stride(0), row_lse.stride(0), masses.stride(0),
+            self.heads, self.width, self.max_segments,
+            triton.next_power_of_2(self.heads), triton.next_power_of_2(math.ceil(self.options.memory.block_tokens / 16) + 1))
+        self.reduced.update(self.names)
+        self.validation_dirty = True
+
+    def score_stack(self, names, request_id, prefill):
+        """Every listed layer's masses for one request as one [layers, rows, segments] view.
+
+        Same reductions, values and counters as score(name, ..., defer_validation=True)
+        for each name, in order. Returns None, counting nothing, when any layer would
+        fall back (the caller then takes the per-layer path) or the names are not
+        the producer layers in order. The selected rows of every layer are gathered
+        with one index_select per frame instead of one per request and layer.
+        """
+        self._check_detached_validation()
+        if getattr(self, '_validation_ticket', None) is not None:
+            raise RuntimeError('Scoring cannot modify a queued native validation frame')
+        stack = getattr(self, '_mass_stack', None)
+        phase = 'prefill' if prefill else 'decode'
+        if (stack is None or tuple(names) != tuple(self.names) or self.disabled or
+                getattr(self, 'batch_reason', None) or self.request_reasons.get(request_id) or
+                request_id not in self.slots or self.frame_invalid or
+                any(self.reasons.get((name, phase), 'backend_not_observed') for name in names)):
+            return None
+        self._reduce_layers(names)
+        first, rows, segments = self.slots[request_id]
+        if request_id in self.selected_slots:
+            selected_begin, selected_count = self.selected_slots[request_id]
+            gathered = self._gathered_stack
+            if gathered is None:
+                gathered = self._gathered_stack = stack.index_select(
+                    1, self.selected[:self.reduction_rows].long())
+            result = gathered[:, selected_begin:selected_begin+selected_count, :segments]
+        else:
+            result = stack[:, first:first+rows, :segments]
+        self.counts[self.mode + ':' + phase] += len(names)
+        self.frame_success[self.mode + ':' + phase] += len(names)
+        return result
+
     def score(self, name, request_id, prefill, *, defer_validation=False):
         self._check_detached_validation()
         if getattr(self, '_validation_ticket', None) is not None:
@@ -993,19 +1199,7 @@ class NativeAttentionStats:
         if reason:
             self.counts['fallback:' + phase + ':' + reason] += 1
             return None
-        if name not in self.reduced:
-            self.normalized_rows += self.reduction_rows
-            lse = self.lses[name]
-            _row_lse[(self.reduction_rows, self.heads)](lse, self.meta, self.control,self.selected,
-                self.valid_flags[self.names.index(name)],self.row_lse,
-                self.heads, self.width, triton.next_power_of_2(self.width), num_warps=8)
-            _segment_scores[(self.reduction_rows, self.active_segments)](lse, self.row_lse, self.ranges,
-                self.meta, self.control,self.selected,self.masses[name], self.heads, self.width, self.max_segments,
-                triton.next_power_of_2(self.heads), triton.next_power_of_2(math.ceil(self.options.memory.block_tokens / 16) + 1))
-            self.reduced.add(name)
-            # GPU-only check here: a host readback inside the request/layer
-            # loop would prevent enqueueing the remaining scoring work.
-            self.validation_dirty = True
+        self._reduce(name)
         if not defer_validation:
             self.validate()
         first, rows, segments = self.slots[request_id]

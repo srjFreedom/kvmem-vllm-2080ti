@@ -91,7 +91,7 @@ def prefix_pool_bytes():
     return int(value)
 
 
-def make_shared_archive(options, directory, record_bytes, max_requests, *, max_query_tokens=0):
+def make_shared_archive(options, directory, record_bytes, max_requests, *, max_query_tokens=0, layer_groups=None):
     """One process-wide arena; each admitted authority has a lifetime partition."""
     from .query_window_budget import split_cpu_history_budget
     from .historical_feature_budget import split_historical_feature_budget
@@ -175,19 +175,45 @@ def make_shared_archive(options, directory, record_bytes, max_requests, *, max_q
                           if options.cpu_history_cache_bytes_per_request else
                           (options.memory.select_budget + options.memory.gen_budget)
                           // options.memory.block_tokens * record_bytes))
+    if getattr(options, 'archive_layout', 'record') == 'layer':
+        if layer_groups is None:
+            raise ValueError('archive_layout=layer needs the model\'s layer groups')
+        kwargs.update(layer_groups=layer_groups, layer_threads=options.archive_direct_threads)
     archive = cls(str(directory), record_bytes, capacity, preallocate=options.nvme_preallocate,
                max_bytes=options.nvme_max_bytes, io_max_bytes=options.archive_io_max_bytes, **kwargs)
+    if getattr(options, 'archive_direct_reads', False):
+        archive.enable_direct_reads(options.archive_direct_threads)
     archive.async_seal = options.async_seal
     archive._query_window_cache_reserved_bytes = query_cache_bytes
     archive._query_window_cache_bytes = 0
     return archive
 
 
+class DirectRead:
+    """One O_DIRECT batch in flight; wait() returns its stats and releases its leases."""
+    def __init__(self, archive, ticket, owned):
+        self.archive, self.ticket, self._owned = archive, ticket, owned
+        self.stats, self._finished = None, False
+
+    def wait(self):
+        if not self._finished:
+            self._finished = True
+            try:
+                self.stats = self.archive._direct.wait(self.ticket)
+            finally:
+                self._owned.clear()
+                self.archive._direct_done()
+        if self.stats is None:
+            raise RuntimeError('Direct archive read failed')
+        return self.stats
+
+
 class AsyncArchive:
     def __init__(self, directory: str, record_bytes: int, capacity: int,
                  workers: int = 2, max_pending: int = 4, *, preallocate: bool = False,
                  max_bytes: int = 0, io_max_bytes: int = 0, memory_only: bool = False,
-                 native_cpu_payloads: bool = False, payload_capacity: int | None = None):
+                 native_cpu_payloads: bool = False, payload_capacity: int | None = None,
+                 layer_groups=None, layer_threads: int = 8):
         if min(record_bytes, capacity, workers, max_pending) <= 0:
             raise ValueError("Archive capacities must be positive")
         self.record_bytes = record_bytes
@@ -215,6 +241,13 @@ class AsyncArchive:
             else:
                 self.tier = MemoryTier(record_bytes, capacity)
             self.span = MemorySpan
+        elif layer_groups is not None:
+            # SSD tier, archive_layout=layer: per-layer groups, unpadded (core/layer_major.py).
+            if preallocate:
+                raise ValueError('The layer-major archive does not preallocate')
+            from .layer_major import LayerMajorTier
+            self.tier = LayerMajorTier(directory, capacity, record_bytes, layer_groups, threads=layer_threads)
+            self.span = LayerMajorTier.span
         else:
             self.tier = (_native.NvmeTier(directory, self.capacity_bytes, record_bytes, True)
                          if preallocate else _native.NvmeTier(directory, self.capacity_bytes, record_bytes))
@@ -229,6 +262,9 @@ class AsyncArchive:
         self._namespace_counts = {}
         self._closed = False
         self._seal_totals = None
+        self._direct = None          # SSD tier: O_DIRECT reader (enable_direct_reads)
+        self._direct_pending = 0
+        self.layer_major = layer_groups is not None and not memory_only
 
     @staticmethod
     def key(namespace: str, lease):
@@ -510,6 +546,86 @@ class AsyncArchive:
                 self._complete(size)
                 raise
 
+    def enable_direct_reads(self, threads=8):
+        """SSD tier: O_DIRECT reads of whole records into caller-owned pinned memory."""
+        if self.memory_only:
+            raise ValueError('Direct reads need the NVMe archive')
+        with self._lock:
+            if self._closed:
+                raise RuntimeError('Archive is closed')
+            if self._direct is None:
+                self._direct = (self.tier.arena if self.layer_major else
+                                _native.DirectRecordReader(self.tier, threads=threads))
+            return self._direct
+
+    @property
+    def layer_group_bytes(self):
+        """Packed bytes of each layer group (archive_layout=layer), else None."""
+        return self.tier.group_bytes if self.layer_major else None
+
+    def read_groups(self, namespace, leases, groups, offsets, destination):
+        """Start O_DIRECT reads of packed layer groups (archive_layout=layer).
+
+        For the k-th group, record i lands at destination[offsets[k] + i * group_bytes:];
+        a None lease is skipped (the caller fills it). Leases are held until wait().
+        """
+        if not self.layer_major:
+            raise ValueError('Layer group reads need archive_layout=layer')
+        keys = [None if lease is None else self.key(namespace, lease) for lease in leases]
+        with self._lock:
+            if self._direct is None or self._closed:
+                raise RuntimeError('Direct reads are not enabled on this archive')
+            entries = [None if key is None else self._entries.get(key) for key in keys]
+            if any(key is not None and (e is None or not e.ready) for key, e in zip(keys, entries)):
+                raise KeyError('Archive record missing, stale, or not yet published')
+            owned = [lease.clone() for lease in leases if lease is not None]
+            try:
+                ticket = self._direct.submit_groups([-1 if e is None else e.allocation.slot for e in entries],
+                                                    list(groups), list(offsets),
+                                                    destination.data_ptr(), destination.numel())
+            except BaseException:
+                owned.clear()
+                raise
+            self._direct_pending += 1
+        return DirectRead(self, ticket, owned)
+
+    @property
+    def direct_reads(self):
+        return self._direct is not None
+
+    def read_direct(self, namespace, leases, destination, hole=(0, 0)):
+        """Start reading records into a 4 KiB aligned contiguous uint8 CPU tensor (pinned).
+
+        leases[i] lands at destination[i * record_bytes:]; a None lease leaves
+        that record to the caller. hole = (offset, bytes) inside every record is
+        not read. Generation leases are held until wait().
+        """
+        if len(leases) * self.record_bytes > destination.numel():
+            raise ValueError('Direct read destination is smaller than the batch')
+        keys = [None if lease is None else self.key(namespace, lease) for lease in leases]
+        with self._lock:
+            if self._direct is None or self._closed:
+                raise RuntimeError('Direct reads are not enabled on this archive')
+            if self.layer_major:
+                raise ValueError('Whole-record direct reads need archive_layout=record')
+            entries = [None if key is None else self._entries.get(key) for key in keys]
+            if any(key is not None and (e is None or not e.ready) for key, e in zip(keys, entries)):
+                raise KeyError('Archive record missing, stale, or not yet published')
+            owned = [lease.clone() for lease in leases if lease is not None]
+            try:
+                ticket = self._direct.submit([-1 if e is None else e.allocation.slot for e in entries],
+                                             destination.data_ptr(), destination.numel(), *hole)
+            except BaseException:
+                owned.clear()
+                raise
+            self._direct_pending += 1
+        return DirectRead(self, ticket, owned)
+
+    def _direct_done(self):
+        with self._lock:
+            self._direct_pending -= 1
+            self._capacity_changed.notify_all()
+
     def borrow_read_sources(self, namespace, leases):
         """Retain immutable payload read rights for a bounded deferred reader.
 
@@ -706,15 +822,20 @@ class AsyncArchive:
 
     def close(self) -> bool:
         with self._lock:
-            if self._pending or getattr(self, '_prepared_region_readers', 0):
+            if self._pending or self._direct_pending or getattr(self, '_prepared_region_readers', 0):
                 return False
             if self._closed:
                 return True
             self._closed = True
+            if self._direct is not None:
+                self._direct.close()
+                self._direct = None
             self._capacity_changed.notify_all()
             self.executor.shutdown(wait=False)
             self._entries.clear()
             self._namespace_counts.clear()
             self._free_ids.clear()
+            if self.memory_only:
+                self._closed_cpu_peak_bytes = self.tier.cpu_peak_bytes
             self.tier = None
             return True

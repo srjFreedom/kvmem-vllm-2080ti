@@ -6,7 +6,8 @@ from shutil import copyfile
 # CUDA JIT sources travel with the wheel as well as the sdist.
 gpu_sources = Path('src/vllm_kvmem/cuda_sources')
 gpu_sources.mkdir(exist_ok=True)
-for name in ('qw3_mean_k.cu', 'qw3_mean_k_kernel.cuh', 'qw3_mean_k_tiled.cuh', 'qw3_mean_k_provenance.json'):
+for name in ('qw3_mean_k.cu', 'qw3_mean_k_kernel.cuh', 'qw3_mean_k_tiled.cuh', 'qw3_mean_k_provenance.json',
+             'qsa_residency.cu'):
     copyfile(Path('csrc') / name, gpu_sources / name)
 
 setup(
@@ -28,8 +29,10 @@ setup(
         depends=["csrc/private_record_pack.hpp", "csrc/graph_propagation.hpp", "csrc/restore_frame.hpp",
                  "csrc/query_key_fps_cpu.hpp", "csrc/historical_kv_policy.hpp",
                  "csrc/historical_policy_factory.hpp", "csrc/historical_manager.hpp",
+                 "csrc/historical_tool_result_age.hpp",
                  "csrc/historical_redundancy.hpp", "csrc/historical_thinking.hpp",
-                 "csrc/thinking_bindings.hpp", "csrc/parallel_rows.hpp", "csrc/session_spill.hpp"],
+                 "csrc/thinking_bindings.hpp", "csrc/parallel_rows.hpp", "csrc/session_spill.hpp",
+                 "csrc/direct_record_reader.hpp", "csrc/layer_major_arena.hpp"],
         cxx_std=17,
         extra_compile_args=["-pthread"],
         extra_link_args=["-pthread"],

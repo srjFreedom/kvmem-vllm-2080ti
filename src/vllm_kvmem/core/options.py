@@ -368,6 +368,41 @@ class RuntimeOptions:
     assembly_read_prefetch: bool = False
     assembly_fused_layers: bool = False
     flashinfer_gemm_bucket_alignment: bool = False
+    # Flash Next only: QSA's compressed selector keys live in pages carved from
+    # the KV pool, addressed by request state slot, instead of in the tail of
+    # each main K/V page (adapters/qsa_streaming.py).
+    qsa_split_selector: bool = False
+    # Flash Next only, requires qsa_split_selector: each request keeps qsa_hot_pages
+    # hot pages plus one write (ring) page per QSA layer on the GPU; its frame K/V
+    # lives in a pinned host pool and misses stream in per step (adapters/qsa_stream_serving.py).
+    qsa_streaming: bool = False
+    qsa_hot_pages: int = 3
+    # qsa_streaming: write-ring pages per QSA layer. Every K/V write lands in the
+    # ring; one request's step (prefill chunk or Query replay) must fit in it, so
+    # more pages allow larger prefill chunks (each page costs one native page per
+    # QSA layer and request).
+    qsa_ring_pages: int = 1
+    # SSD tier (archive_backend=nvme): window assembly reads selected records with
+    # O_DIRECT into a pinned ring (archive_direct_threads parallel reads, several
+    # chunks in flight) and copies each chunk to the GPU by DMA (csrc/direct_record_reader.hpp).
+    archive_direct_reads: bool = False
+    archive_direct_threads: int = 8
+    # SSD tier: 'layer' stores each archive record as unpadded per-layer groups
+    # (core/layer_major.py), so per-layer selections read contiguous runs.
+    archive_layout: str = 'record'
+    # Flash Next QSA with strategy_path=layer (serving/qsa_layerwise.py): the MTP
+    # draft layer takes the global selection or layer 0's.
+    qsa_layerwise_mtp: str = 'global'
+    # Source of the QSA per-layer pressure attention (serving/qsa_pressure.py):
+    # 'kernel' takes the sampled rows' logits from a variant of the B12X sparse
+    # attention kernel (adapters/qsa_scores.py; same per-layer picks, +5% prefill
+    # with 5,952-token chunks), 'recompute' rebuilds them in torch.
+    qsa_pressure_scores: str = 'kernel'
+    # Flash Next decode: write every GDN cache group's per-step metadata with one
+    # launch instead of vLLM's per-group update_block_table sequence
+    # (adapters/gdn_metadata_fusion.py; pure speculative-decode batches only).
+    # Byte-identical to vLLM's path (in-server cross-check, KVMEM_GDN_FUSION_CHECK).
+    fused_gdn_metadata: bool = True
     prefill_physical_coalescing: bool = False
     # Opt-in: physical coalescing with graph_mode=off (historical GC requires
     # graphs off). Logical publication then commits each child's accepted
@@ -697,9 +732,32 @@ class RuntimeOptions:
         for name in ('split_capture_dma', 'native_prefill_commit', 'async_checkpoint_capture',
                      'restore_stage_timing', 'host_stage_timing', 'native_checkpoint_capture',
                      'native_restore_frame', 'native_action_metadata',
-                     'action_profiling', 'flashinfer_gemm_bucket_alignment'):
+                     'action_profiling', 'flashinfer_gemm_bucket_alignment', 'qsa_split_selector',
+                     'qsa_streaming'):
             if type(getattr(self, name)) is not bool:
                 raise ValueError(f'{name} must be boolean')
+        if type(self.qsa_hot_pages) is not int or not 1 <= self.qsa_hot_pages <= 8:
+            raise ValueError('qsa_hot_pages must be an integer in [1, 8]')
+        if type(self.qsa_ring_pages) is not int or not 1 <= self.qsa_ring_pages <= 8:
+            raise ValueError('qsa_ring_pages must be an integer in [1, 8]')
+        if self.qsa_streaming and not self.qsa_split_selector:
+            raise ValueError('qsa_streaming requires qsa_split_selector')
+        if type(self.archive_direct_reads) is not bool:
+            raise ValueError('archive_direct_reads must be boolean')
+        if type(self.archive_direct_threads) is not int or not 1 <= self.archive_direct_threads <= 64:
+            raise ValueError('archive_direct_threads must be an integer in [1, 64]')
+        if self.archive_direct_reads and self.archive_backend != 'nvme':
+            raise ValueError('archive_direct_reads requires archive_backend=nvme')
+        if self.qsa_layerwise_mtp not in ('global', 'layer0'):
+            raise ValueError('qsa_layerwise_mtp must be global or layer0')
+        if self.qsa_pressure_scores not in ('kernel', 'recompute'):
+            raise ValueError('qsa_pressure_scores must be kernel or recompute')
+        if self.archive_layout not in ('record', 'layer'):
+            raise ValueError('archive_layout must be record or layer')
+        if self.archive_layout == 'layer' and (self.archive_backend != 'nvme' or not self.archive_direct_reads
+                                               or self.nvme_preallocate):
+            raise ValueError('archive_layout=layer requires archive_backend=nvme, archive_direct_reads '
+                             'and no preallocation')
         for name in ('action_profile_interval', 'action_profile_max_events'):
             if type(getattr(self, name)) is not int or getattr(self, name) <= 0:
                 raise ValueError(f'{name} must be a positive integer')
@@ -1152,6 +1210,16 @@ class RuntimeOptions:
             ('assembly_read_prefetch', False),
             ('assembly_fused_layers', False),
             ('flashinfer_gemm_bucket_alignment', False),
+            ('qsa_split_selector', False),
+            ('qsa_streaming', False),
+            ('qsa_hot_pages', 3),
+            ('qsa_ring_pages', 1),
+            ('archive_direct_reads', False),
+            ('archive_direct_threads', 8),
+            ('archive_layout', 'record'),
+            ('qsa_layerwise_mtp', 'global'),
+            ('qsa_pressure_scores', 'kernel'),
+            ('fused_gdn_metadata', True),
             ('prefill_physical_coalescing', False),
             ('prefill_physical_graphless', False),
             ('prefill_physical_multi_owner', False),

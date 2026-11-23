@@ -55,6 +55,13 @@ def install_bounded_target(runner):
         from ..adapters.draft_contract import DraftContract
         from ..core.options import RuntimeOptions
         draft_contract = DraftContract.from_vllm(runner.vllm_config, RuntimeOptions.from_vllm(runner.vllm_config).memory)
+    cpu_query_checkpoint = _settings.get('KVMEM_QUERY_CHECKPOINT_CPU') == '1'
+    query_widths = (2, 4, 8) if _settings.get('KVMEM_DFLASH_COMPILED_MULTI') == '1' else (2,)
+    if cpu_query_checkpoint and (draft_contract is None or
+            getattr(runner.speculative_config, 'method', None) != 'dflash' or
+            draft_contract.query_tokens not in query_widths or options.async_refresh):
+        raise ValueError('CPU query checkpoints require synchronous DFlash2 k=1 '
+                         '(3 or 7 with experimental_dflash_compiled_multi)')
     runner._kvmem_draft_contract = draft_contract
     if (runner.vllm_config.max_concurrent_batches != 1 or
             runner.vllm_config.cache_config.enable_prefix_caching or
@@ -64,8 +71,10 @@ def install_bounded_target(runner):
     # Private read transactions must bypass the public refresh-job wrapper.
     runner._kvmem_private_forward = runner.model.forward
     if options.async_refresh:
-        if getattr(runner.speculative_config, 'method', None) != 'mtp':
-            raise ValueError('Asynchronous refresh currently qualifies native Qwen MTP')
+        method = getattr(runner.speculative_config, 'method', None)
+        if method != 'mtp' and not (method == 'dflash' and _settings.get('KVMEM_DFLASH_ASYNC_REFRESH') == '1'):
+            raise ValueError('Asynchronous refresh currently qualifies native Qwen MTP '
+                             '(DFlash2 needs experimental_dflash_async_refresh)')
         from .async_refresh import AsyncRefresh
         runner._kvmem_async_refresh = AsyncRefresh(runner, options)
         runner._kvmem_query_refresh = runner._kvmem_async_refresh.enqueue
@@ -115,8 +124,14 @@ def install_bounded_target(runner):
                 expansion = stored_expansions(runner.block_tables)[group_id]
                 expected_pages = [block * expansion + page for block in ticket.original_block_ids
                                   for page in range(expansion)]
-                count = int(runner.block_tables.num_blocks.np[group_id, request_index])
-                actual_pages = runner.block_tables.block_tables[group_id].gpu[request_index, :count].cpu().tolist()
+                stream = getattr(runner, '_kvmem_qsa_stream', None)
+                if stream is not None and stream.is_streaming(request_index):
+                    # qsa_streaming rows map every frame column to the ring page;
+                    # the owned pages are the runtime's admitted hot + ring pages.
+                    actual_pages = stream.owned_pages(request_index, group_id)
+                else:
+                    count = int(runner.block_tables.num_blocks.np[group_id, request_index])
+                    actual_pages = runner.block_tables.block_tables[group_id].gpu[request_index, :count].cpu().tolist()
                 if actual_pages != expected_pages:
                     raise ValueError("Worker physical pages do not match the scheduler refresh reservation")
             tickets = [ticket for _, ticket in job.command.groups]
@@ -163,7 +178,8 @@ def install_bounded_target(runner):
         if needs_state:
             state_adapter = NativeRecurrentState(runner)
             bundle = state_adapter.borrow(batch.req_ids)
-            checkpoints = StateCheckpoints("bounded-query", bundle.bytes, capacity=1)
+            checkpoints = StateCheckpoints("bounded-query", bundle.bytes, capacity=1,
+                offload_to_cpu=cpu_query_checkpoint)
             before = checkpoints.capture(0, bundle.tensors)
             if audit_guided:
                 from .guided_query import snapshot_guided_draft
@@ -261,6 +277,7 @@ def install_bounded_target(runner):
                     [c.query[:limit] for c in captured]).clone()
             else:
                 public_queries[request_id] = torch.stack([c.query[begin:end] for c in captured]).clone()
+        layerwise, layer_pressure = {}, {}
         for request_id, job in jobs.items():
             i, history, query = extents[request_id]
             local_tokens_before = history - runner._kvmem_window_adapter.offsets.get(request_id, 0)
@@ -293,6 +310,15 @@ def install_bounded_target(runner):
             mandatory = [r.handle for r in authority.records.values() if r.history_begin//cfg.block_tokens in required]
             if job.command.selection == 'pressure':
                 from .prefill_attention import select_pressure
+                qsa_pressure = getattr(runner, '_kvmem_qsa_pressure', None)
+                if qsa_pressure is not None and history < int(batch.prefill_len_np[i]):
+                    # Per-layer prefill pressure from QSA's sparse-attention mass
+                    # (attention or lift scorer, serving/qsa_pressure.py); each layer
+                    # keeps K of its own window. The global pick stays the native frame.
+                    local = history - runner._kvmem_window_adapter.offsets.get(request_id, 0)
+                    layer_pressure[request_id] = qsa_pressure.select(
+                        request_id, authority, [h.slot for h in mandatory], selected_cfg.select_budget,
+                        history, local)
                 plan = select_pressure(authority,mandatory,max_tokens=selected_cfg.select_budget)
             elif history <= selected_cfg.select_budget:
                 plan = authority.memory.select({})  # Exact all-history bootstrap.
@@ -331,6 +357,20 @@ def install_bounded_target(runner):
                             queries = guided.queries
                         guided_seconds = time.perf_counter() - guided_started
                 score_query = queries.shape[1]
+                qsa_layers = getattr(runner, '_kvmem_qsa_layers', None)
+                if (getattr(runtime.options, 'strategy_path', 'global') == 'layer' and qsa_layers and
+                        job.command.selection == 'query'):
+                    # strategy_path=layer on Flash Next: per-layer MeanK selections from the
+                    # same probe Queries, the first KVMEM_LAYERWISE_QUERY_GLOBAL_LAYERS layers
+                    # sharing the global one (serving/qsa_layerwise.py).
+                    from .layerwise_query import query_global_layers
+                    from .qsa_layerwise import layer_selections
+                    drafts = set(getattr(runner, '_kvmem_mtp_modules', {}))
+                    layerwise[request_id] = layer_selections(
+                        authority, queries, mandatory, selected_cfg.select_budget, layers=len(qsa_layers),
+                        global_layers=query_global_layers(),
+                        draft_layers={i for i, name in enumerate(qsa_layers) if name in drafts},
+                        draft_selection=runtime.options.qsa_layerwise_mtp)
                 plan = authority.select_for_queries(queries,mandatory,max_tokens=selected_cfg.select_budget)
             selected = plan.total_window_tokens
             if not 0 < selected <= cfg.select_budget:
@@ -339,7 +379,30 @@ def install_bounded_target(runner):
             assembler = NativeWindowAssembler.from_runner(runner, request_id, runtime.names, cfg.block_tokens,
                                                           packed=runtime.options.packed_assembly,
                                                           direct_pinned_reads=runtime.options.direct_pinned_reads)
-            assembly = assembler.assemble(authority, plan)
+            layer_report, per_layer_records = {}, None
+            if request_id in layerwise:
+                from .qsa_layerwise import layer_records
+                global_slots, per_layer, layer_report = layerwise.pop(request_id)
+                per_layer_records = layer_records(authority, plan, global_slots, per_layer)
+            elif request_id in layer_pressure:
+                from .qsa_layerwise import pressure_layer_records
+                picked, fallback = layer_pressure.pop(request_id)
+                per_layer_records, layer_report = pressure_layer_records(
+                    authority, plan, picked, fallback, draft_layers=qsa_pressure.draft_indices,
+                    draft_selection=runtime.options.qsa_layerwise_mtp,
+                    scorer=getattr(runtime.options, 'strategy_pressure_scorer', 'attention'))
+                layer_report['qsa_pressure_stats'] = qsa_pressure.report()
+            if per_layer_records is not None:
+                assembly = assembler.assemble(authority, plan, layer_records=per_layer_records)
+            else:
+                assembly = assembler.assemble(authority, plan)
+            qsa_pressure = getattr(runner, '_kvmem_qsa_pressure', None)
+            if qsa_pressure is not None:
+                # Later packets and pressure picks see each layer's own window.
+                if per_layer_records is not None:
+                    qsa_pressure.remember(request_id, per_layer_records, history)
+                else:
+                    qsa_pressure.forget(request_id)
             assembly.event.synchronize()
             authority.memory.attach_completion(assembly)
             assert authority.memory.commit_selection()
@@ -363,6 +426,8 @@ def install_bounded_target(runner):
                 "local_tokens_before": local_tokens_before,
                 "rebuilt_tokens": assembly.rebuilt_tokens, "skipped_tokens": assembly.skipped_tokens,
                 "batch_requests": list(batch.req_ids), "probe_executed": needs_probe and not reuse_captures,
+                "query_checkpoint_storage": "cpu-pinned" if needs_state and cpu_query_checkpoint else "gpu",
+                "query_checkpoint_bytes": bundle.bytes if needs_state else 0,
                 "query_score_tokens": score_query, "draft_groups": list(draft_groups),
                 "guided_query_tokens":guided_tokens,"guided_prompt_tokens":guided_prompt_tokens,
                 "guided_seconds":guided_seconds,
@@ -390,7 +455,7 @@ def install_bounded_target(runner):
                 "raw_cache_capacity_bytes": assembly.raw_cache_capacity_bytes,
                 "assembly_device_temp_bytes": assembly.device_temp_bytes,
                 "packed_assembly": runtime.options.packed_assembly,
-                "direct_pinned_reads": runtime.options.direct_pinned_reads})
+                "direct_pinned_reads": runtime.options.direct_pinned_reads, **layer_report})
 
         if needs_state:
             state_adapter.validate(bundle)

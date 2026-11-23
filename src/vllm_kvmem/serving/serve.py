@@ -25,6 +25,10 @@ DEFAULTS = {
     'verify_session_restore_digest': False,
     'verify_request_swap': False,
     'experimental_dflash_query_planning': False,
+    'experimental_dflash_async_refresh': False,
+    # Opt-in: compiled-graph (and TP=2) DFlash2 with 3 or 7 draft tokens; only
+    # k=1 is qualified there. Single-GPU full_graph DFlash already allows 1/3/7.
+    'experimental_dflash_compiled_multi': False,
     'draft_tokens': 7,
     'draft_method': 'dflash',
     'draft_quantization': None,
@@ -105,15 +109,24 @@ def _validate_cuda_allocator_conf(value):
     if value is None:
         return None
     names = ('garbage_collection_threshold', 'per_process_memory_fraction')
-    if not isinstance(value, dict) or set(value) != set(names):
-        raise ValueError('cuda_allocator_conf requires native GC threshold and process fraction')
-    if any(type(value[name]) not in (int, float) or not math.isfinite(value[name])
-           or not 0 < value[name] < 1 for name in names):
-        raise ValueError('cuda_allocator_conf fractions must be finite numbers strictly between zero and one')
-    # In the qualified Torch allocator, GC is gated by an explicitly bounded
-    # process fraction. A fraction of 1 clears that bound and silently disables
-    # proactive GC, even if garbage_collection_threshold was configured.
-    return {name: float(value[name]) for name in names}
+    if (not isinstance(value, dict) or not value or
+            set(value) - {*names, 'max_split_size_mb'} or
+            (set(value).intersection(names) and not set(names).issubset(value))):
+        raise ValueError('cuda_allocator_conf requires paired native GC threshold/process fraction '
+                         'and/or max_split_size_mb')
+    result = {}
+    if set(names).issubset(value):
+        if any(type(value[name]) not in (int, float) or not math.isfinite(value[name])
+               or not 0 < value[name] < 1 for name in names):
+            raise ValueError('cuda_allocator_conf fractions must be finite numbers strictly between zero and one')
+        # A fraction of 1 disables the explicit bound needed by proactive GC.
+        result.update((name, float(value[name])) for name in names)
+    if 'max_split_size_mb' in value:
+        size = value['max_split_size_mb']
+        if type(size) is not int or size <= 20:
+            raise ValueError('cuda_allocator_conf max_split_size_mb must be an integer greater than 20')
+        result['max_split_size_mb'] = size
+    return result
 
 
 def _validate_profiler_config(value, base):
@@ -187,6 +200,22 @@ def _apply_overrides(profile, assignments):
     return result
 
 
+def native_max_rows(cfg, kvmem):
+    """action_native_max_rows "auto": the sampled rows one step can hold.
+
+    A prefill chunk samples one row every prefill_attention_stride tokens plus
+    its last token; a decoding request samples at most its 1 + k verified
+    tokens. Physical prefill coalescing also needs every coalesced chunk. The
+    score buffer grows with this count (layers x rows x heads x window width),
+    so the profile's fixed 448 rows cost 1.8 GB per RTX 4090 at K36K/G16K."""
+    stride = kvmem.get('prefill_attention_stride', 32) or 1
+    rows = -(-cfg['max_num_batched_tokens'] // stride) + cfg['max_num_seqs'] * (2 + cfg['draft_tokens'])
+    if kvmem.get('prefill_physical_coalescing', False):
+        rows = max(rows, kvmem.get('prefill_physical_logical_tokens', 2048) // 32 *
+                   kvmem.get('prefill_physical_max_chunks', 2))
+    return rows
+
+
 def build_launch(profile, base, run_dir, *, check_paths=True):
     if not isinstance(profile, dict) or set(profile) - set(DEFAULTS) - set(PATHS) - {
             'kvmem', 'multi_user', 'stream_watchdog', 'linear_backend_per_quant', 'settings'}:
@@ -215,6 +244,14 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
         raise ValueError('mm_image_limit must be a non-negative integer')
     if cfg['mm_gdn_prefill_backend'] not in (None, 'flashqla_legacy'):
         raise ValueError('mm_gdn_prefill_backend must be null or flashqla_legacy')
+    if type(cfg['experimental_dflash_async_refresh']) is not bool:
+        raise ValueError('experimental_dflash_async_refresh must be boolean')
+    if type(cfg['experimental_dflash_compiled_multi']) is not bool:
+        raise ValueError('experimental_dflash_compiled_multi must be boolean')
+    if cfg['experimental_dflash_compiled_multi'] and cfg['draft_method'] != 'dflash':
+        raise ValueError('experimental_dflash_compiled_multi applies to DFlash2 only')
+    # Compiled-graph and TP=2 DFlash2 draft depths: k=1 qualified, 3 and 7 behind the opt-in.
+    compiled_depths = (1, 3, 7) if cfg['experimental_dflash_compiled_multi'] else (1,)
     if cfg['draft_method'] not in ('dflash', 'mtp'):
         raise ValueError('draft_method must be dflash or mtp')
     allowed_depths = (1, 3, 7) if cfg['draft_method'] == 'dflash' else (1, 2, 3, 4, 7)
@@ -225,8 +262,13 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
     if cfg['model_format'] not in ('gguf', 'safetensors'):
         raise ValueError('model_format must be gguf or safetensors')
     is_gguf = cfg['model_format'] == 'gguf'
-    if cfg['execution_mode'] == 'compiled_graph' and (is_gguf or cfg['draft_method'] != 'mtp'):
-        raise ValueError('Compiled capture currently requires native safetensors Qwen MTP')
+    if cfg['execution_mode'] == 'compiled_graph':
+        compiled_dflash = (cfg['draft_method'] == 'dflash' and
+            cfg['experimental_dflash_query_planning'] and cfg['draft_tokens'] in compiled_depths)
+        if is_gguf or not (cfg['draft_method'] == 'mtp' or compiled_dflash):
+            raise ValueError('Compiled capture requires native safetensors Qwen MTP or '
+                             'experimental DFlash2 k=1 query planning '
+                             '(k=3/7 with experimental_dflash_compiled_multi)')
     if cfg['draft_method'] == 'mtp' and (is_gguf or cfg['draft_quantization'] is not None):
         raise ValueError('Bounded MTP requires native safetensors quantization metadata')
     if not is_gguf and 'mm_proj' in cfg:
@@ -273,8 +315,13 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
             raise ValueError(f'{name} must be a positive integer')
     if type(cfg['tensor_parallel_size']) is not int or cfg['tensor_parallel_size'] < 1:
         raise ValueError('tensor_parallel_size must be a positive integer')
-    if cfg['tensor_parallel_size'] > 1 and (is_gguf or cfg['draft_method'] != 'mtp'):
-        raise ValueError('Tensor-parallel serving requires a native safetensors MTP model')
+    if cfg['tensor_parallel_size'] > 1:
+        dflash_tp = (cfg['draft_method'] == 'dflash' and cfg['tensor_parallel_size'] == 2
+            and cfg['draft_tokens'] in compiled_depths and cfg['execution_mode'] == 'compiled_graph'
+            and cfg['experimental_dflash_query_planning'])
+        if is_gguf or (cfg['draft_method'] != 'mtp' and not dflash_tp):
+            raise ValueError('Tensor-parallel serving requires native MTP or compiled planned DFlash2 k=1 TP=2 '
+                             '(k=3/7 with experimental_dflash_compiled_multi)')
     # Explicit Query planning resolves this native threshold to zero. Saved
     # resolved profiles must remain valid inputs to the launcher.
     if type(cfg['long_prefill_token_threshold']) is not int or cfg['long_prefill_token_threshold'] < 0:
@@ -295,6 +342,8 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
     payload = profile.get('kvmem', {})
     if not isinstance(payload, dict):
         raise ValueError('kvmem must contain public connector options')
+    if payload.get('action_native_max_rows') == 'auto':
+        payload = dict(payload, action_native_max_rows=native_max_rows(cfg, payload))
     transfer = {'kv_connector': 'KVMemConnector', 'kv_role': 'kv_both',
                 'kv_connector_module_path': 'vllm_kvmem.serving.connector',
                 'kv_connector_extra_config': {'kvmem': payload}}
@@ -334,6 +383,17 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
     if cfg['experimental_dflash_query_planning'] and (
             cfg['draft_method'] != 'dflash' or not options.request_planning):
         raise ValueError('experimental_dflash_query_planning requires DFlash2 and request planning')
+    # Opt-in: DFlash2 on the asynchronous refresh/restore lifecycle (the one
+    # layerwise selection runs in). The draft keeps its own sliding pages, so
+    # refreshes change only the target window; session imports restore the
+    # draft's sliding context through the fresh allocation witness. Idle active
+    # residency is not yet qualified with DFlash2.
+    dflash_async = cfg['experimental_dflash_async_refresh']
+    if dflash_async and (cfg['draft_method'] != 'dflash' or not cfg['experimental_dflash_query_planning'] or
+                         not options.async_refresh or not options.async_restore or
+                         options.active_residency_enabled):
+        raise ValueError('experimental_dflash_async_refresh requires DFlash2 query planning, asynchronous '
+                         'refresh/restore and no idle active residency')
     from ..core.options import canonical_policy_payload
     payload = canonical_policy_payload(payload, options)
     cfg['kvmem'] = payload
@@ -351,7 +411,7 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
     if options.active_residency_enabled and cfg['draft_method'] != 'mtp':
         raise ValueError('Idle active residency currently qualifies native Qwen MTP')
     if options.rolling_active_window and not (
-            cfg['draft_method'] == 'mtp' and options.async_refresh and options.async_restore or
+            (cfg['draft_method'] == 'mtp' or dflash_async) and options.async_refresh and options.async_restore or
             cfg['draft_method'] == 'dflash' and cfg['experimental_dflash_query_planning'] and
             not options.async_refresh and not options.async_restore):
         raise ValueError('Rolling active window requires asynchronous native MTP or '
@@ -391,10 +451,10 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
             if not cfg['experimental_dflash_query_planning']:
                 raise ValueError('Explicit Query planning currently requires native Qwen MTP; '
                                  'DFlash2 needs explicit experimental opt-in')
-            if (cfg['draft_method'] != 'dflash' or cfg['draft_tokens'] != 7 or cfg['execution_mode'] != 'full_graph' or
-                    options.async_refresh or options.async_restore or
+            if (cfg['draft_method'] != 'dflash' or cfg['draft_tokens'] not in (1, 3, 7) or cfg['execution_mode'] not in ('full_graph', 'compiled_graph') or
+                    (not dflash_async and (options.async_refresh or options.async_restore)) or
                     options.memory.recent_blocks * options.memory.block_tokens < 2047):
-                raise ValueError('Experimental DFlash2 planning requires k=7, FULL graphs, synchronous '
+                raise ValueError('Experimental DFlash2 planning requires k=1, 3 or 7, FULL graphs or compiled graphs, synchronous '
                                  'refresh/restore and a 2048-token recent band')
         if (options.session_capacity and not options.session_freeze_prompt and options.session_checkpoint_policy!='pm'
                 and (options.session_capture_terminal or not options.session_capture_decode)):
@@ -525,6 +585,10 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
         # spellings consistently, before native workers import/init CUDA.
         env['PYTORCH_ALLOC_CONF'] = env['PYTORCH_CUDA_ALLOC_CONF'] = settings
     env['KVMEM_BOUNDED_MTP' if cfg['draft_method'] == 'mtp' else 'KVMEM_BOUNDED_DFLASH'] = '1'
+    if cfg['experimental_dflash_async_refresh']:
+        env['KVMEM_DFLASH_ASYNC_REFRESH'] = '1'
+    if cfg['experimental_dflash_compiled_multi']:
+        env['KVMEM_DFLASH_COMPILED_MULTI'] = '1'
     if cfg['draft_method'] == 'mtp':
         # The DFlash loader patch is unrelated to native MTP and may not exist
         # in otherwise compatible vendor builds.
@@ -792,13 +856,21 @@ def main(argv=None):
         profile['tensor_parallel_size'] = args.tensor_parallel_size
     if isinstance(profile.get('kvmem'), dict):
         path = strategy_path(args.layerwise_query_diagnostic)
+        if (profile['kvmem'].get('qsa_split_selector') and not args.layerwise_query_diagnostic and
+                profile['kvmem'].get('strategy_path') == 'layer'):
+            # Flash Next QSA runs its per-layer path inside the synchronous refresh
+            # (serving/qsa_layerwise.py, serving/qsa_pressure.py), chosen by the profile.
+            path = 'layer'
         if profile['kvmem'].get('strategy_path', path) != path:
             raise ValueError('strategy_path=%s contradicts the launch flags (%s path)'
                              % (profile['kvmem']['strategy_path'], path))
         profile['kvmem']['strategy_path'] = path
     plan = build_launch(profile, base, run_dir)
-    if plan['profile'].get('tensor_parallel_size', 1) > 1 and (args.layerwise_query_diagnostic or args.systemone_fork):
-        raise ValueError('Tensor-parallel serving uses global selection and native Qwen MTP')
+    tensor_parallel = plan['profile'].get('tensor_parallel_size', 1) > 1
+    if tensor_parallel and (args.systemone_fork or args.layerwise_query_no_probe or
+                            args.layerwise_query_diagnostic not in (None, 'sequential')):
+        raise ValueError('Tensor-parallel serving uses global or sequential layerwise selection '
+                         'with the private Query probe')
     if args.layerwise_query_diagnostic and not profile.get('kvmem', {}).get('async_refresh', False):
         raise ValueError('Layerwise Query requires async_refresh; synchronous refresh does not invoke layerwise selection')
     if plan['profile'].get('kvmem', {}).get('request_swap_layerwise', False):
@@ -949,11 +1021,22 @@ def main(argv=None):
         plan['environment']['KVMEM_VERIFY_GUIDED_PRESSURE'] = '1'
     if 'multi_user' in plan['profile'] and os.environ.get('VLLM_RUST_FRONTEND_PATH'):
         raise ValueError('Multi-user admission requires the Python API frontend')
+    if tensor_parallel and args.layerwise_query_diagnostic:
+        # Layerwise TP: rank-synchronous settings only (tensor_parallel.LAYERWISE_TP_SETTINGS).
+        from .tensor_parallel import LAYERWISE_TP_SETTINGS
+        changed = sorted(name for name, value in LAYERWISE_TP_SETTINGS.items()
+                         if plan['environment'].get(name, value) != value)
+        plan['environment'].update(LAYERWISE_TP_SETTINGS)
+        if changed:
+            print('KVMem: tensor-parallel layerwise selection turns off rank-asynchronous options: '
+                  + ', '.join(changed), file=sys.stderr)
     if isinstance(plan['profile'].get('kvmem'), dict):
         # Strategy layer: one check of every chosen strategy against the launched path.
         from .capabilities import check as check_capabilities
         plan['strategy'] = check_capabilities(
-            plan['profile']['kvmem'], query_mode=args.layerwise_query_diagnostic,
+            plan['profile']['kvmem'], query_mode=args.layerwise_query_diagnostic or (
+                'qsa' if plan['profile']['kvmem'].get('qsa_split_selector') and
+                plan['profile']['kvmem'].get('strategy_path') == 'layer' else None),
             pressure=args.layerwise_prefill_pressure,
             batch_selection=plan['environment'].get('KVMEM_LAYERWISE_PRESSURE_BATCH_SELECTION') == '1',
             environment=plan['environment'])

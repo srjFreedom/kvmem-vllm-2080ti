@@ -33,7 +33,7 @@ except ImportError:
     from run_terminalbench_job import DEFAULT_CONTAINER_MEMORY_BYTES, HOST_MEMORY_RESERVE_BYTES, validate_memory_budget
 
 REPO = Path('/home/chaidi/kvmem-freetoken/kvmem-vllm')
-PYTHON = '/home/chaidi/kvmem-vllm/.venv/bin/python'
+PYTHON = sys.executable
 HARBOR_PYTHON = '/tmp/kvmem-terminus-20261026-env/bin/python'
 BRIDGE_MAX_SESSIONS = 16
 
@@ -58,6 +58,121 @@ def concurrency_limits(profile, task_count, trial_concurrency=None):
                          'tool-waiting sessions retain their history')
     return dict(task_concurrency=tasks, model_concurrency=model,
                 session_capacity=sessions, bridge_max_sessions=BRIDGE_MAX_SESSIONS)
+
+
+class RemoteModel:
+    """The model, its GC mechanism checks and GPU telemetry run on another host over SSH.
+
+    Harbor, task containers and the bridge stay local; the model port is tunnelled.
+    `spec` (manifest remote_model): ssh options and host, the remote base directory
+    holding serve.sh, the run label, thinking age steps, ports and remote paths.
+    Remote files that local code reads are copied back under root/model.
+    """
+    CAPTURE = ('archive.json', 'progress.json', 'scheduler_resources.json')
+
+    def __init__(self, root, spec, owned, runtime):
+        self.root, self.spec, self.owned, self.runtime = root, spec, owned, runtime
+        self.run_dir = f"{spec['base']}/runs/{spec['label']}"
+        self.pid = self.forward = None
+        self.processes = []
+
+    def argv(self, command=None, *options):
+        return ['ssh', *self.spec['ssh_options'], *options, self.spec['host'], *([command] if command else [])]
+
+    def ssh(self, command, **kwargs):
+        return subprocess.run(self.argv(command), capture_output=True, text=True, **kwargs)
+
+    def read(self, path):
+        result = self.ssh(f'cat {path}', timeout=60)
+        return json.loads(result.stdout) if result.returncode == 0 and result.stdout.strip() else None
+
+    def start(self):
+        busy = self.ssh('nvidia-smi --query-compute-apps=pid --format=csv,noheader', timeout=60, check=True).stdout.split()
+        if busy:
+            raise RuntimeError(f'Remote GPUs are busy: {busy}')
+        spec = self.spec
+        self.ssh(f"cd {spec['base']} && (setsid nohup ./serve.sh {spec['label']} {spec['age_steps']} "
+                 f"> logs/{spec['label']}.log 2>&1 < /dev/null &)", timeout=60, check=True)
+        deadline = time.monotonic() + spec.get('startup_seconds', 3600)
+        while True:
+            status = self.read(f'{self.run_dir}/status.json') or {}
+            if status.get('stage') == 'serving':
+                break
+            if status.get('stage') in ('failed', 'server_exited', 'stopped') or time.monotonic() > deadline:
+                raise RuntimeError(f'Remote model did not start: {status}')
+            time.sleep(10)
+        self.pid = int(self.ssh(f"cat {spec['base']}/logs/{spec['label']}.pid", timeout=60, check=True).stdout)
+        model = self.root/'model'
+        model.mkdir(exist_ok=False)
+        self.local = q.read(self.root/'profile.json')['port']
+        # Through the shared SSH master a -N client hands the forward to the
+        # master and exits, so the forward is owned by the master itself.
+        self.forward = f"{self.local}:127.0.0.1:{spec['remote_port']}"
+        subprocess.run(self.argv(None, '-O', 'cancel', '-L', self.forward), capture_output=True, timeout=60)
+        subprocess.run(self.argv(None, '-O', 'forward', '-L', self.forward), capture_output=True, timeout=60, check=True)
+        # -tt: the remote loop gets SIGHUP when its local ssh client stops.
+        self.processes = [self.owned.start(self.argv(f'while kill -0 {self.pid} 2>/dev/null; do sleep 10; done', '-tt'),
+            self.root, dict(os.environ), model/'watch.log', model/'watch.json')]
+        return self
+
+    def poll(self):
+        """None while the remote harness is alive and the local forward accepts connections."""
+        import socket
+        codes = [p.poll() for p in self.processes]
+        code = next((c for c in codes if c is not None), None)
+        if code is not None:
+            return code
+        try:
+            with socket.create_connection(('127.0.0.1', self.local), timeout=5):
+                return None
+        except OSError:
+            return 255
+
+    def monitor(self):
+        """The dedicated 1-second GPU telemetry, sampled on the serving host."""
+        spec = self.spec
+        return self.owned.start(self.argv(f"cd {spec['runtime']} && exec {spec['python']} -B "
+            f"scripts/gpu_efficiency_monitor.py sample --output {self.run_dir}/gpu-utilization.jsonl "
+            f"--owned-root-pid {self.pid} --interval 1", '-tt'), self.root, dict(os.environ),
+            self.root/'gpu-monitor.log', self.root/'gpu-monitor-process.json')
+
+    def check(self, script, output, *arguments):
+        """Run a mechanism check on the serving host; its evidence is copied back."""
+        spec = self.spec
+        return self.owned.start(self.argv(f"cd {spec['runtime']} && PYTHONPATH=src:scripts:. exec {spec['python']} -B "
+            f"scripts/{script} --base http://127.0.0.1:{spec['remote_port']} --profile {self.run_dir}/profile.json "
+            f"--protocol {spec['protocol']} --capture {self.run_dir}/server/capture "
+            f"--output {self.run_dir}/{output} " + ' '.join(arguments)), self.root, dict(os.environ),
+            self.root/f'{output}.log', self.root/f'{output}-process.json')
+
+    def copy(self, paths, target):
+        """Copy remote paths (relative to the run directory) under target."""
+        target.mkdir(parents=True, exist_ok=True)
+        with subprocess.Popen(self.argv(f"cd {self.run_dir} && tar -cf - --ignore-failed-read {' '.join(paths)}"),
+                              stdout=subprocess.PIPE) as source:
+            subprocess.run(['tar', '-xf', '-', '-C', str(target)], stdin=source.stdout, check=True, timeout=1800)
+            source.wait(timeout=60)
+
+    def sync_capture(self):
+        self.copy([f'server/capture/{name}' for name in self.CAPTURE], self.root/'model')
+
+    def stop(self):
+        """Stop the remote harness (it stops its server group) and copy back its run."""
+        if self.pid is None:
+            return dict(remote='not_started')
+        self.ssh(f'kill -TERM {self.pid}', timeout=60)
+        deadline = time.monotonic() + 120
+        while time.monotonic() < deadline and self.ssh(f'kill -0 {self.pid}', timeout=60).returncode == 0:
+            time.sleep(5)
+        self.ssh(f"pkill -f '[g]pu_efficiency_monitor.py sample --output {self.run_dir}/'", timeout=60)
+        self.ssh(f'cd {self.run_dir} && gzip -kf server.log', timeout=600)
+        self.copy(['server/capture/*.json', 'server/launch.json', 'profile.json', 'launch.json', 'status.json',
+                   'dry-run.stdout', 'server.log.gz'], self.root/'model')
+        self.copy(['gpu-utilization.jsonl'], self.root)
+        if self.forward:
+            subprocess.run(self.argv(None, '-O', 'cancel', '-L', self.forward), capture_output=True, timeout=60)
+        return dict(remote='stopped', harness_pid=self.pid,
+                    alive=self.ssh(f'kill -0 {self.pid}', timeout=60).returncode == 0)
 
 
 def hashes(root):
@@ -96,7 +211,8 @@ def freeze_runtime(repo, runtime):
                'terminalbench_harness.py', 'terminalbench_pty.py', 'terminalbench_tool_bundle.py',
                'terminalbench_verifier_cache.py',
                'terminalbench_query.py', 'terminalbench_replay.py', 'terminalbench_gpu_probe.py',
-               'qualify_thinking_gc_preflight.py', 'gpu_efficiency_monitor.py')
+               'qualify_thinking_gc_preflight.py', 'gpu_efficiency_monitor.py',
+               'terminalbench_proxy_relay.py')
     for name in scripts:
         shutil.copy2(repo/'scripts'/name, runtime/'scripts'/name)
     shutil.copy2(repo/'benchmarks/deepswe/claude_bridge.py', runtime/'benchmarks/deepswe/claude_bridge.py')
@@ -132,7 +248,7 @@ def prepare(root, dataset, reuse_images_from=None, agent_time_limit='relaxed', d
             profile_path=None, task_names=None, query_mode='task', trial_concurrency=None,
             container_memory_admission_bytes=DEFAULT_CONTAINER_MEMORY_BYTES):
     validate_memory_budget(container_memory_admission_bytes,total=psutil.virtual_memory().total)
-    if agent_time_limit not in ('none', 'official', 'relaxed'):
+    if agent_time_limit not in ('none', 'official', 'relaxed', 'fixed'):
         raise ValueError('Unknown Agent time limit policy')
     if root.exists():raise ValueError('New root required')
     source = REPO/'artifacts/rolling-long-output-20261026-r1'
@@ -254,6 +370,7 @@ def prepare(root, dataset, reuse_images_from=None, agent_time_limit='relaxed', d
                'Verified task Query metadata and bounded duplex recorder; complete messages unchanged',
                {'none': 'Agent execution has no wall-clock limit; custom local evaluation',
                 'relaxed': 'Agent deadlines are 2x official; recorded pauses excluded; custom local evaluation',
+                'fixed': 'Every task has a 1-hour Agent wall-clock deadline; custom local evaluation',
                 'official': 'Official Agent deadlines retained'}[agent_time_limit],
                'Verifier/setup/tool timeouts retained; smoke Agent deadline remains 300 seconds',
                'No automatic summarization; retain reasoning across turns for exact token history',
@@ -330,24 +447,29 @@ def run(root):
     q.save(root/'queue-process.json',dict(**q.identity(psutil.Process()),at=time.time()))
     owned=q.Owned();runtime=root/'runtime';profile=q.read(root/'profile.json');conn=q.read(root/'connection.json')
     lock=open('/tmp/kvmem-coordination-qualification.lock','a')
+    remote=RemoteModel(root,plan['remote_model'],owned,runtime) if plan.get('remote_model') else None
     try:
         fetch_images(root)
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         idle=None
-        while True:
+        while remote is None:
             gpu=q.gpu_pids()
             idle=None if gpu else (idle or time.monotonic())
             q.save(root/'status.json',dict(status='waiting_for_gpu',at=time.time(),gpu=gpu))
             if idle and time.monotonic()-idle>=60:break
             time.sleep(5)
         q.save(root/'status.json',dict(status='starting_model',at=time.time()))
-        server=q.start_model(root/'model',root/'profile.json',runtime,PYTHON,owned)
-        gpu_monitor=owned.start([PYTHON,'-B',str(runtime/'scripts/gpu_efficiency_monitor.py'),
-            'sample','--output',str(root/'gpu-utilization.jsonl'),
-            '--owned-root-pid',str(server.pid),'--interval','1'],
-            runtime,q.environment(runtime),root/'gpu-monitor.log',root/'gpu-monitor-process.json')
+        if remote is not None:
+            server=remote.start()
+            gpu_monitor=remote.monitor()
+        else:
+            server=q.start_model(root/'model',root/'profile.json',runtime,PYTHON,owned)
+            gpu_monitor=owned.start([PYTHON,'-B',str(runtime/'scripts/gpu_efficiency_monitor.py'),
+                'sample','--output',str(root/'gpu-utilization.jsonl'),
+                '--owned-root-pid',str(server.pid),'--interval','1'],
+                runtime,q.environment(runtime),root/'gpu-monitor.log',root/'gpu-monitor-process.json')
         q.ready_http(f'http://127.0.0.1:{profile["port"]}/health',server,owned,timeout=3600,
-                     progress_path=root/'model/startup.json')
+                     progress_path=None if remote else root/'model/startup.json')
         tokens=array.array('i');tokens.frombytes((root/'warmup-tokens.bin').read_bytes())
         with httpx.Client(trust_env=False,timeout=3600) as client:
             payload=dict(model=profile['served_model_name'],prompt=tokens.tolist(),max_tokens=1,
@@ -360,27 +482,45 @@ def run(root):
             result.raise_for_status();q.save(root/'warmup-release.json',result.json())
         if plan.get('thinking_gc_preflight'):
             q.save(root/'status.json',dict(status='thinking_gc_preflight',at=time.time(),expected=expected_tasks))
-            check=owned.start([PYTHON,'-B',str(runtime/'scripts/qualify_thinking_gc_preflight.py'),
-                '--base',f'http://127.0.0.1:{profile["port"]}','--profile',str(root/'profile.json'),
-                '--protocol',str(root/'protocol.so'),'--capture',str(root/'model/server/capture'),
-                '--output',str(root/'thinking-gc-preflight'),
-                '--target-tokens',str(plan['thinking_gc_preflight']['target_tokens'])],
-                runtime,direct_environment(q.environment(runtime)),root/'thinking-gc-preflight.log',
-                root/'thinking-gc-preflight-process.json')
+            if remote is not None:
+                check=remote.check('qualify_thinking_gc_preflight.py','thinking-gc-preflight',
+                    '--target-tokens',str(plan['thinking_gc_preflight']['target_tokens']))
+            else:
+                check=owned.start([PYTHON,'-B',str(runtime/'scripts/qualify_thinking_gc_preflight.py'),
+                    '--base',f'http://127.0.0.1:{profile["port"]}','--profile',str(root/'profile.json'),
+                    '--protocol',str(root/'protocol.so'),'--capture',str(root/'model/server/capture'),
+                    '--output',str(root/'thinking-gc-preflight'),
+                    '--target-tokens',str(plan['thinking_gc_preflight']['target_tokens'])],
+                    runtime,direct_environment(q.environment(runtime)),root/'thinking-gc-preflight.log',
+                    root/'thinking-gc-preflight-process.json')
             while check.poll() is None:
                 if server.poll() is not None:
                     raise RuntimeError('Owned model exited during thinking GC preflight')
                 time.sleep(1)
+            if remote is not None:
+                remote.copy(['thinking-gc-preflight'],root)
             if check.returncode:
                 raise RuntimeError('Thinking GC preflight failed; official tasks were not started')
+        if remote is not None and remote.spec.get('age_steps'):
+            # The thinking age rule must retire old thinking on the real model before any task.
+            q.save(root/'status.json',dict(status='thinking_age_check',at=time.time(),expected=expected_tasks))
+            check=remote.check('qualify_thinking_age_gc.py','thinking-age-check')
+            while check.poll() is None:
+                if server.poll() is not None:
+                    raise RuntimeError('Owned model exited during the thinking age check')
+                time.sleep(1)
+            remote.copy(['thinking-age-check'],root)
+            if check.returncode:
+                raise RuntimeError('Thinking age check failed; official tasks were not started')
         q.require_free_port(18388)
         bridge=owned.start([PYTHON,'-B','-m','scripts.dsh_bridge','--protocol',str(root/'protocol.so'),
             '--tokenizer',profile['tokenizer'],'--backend',f'http://127.0.0.1:{profile["port"]}',
             '--model',profile['served_model_name'],'--output',str(root/'bridge'),'--port','18388',
             '--owner-namespace','tb21','--max-model-len',str(profile['max_model_len']),
             '--gen-budget',str(profile['kvmem']['gen_budget']),
-            '--max-output-tokens','131072','--max-sessions',str(plan.get('bridge_max_sessions',BRIDGE_MAX_SESSIONS)),
+            '--max-output-tokens',str(plan.get('output_cap',131072)),'--max-sessions',str(plan.get('bridge_max_sessions',BRIDGE_MAX_SESSIONS)),
             '--optimized-handoff',
+            *(['--observation-tool-spans'] if plan.get('observation_tool_spans') else []),
             '--abort-on-disconnect','--progress-interval','2','--release-control-token',conn['control_token'],
             *(['--require-query-provenance'] if plan.get('query_provenance') else [])],
             runtime,direct_environment(q.environment(runtime)),root/'bridge.log',root/'bridge-process.json')
@@ -407,6 +547,8 @@ def run(root):
             if job.returncode:raise RuntimeError(f'{phase} exited {job.returncode}; preserve logs, no retry')
             if phase=='smoke':
                 capture=root/'model/server/capture'
+                if remote is not None:
+                    remote.sync_capture()
                 q.save(root/'formal-boundary.json',dict(at=time.time(),smoke_excluded=True,
                     resources=resources(root,owned),
                     capture={name:q.read(capture/(name+'.json'))
@@ -417,7 +559,11 @@ def run(root):
         q.save(root/'status.json',dict(status='failed',at=time.time(),error=repr(error)))
         raise
     finally:
-        q.save(root/'cleanup.json',owned.stop())
+        remote_cleanup=None
+        if remote is not None:
+            try:remote_cleanup=remote.stop()
+            except Exception as error:remote_cleanup=dict(error=repr(error))
+        q.save(root/'cleanup.json',dict(owned.stop(),remote=remote_cleanup))
         lock.close()
     # Finite, local completion stage; it does not schedule any future runs.
     from finalize_terminalbench import review
@@ -432,7 +578,7 @@ if __name__=='__main__':
     p.add_argument('--dataset',type=Path)
     p.add_argument('--reuse-images-from',type=Path)
     p.add_argument('--download-cache',type=Path,help='Verified public uv/Python archive cache')
-    p.add_argument('--agent-time-limit',choices=['none','official','relaxed'],default='relaxed',
+    p.add_argument('--agent-time-limit',choices=['none','official','relaxed','fixed'],default='relaxed',
                    help='Default: relaxed (2x official Agent limits, recorded pauses excluded); verifier/setup unchanged')
     p.add_argument('--profile',type=Path,help='Model and GC configuration to freeze')
     p.add_argument('--tasks',nargs='+',help='Explicit official task subset; omitted runs all 89')

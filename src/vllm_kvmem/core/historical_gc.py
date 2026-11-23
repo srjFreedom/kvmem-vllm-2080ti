@@ -21,7 +21,9 @@ REDUNDANCY_Q_MAX_SLOTS = 4
 
 # Public schemas mirror the native factory. No Python policy callbacks execute
 # on the worker; adding a policy requires registering its native constructor.
-_POLICY_DEFAULTS = {'lru': {'keep_mandatory': True}, 'redundancy': {
+_POLICY_DEFAULTS = {'lru': {'keep_mandatory': True},
+    'tool_result_age': {'keep_mandatory': True, 'tool_result_age_steps': 12, 'lru_fallback': False},
+    'redundancy': {
     'keep_mandatory': True, 'importance_weight': 0.1,
     'representative_similarity': 0.9, 'reference_blocks': 32,
     'candidate_blocks': 128, 'pair_comparisons': 512,
@@ -30,6 +32,11 @@ _POLICY_DEFAULTS = {'lru': {'keep_mandatory': True}, 'redundancy': {
     'allow_lossy_fallback': False,
     'thinking_only': False, 'pool_pairwise': False, 'all_history_references': False,
     'refresh_before_rank': False, 'epoch_peak': False, 'lru_fallback': False}}
+
+# Retire pure thinking once this many newer assistant turns have completed
+# (native HistoricalThinkingAgePolicy). Optional in every policy's parameters.
+THINKING_AGE_KEY = 'thinking_age_steps'
+
 
 def redundancy_layers(target_layers):
     if type(target_layers) is not int or target_layers <= 0:
@@ -215,11 +222,21 @@ class HistoricalGcSettings:
         # Strategy layer: the eviction policy is an evictor in the strategy registry.
         from ..strategy import EVICTOR, names
         if not isinstance(self.policy, str) or self.policy not in names(EVICTOR) or self.policy not in _POLICY_DEFAULTS:
-            raise ValueError(f'Unknown historical_gc.policy: {self.policy!r} (supported: lru, redundancy)')
+            raise ValueError(f'Unknown historical_gc.policy: {self.policy!r} (supported: lru, redundancy, tool_result_age)')
         if not isinstance(self.policy_params, dict):
             raise ValueError('historical_gc.policy_params must be an object')
         defaults = _POLICY_DEFAULTS[self.policy]
+        # Opt-in proactive age rule (any policy). Absent keeps the expanded
+        # parameters, and so every existing configuration, unchanged.
+        age = self.policy_params.get(THINKING_AGE_KEY, 0)
+        if type(age) is not int or not 0 <= age <= 1_000_000:
+            raise ValueError(f'historical_gc.policy_params.{THINKING_AGE_KEY} must be an integer in [0,1000000]')
+        if age and not (self.policy == 'redundancy' and self.policy_params.get('thinking_only') is True):
+            raise ValueError(f'historical_gc.policy_params.{THINKING_AGE_KEY} needs policy redundancy with '
+                             'thinking_only=true, which captures the accepted thinking labels')
         for key, value in self.policy_params.items():
+            if key == THINKING_AGE_KEY:
+                continue
             if key not in defaults:
                 raise ValueError(f'Unknown historical_gc.policy_params.{self.policy} parameter: {key!r}')
             default = defaults[key]
@@ -230,6 +247,9 @@ class HistoricalGcSettings:
                 lower = -1 if key == 'representative_similarity' else 0
                 if type(value) not in (int, float) or not lower <= value <= 1 or not math.isfinite(value):
                     raise ValueError(f'historical_gc.policy_params.{key} must be finite and in [{lower},1]')
+            elif key == 'tool_result_age_steps':
+                if type(value) is not int or not 1 <= value <= 1_000_000:
+                    raise ValueError(f'historical_gc.policy_params.{key} must be an integer in [1,1000000]')
             else:
                 limit = (REDUNDANCY_Q_MAX_SLOT_BYTES if key == 'query_capture_bytes' else
                          2**40 if key.endswith('_bytes') else 65536)
@@ -237,8 +257,8 @@ class HistoricalGcSettings:
                     raise ValueError(f'historical_gc.policy_params.{key} must be an integer in [1,{limit}]')
         # Own the configuration and expand defaults without changing the input.
         object.__setattr__(self, 'policy_params', {**defaults, **self.policy_params})
-        if self.policy == 'redundancy' and not self.policy_params['keep_mandatory']:
-            raise ValueError('historical_gc redundancy requires keep_mandatory=true')
+        if self.policy != 'lru' and not self.policy_params['keep_mandatory']:
+            raise ValueError(f'historical_gc {self.policy} requires keep_mandatory=true')
         if (self.policy == 'redundancy' and self.policy_params['lru_fallback'] and
                 self.policy_params['allow_lossy_fallback']):
             raise ValueError('Choose lru_fallback or allow_lossy_fallback, not both')
@@ -320,7 +340,28 @@ class HistoricalAuthorityGc:
                 del self.pending_index[key]
         return not self.pending_index
 
-    def drain(self, records, discarded=None, retired=None):
+    def retire_synchronized(self, records, keys, retired):
+        """Tensor parallelism: drop records every rank retired in this engine step.
+
+        Called by serving.tensor_parallel.gc_sync on each rank, in the same
+        order, before the native round starts their CPU release. The live
+        record set therefore changes at the same logical moment everywhere;
+        the release completes later per rank and only finishes in drain().
+        """
+        for key in keys:
+            record = records.pop(key)
+            self.retired_index[key] = record
+            self.reclaimed_records += 1
+            retired.append((record.history_begin, *key))
+
+    def drain(self, records, discarded=None, retired=None, synchronized=False):
+        """Consume native completions.
+
+        ``synchronized`` (tensor parallelism, live authority): records leave the
+        index only through retire_synchronized. A CPU completion for a record
+        that is still listed would remove it at a rank-local time, so it is a
+        protocol violation and fails loudly instead.
+        """
         discarded = {} if discarded is None else discarded
         if self.stopped:
             # Finalization freezes the logical live view independently of CPU
@@ -342,6 +383,9 @@ class HistoricalAuthorityGc:
             if event.cpu:
                 if record is not None and not record.archived:
                     continue
+                if synchronized and record is not None:
+                    raise RuntimeError('Historical GC released a live tensor-parallel record '
+                                       'outside the synchronized commit')
                 if not self.archive.retire_cpu_record(self.memory.request_id, event.handle):
                     continue
                 if removed is not None:

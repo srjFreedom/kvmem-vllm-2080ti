@@ -13,6 +13,8 @@ import subprocess
 import tempfile
 import time
 
+from benchmark_client_io import result_events
+from vllm_kvmem.core.block_runs import candidate_starts
 from run_layerwise_pressure_efficiency import signature
 
 
@@ -126,8 +128,8 @@ def verify_audit(report):
     return report
 
 
-def evidence(result, refresh):
-    return dict(events=result['layerwise']['events'], layers=result['layerwise']['layers'], refresh=refresh)
+def evidence(result, refresh, case_dir=None):
+    return dict(events=result_events(result, case_dir), layers=result['layerwise']['layers'], refresh=refresh)
 
 
 def first_difference(before, after, path=''):
@@ -156,11 +158,11 @@ def first_difference(before, after, path=''):
     return None
 
 
-def canonical_signature(result, refresh):
+def canonical_signature(result, refresh, case_dir=None):
     # Reuse the strict accepted pressure/Query signature, adding rolling stage
     # identity so prefill and decode events cannot accidentally compare equal.
-    pressures, query = signature(evidence(result, refresh))
-    events = [e for e in result['layerwise']['events'] if e['event'] == 'pressure_selected']
+    pressures, query = signature(evidence(result, refresh, case_dir))
+    events = [e for e in result_events(result, case_dir) if e['event'] == 'pressure_selected']
     for pressure, event in zip(pressures, events):
         pressure.update(event_type=event['event_type'], query_source=event['query_source'],
                         selected_tokens=event['selected_tokens'])
@@ -178,7 +180,7 @@ def compare_cases(before_dir, after_dir):
     controls = first_difference(requests[0], requests[1])
     if controls:
         raise ValueError('Input/sampling mismatch: '+repr(controls))
-    signs = [canonical_signature(r, read(p/'events.json')) for r, p in zip(results, roots)]
+    signs = [canonical_signature(r, read(p/'events.json'), p) for r, p in zip(results, roots)]
     pressure = first_difference(signs[0]['pressure'], signs[1]['pressure'], 'pressure')
     query = first_difference(signs[0]['query'], signs[1]['query'], 'query')
     choices = [read(p/'response.json')['choices'][0] for p in roots]
@@ -195,7 +197,7 @@ def compare_cases(before_dir, after_dir):
                 for a, b in zip(pair[0]['layers'], pair[1]['layers']):
                     if a != b:
                         context['layers'].append(dict(layer=a['layer'],
-                            same_candidates=a['candidate_starts'] == b['candidate_starts'],
+                            same_candidates=candidate_starts(a) == candidate_starts(b),
                             same_score_end=a['accepted_score_end'] == b['accepted_score_end'],
                             selected_symmetric_difference=sorted(set(a['selected_starts']) ^ set(b['selected_starts']))))
             break

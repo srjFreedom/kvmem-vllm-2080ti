@@ -65,8 +65,11 @@ class KVMemScheduler(Scheduler):
         self.prompt_progress_log = os.environ.get("KVMEM_PROMPT_PROGRESS_LOG", "1") != "0"
         self.connector.request_plan_memory = options.memory if options.request_planning else None
         self.connector.request_plan_pressure_policy = options.pressure_policy
+        from ..core import settings as _dflash_settings
+        dflash_async = _dflash_settings.get('KVMEM_DFLASH_ASYNC_REFRESH') == '1'
         if options.rolling_active_window and not (self.draft_contract is not None and (
-                self.draft_contract.method == 'mtp' and options.async_refresh and options.async_restore or
+                (self.draft_contract.method == 'mtp' or self.draft_contract.method == 'dflash' and dflash_async)
+                and options.async_refresh and options.async_restore or
                 self.draft_contract.method == 'dflash' and not options.async_refresh and not options.async_restore)):
             raise ValueError('Rolling active window requires asynchronous MTP or '
                              'synchronous DFlash2 accepted-prefix admission')
@@ -215,6 +218,22 @@ class KVMemScheduler(Scheduler):
         if self._bounded_target:
             from .capacity import ReservedKVCacheManager
             manager_type, extra = ReservedKVCacheManager, {}
+            if options.qsa_split_selector:
+                from ..adapters.qsa_streaming import plan_qsa_carves
+                if options.gpu_memory_admission != 'static':
+                    raise ValueError('qsa_split_selector requires static GPU admission')
+                draft = self.draft_contract.query_tokens - 1 if self.draft_contract is not None else 0
+                extra['selector_carve'], extra['streaming_carve'], _ = plan_qsa_carves(
+                    self.vllm_config, self.kv_cache_config, options, draft)
+                if options.qsa_streaming:
+                    carve = extra['streaming_carve']
+                    for manager in self.window_managers.values():
+                        if manager.block_size != carve.page_tokens:
+                            raise ValueError('QSA streaming requires one attention page size')
+                        manager.set_streaming(carve.pages_per_request * carve.page_tokens)
+                    # Prefill attends from a shared frame-sized staging run, so
+                    # at most staging_requests streaming requests prefill per step.
+                    self._streaming_prefill_limit = 1
             if options.gpu_memory_admission == 'incremental':
                 from .incremental_capacity import IncrementalKVCacheManager
                 from .request_swap_control import RequestSwapController
@@ -237,6 +256,10 @@ class KVMemScheduler(Scheduler):
                     min_resident_steps=options.request_swap_min_resident_steps)
                 manager_type = IncrementalKVCacheManager
                 extra['pause_controller'] = self.swap_controller
+            if (getattr(self, '_streaming_prefill_limit', None) is None and
+                    _settings.get('KVMEM_QSA_SINGLE_PREFILL') == '1'):
+                # Exactness / throughput reference: the resident path with streaming's step shapes.
+                self._streaming_prefill_limit = 1
             self.kv_cache_manager = manager_type(self.kv_cache_manager, self.vllm_config,
                 draft_contract=self.draft_contract,
                 max_authorities=(self.scheduler_config.max_num_seqs
@@ -541,16 +564,28 @@ class KVMemScheduler(Scheduler):
         # New query shapes publish immediately; all cumulative counts remain
         # exact in memory and are flushed at lifecycle changes and shutdown.
         identity = tuple((stage, tuple(histogram)) for stage, histogram in self._scheduled_queries.items())
-        if not self._snapshot_cadence('queries').due(identity, force=force):
+        cadence = self._snapshot_cadence('queries')
+        new_shape = identity != cadence.last_identity
+        if not cadence.due(identity, force=force):
             return
+        from .report_writer import LatestReportWriter, write_report
         path = Path(_settings.require('KVMEM_RUNNER_PROBE_DIR'))
-        temporary = path / 'scheduled_queries.tmp'
-        temporary.write_text(json.dumps({"queries": self._scheduled_queries,
+        report = {"queries": {stage: counts.copy() for stage, counts in self._scheduled_queries.items()},
             "prefill_cadence": self.prefill_cadence,
             "archive_capacity_deferrals": self.archive_admission.deferred if getattr(self, 'archive_admission', None) else 0,
-            "throttle_requests": self._cadence_requested,
-            **({"decode_burst": self._burst_stats} if getattr(self, 'prefill_decode_burst', False) else {})}))
-        temporary.replace(path / 'scheduled_queries.json')
+            "throttle_requests": self._cadence_requested}
+        if getattr(self, 'prefill_decode_burst', False):
+            report["decode_burst"] = self._burst_stats.copy()
+        writer = getattr(self, '_query_report_writer', None)
+        synchronous = force or new_shape or cadence.interval == 0
+        if synchronous and writer is None:
+            write_report(path, 'scheduled_queries', report, indent=None)
+            return
+        if writer is None:
+            self._query_report_writer = writer = LatestReportWriter(path)
+        writer.submit('scheduled_queries', report)
+        if synchronous:
+            writer.flush()
 
     def update_from_output(self, *args, **kwargs):
         pool = getattr(self.connector, 'systemone_pool', None)
@@ -597,8 +632,14 @@ class KVMemScheduler(Scheduler):
         try:
             return super().shutdown()
         finally:
-            self._write_lifecycle_snapshot(force=True)
-            self._write_scheduled_queries(force=True)
+            try:
+                self._write_lifecycle_snapshot(force=True)
+                self._write_scheduled_queries(force=True)
+            finally:
+                writer = getattr(self, '_query_report_writer', None)
+                if writer is not None:
+                    writer.close()
+                    self._query_report_writer = None
 
     def _free_request(self, request, delay_free_blocks=False):
         controller = getattr(self, 'swap_controller', None)
@@ -767,7 +808,14 @@ class KVMemScheduler(Scheduler):
         controller = getattr(self, 'swap_controller', None)
         if controller is not None and controller.is_suspended(request.request_id):
             return 0
+        limit = getattr(self, '_streaming_prefill_limit', None)
+        prefill = num_computed_tokens < request.num_prompt_tokens
+        if (limit is not None and prefill and request.request_id not in self._streaming_prefills and
+                len(self._streaming_prefills) >= limit):
+            return 0  # qsa_streaming: the staging run is taken this step.
         tokens = self._reserve_kvmem_lookahead(request, num_computed_tokens, num_new_tokens)
+        if limit is not None and prefill and tokens:
+            self._streaming_prefills.add(request.request_id)
         if tokens and controller is not None:
             if not self.kv_cache_manager.can_schedule(request, tokens,
                     num_lookahead_tokens=self.num_lookahead_tokens,
@@ -1860,6 +1908,7 @@ class KVMemScheduler(Scheduler):
                         break
             if getattr(self, '_bounded_target', False):
                 self.kv_cache_manager.begin_step()
+            self._streaming_prefills = set()
             try:
                 output = super().schedule(throttle_prefills or self._throttle_mixed_prefill())
             except RefreshRequired as exc:

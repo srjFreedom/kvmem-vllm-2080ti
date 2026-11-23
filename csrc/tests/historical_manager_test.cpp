@@ -881,6 +881,108 @@ static void builtin_commit_rechecks_pressure_and_recent_range() {
     }
 }
 
+
+static void thinking_age_retires_through_the_manager_and_respects_the_window() {
+    for (const auto mode : {HistoricalGcMode::Delete, HistoricalGcMode::Shadow}) {
+        Fixture fixture(mode, false, {}, 1, false, {{"thinking_age_steps", int64_t(2)}});
+        for (unsigned i = 0; i < 6; ++i) fixture.append();    // 2 ready slots: no LRU pressure
+        auto &scope = *fixture.scope;
+        check(scope.publish_thinking(fixture.gpu[0], 4, 4, 1), "turn 1 publication failed");
+        check(scope.publish_thinking(fixture.gpu[1], 4, 4, 2), "turn 2 publication failed");
+        check(scope.publish_thinking(fixture.gpu[2], 2, 4, 2), "mixed publication failed");
+        check(scope.publish_thinking(fixture.gpu[3], 4, 4, 3), "turn 3 publication failed");
+        check(scope.publish_thinking(fixture.gpu[4], 4, 4, 0), "unknown-turn publication failed");
+        scope.publish_turns(2);
+        fixture.step(8);
+        check(scope.stats().decisions == 0, "age rule acted before a turn two steps newer completed");
+        scope.publish_turns(3);
+        fixture.step(8);
+        const auto first = scope.stats();
+        if (mode == HistoricalGcMode::Shadow) {
+            check(first.shadow_decisions == 1 && first.retired == 0, "shadow age decision changed history");
+            continue;
+        }
+        check(first.retired == 1 && first.thinking_age_retired == 1 && !fixture.repo->try_pin(fixture.handles[0]),
+              "turn-1 thinking was not retired once turn 3 completed");
+        check(scope.update(fixture.gpu[3], HistoricalSealed | HistoricalGpu | HistoricalCurrentWindow),
+              "current-window publication failed");
+        scope.publish_turns(5);
+        fixture.step(8);
+        const auto second = scope.stats();
+        check(second.thinking_age_retired == 2 && !fixture.repo->try_pin(fixture.handles[1]),
+              "turn-2 thinking was not retired");
+        check(second.thinking_age_protected == 1 && bool(fixture.repo->try_pin(fixture.handles[3])),
+              "the current window lost thinking to the age rule, or the gauge missed it");
+        for (unsigned i : {2u, 4u, 5u})
+            check(bool(fixture.repo->try_pin(fixture.handles[i])), "mixed, unknown or answer record was retired");
+        check(scope.update(fixture.gpu[3], HistoricalSealed | HistoricalGpu), "window release failed");
+        scope.publish_turns(6);
+        fixture.step(8);
+        check(scope.stats().thinking_age_retired == 3 && !fixture.repo->try_pin(fixture.handles[3]) &&
+              scope.stats().thinking_age_protected == 0,
+              "protected thinking was not retried after the next turn");
+        check(scope.stats().lru_fallback_retired == 0 && scope.stats().lossy_retired == 0,
+              "age retirement was counted as pressure fallback");
+    }
+}
+
+static void expired_tools_retry_after_backing_and_window_protection_change() {
+    Fixture fixture(HistoricalGcMode::Delete, false, {}, 1, false, {}, "tool_result_age");
+    fixture.append(HistoricalSealed | HistoricalGpu | HistoricalCurrentWindow);
+    fixture.append();  // Recent range protects this expired page for now.
+    auto &scope = *fixture.scope;
+    scope.history_changed(8, 4);
+    scope.set_expired_tool_ranges({{0, 8}});
+    fixture.step(8);
+    check(scope.stats().decisions == 0, "protected tools were proposed for retirement");
+
+    scope.history_changed(16, 8);
+    fixture.step(8);
+    check(scope.stats().tool_result_age_retired == 1 && !fixture.repo->try_pin(fixture.handles[1]),
+          "a tool page did not retry after leaving the recent band");
+
+    check(scope.update(fixture.gpu[0], HistoricalSealed | HistoricalGpu), "window release failed");
+    fixture.step(8);
+    check(scope.stats().tool_result_age_retired == 2 && !fixture.repo->try_pin(fixture.handles[0]),
+          "an expired tool page did not retry after exiting the current frame");
+
+    fixture.append();  // No exact tool range covers this page.
+    scope.request_capacity(8, 0);
+    fixture.step(8);
+    check(bool(fixture.repo->try_pin(fixture.handles[2])) && scope.stats().retired == 2,
+          "capacity pressure must not retire a page outside the expired tool ranges");
+
+    Fixture late(HistoricalGcMode::Delete, false, {}, 1, false, {}, "tool_result_age");
+    late.scope->history_changed(12, 12);
+    late.scope->set_expired_tool_ranges({{0, 4}});
+    late.step(8);
+    late.append();  // Backing published after the expiration scan.
+    late.step(8);
+    check(late.scope->stats().tool_result_age_retired == 1 && !late.repo->try_pin(late.handles[0]),
+          "late backing did not re-arm the tool age rule");
+}
+
+static void expired_tools_with_lru_fallback_also_relieve_capacity_pressure() {
+    HistoricalPolicyParameters params{{"keep_mandatory", true}, {"tool_result_age_steps", int64_t(12)},
+                                      {"lru_fallback", true}};
+    Fixture fixture(HistoricalGcMode::Delete, false, {}, 1, false, params, "tool_result_age");
+    for (int i = 0; i < 3; ++i) fixture.append();
+    auto &scope = *fixture.scope;
+    scope.history_changed(12, 12);
+    scope.set_expired_tool_ranges({{4, 8}});
+    fixture.step(8);
+    check(scope.stats().tool_result_age_retired == 1 && scope.stats().retired == 1 &&
+          !fixture.repo->try_pin(fixture.handles[1]),
+          "the age pass did not retire the expired tool page first");
+    check(bool(fixture.repo->try_pin(fixture.handles[0])) && bool(fixture.repo->try_pin(fixture.handles[2])),
+          "the fallback retired history without capacity pressure");
+    scope.request_capacity(8, 0);
+    fixture.step(8);
+    check(scope.stats().retired == 3 && scope.stats().tool_result_age_retired == 1 &&
+          !fixture.repo->try_pin(fixture.handles[0]) && !fixture.repo->try_pin(fixture.handles[2]),
+          "capacity pressure did not fall back to LRU outside the expired tool ranges");
+}
+
 int main() {
     try {
         lru_retirement_and_cpu_reclamation_do_not_wait_for_gpu();
@@ -915,6 +1017,9 @@ int main() {
         pure_scoring_progress_keeps_the_worker_burst_running();
         lru_fallback_does_not_require_query_or_feature_guards();
         builtin_commit_rechecks_pressure_and_recent_range();
+        thinking_age_retires_through_the_manager_and_respects_the_window();
+        expired_tools_retry_after_backing_and_window_protection_change();
+        expired_tools_with_lru_fallback_also_relieve_capacity_pressure();
     } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';
         return 1;

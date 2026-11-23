@@ -75,10 +75,14 @@ def make_probe_runner(base):
                 # Register the ABI before native AOT unpickling resolves ops.
                 from ..adapters.capture_opaque import install_opaque_capture
             from ..adapters.qsa_contract import release_target_loader_staging
-            with release_target_loader_staging(self) if qsa else nullcontext():
+            from ..adapters.draft_quantization import prepare_quantized_context
+            with (release_target_loader_staging(self) if qsa else nullcontext(),
+                  prepare_quantized_context(self)):
                 super().load_model(*args, **kwargs)
             from ..adapters.draft_quantization import install_quantized_context
             install_quantized_context(self)
+            from ..adapters.draft_parallel import validate_draft_parallel
+            validate_draft_parallel(self)
             self._kvmem_graph = _settings.get('KVMEM_FULL_GRAPH') == '1'
             if not self.model_config.enforce_eager and not self._kvmem_graph:
                 raise ValueError("Runner capture probe currently requires enforce_eager")
@@ -91,8 +95,26 @@ def make_probe_runner(base):
                 if ((compilation.mode, compilation.cudagraph_mode) not in allowed or
                         self.vllm_config.max_concurrent_batches != 1):
                     raise ValueError('KVMem capture requires qualified native compilation/graphs and synchronous batches')
-                if self._kvmem_native_compilation and getattr(self.speculative_config, 'method', None) != 'mtp':
-                    raise ValueError('Compiled KVMem capture currently qualifies native Qwen MTP only')
+                if self._kvmem_native_compilation:
+                    method = getattr(self.speculative_config, 'method', None)
+                    if method == 'dflash':
+                        dflash_async = _settings.get('KVMEM_DFLASH_ASYNC_REFRESH') == '1'
+                        depths = (1, 3, 7) if _settings.get('KVMEM_DFLASH_COMPILED_MULTI') == '1' else (1,)
+                        if (self.speculative_config.num_speculative_tokens not in depths or
+                                not options.request_planning or
+                                (not dflash_async and (options.async_refresh or options.async_restore)) or
+                                options.capture_opaque_projection or
+                                options.memory.recent_blocks * options.memory.block_tokens < 2048):
+                            raise ValueError('Compiled DFlash2 requires k=1 (3 or 7 with '
+                                             'experimental_dflash_compiled_multi), synchronous planned '
+                                             'capture and a 2048-token recent band')
+                        from ..adapters.draft_graphs import (install_independent_draft_graphs,
+                                                             deferred_submit_enabled, install_deferred_capture_submit)
+                        install_independent_draft_graphs(self)
+                        if deferred_submit_enabled():
+                            install_deferred_capture_submit(self)
+                    elif method != 'mtp':
+                        raise ValueError('Compiled KVMem capture requires native Qwen MTP or DFlash2')
             self._kvmem_layers = install_qwen_capture(self.model)
             from .tensor_parallel import configure_worker
             modules = dict(self.model.named_modules()) if tp_size > 1 else {}
@@ -109,8 +131,30 @@ def make_probe_runner(base):
                     self.input_buffers.positions)
             from ..adapters.mtp_runtime import install_mtp_runtime
             install_mtp_runtime(self)
+            from ..adapters import draft_seq_lens
+            if draft_seq_lens.enabled():
+                draft_seq_lens.install()
             from ..adapters.qsa_adapter import install_qsa_archive
             install_qsa_archive(self)
+            if options.qsa_split_selector and not qsa:
+                raise ValueError('qsa_split_selector requires the Flash Next QSA adapter')
+            if qsa:
+                from ..adapters.qsa_streaming import install_qsa_split_selector
+                install_qsa_split_selector(self, options)
+                from .qsa_pressure import enabled as pressure_enabled
+                if pressure_enabled(options):
+                    # strategy_path=layer with the attention or lift scorer: per-layer
+                    # pressure from QSA's sparse-attention mass, after the streaming hook.
+                    from ..adapters.qsa_split import install_split
+                    from .qsa_pressure import QSALayerPressure
+                    self._kvmem_qsa_pressure = QSALayerPressure(self, options)
+                    install_split(self).append(self._kvmem_qsa_pressure.hook)
+                from ..adapters.qsa_trace import install_qsa_trace
+                install_qsa_trace(self)
+                if getattr(options, 'fused_gdn_metadata', False):
+                    # Flash Next: one launch for all GDN cache groups' decode metadata.
+                    from ..adapters.gdn_metadata_fusion import install as install_gdn_fusion
+                    install_gdn_fusion()
             self._kvmem_capture_opaque = (install_opaque_capture(self, opaque_fingerprint)
                 if options.capture_opaque_projection else None)
             self._kvmem_serving = _settings.get('KVMEM_SERVING') == '1'
@@ -140,6 +184,9 @@ def make_probe_runner(base):
                 kernel()
             self._kvmem_step_timing = None
             self._kvmem_public_work = None
+            if _settings.get('KVMEM_STACK_PROFILE_DIR'):
+                from .stack_sampler import install as install_stack_sampler
+                install_stack_sampler(_settings.get('KVMEM_STACK_PROFILE_DIR'))
             if options.step_latency_interval:
                 from .step_timing import StepTiming
                 from .work_counters import PublicWorkCounters
@@ -164,10 +211,25 @@ def make_probe_runner(base):
                     raise ValueError('NVMe startup reservation requires uniform target KV geometry')
                 heads, dim = geometry.pop()
                 record_bytes = len(layers) * heads * dim * options.memory.block_tokens * 2
+                layer_groups = None
+                if getattr(options, 'archive_layout', 'record') == 'layer':
+                    # SSD tier: Flash Next QSA records as unpadded per-layer groups.
+                    qsa = getattr(self, '_kvmem_qsa_layers', None)
+                    names = list(getattr(self, '_kvmem_archive_layers', self._kvmem_layers))
+                    if not qsa or names != [*qsa, *('__qsa_index__.' + name for name in qsa)]:
+                        raise ValueError('archive_layout=layer is qualified for Flash Next QSA archives only')
+                    from ..core.layer_major import qsa_record_groups
+                    first = next(iter(qsa.values()))
+                    layer_groups = qsa_record_groups(len(qsa), options.memory.block_tokens, heads, dim, 1,
+                                                     first.index_head_dim * 2)
                 self._kvmem_prepared_archive = make_shared_archive(options,
                     self._kvmem_probe_output / 'continuous_archive', record_bytes,
                     self.vllm_config.scheduler_config.max_num_seqs if self._kvmem_bounded_target else 1,
-                    max_query_tokens=self.vllm_config.scheduler_config.max_num_batched_tokens)
+                    max_query_tokens=self.vllm_config.scheduler_config.max_num_batched_tokens,
+                    layer_groups=layer_groups)
+                # TP: rank 0 proposes historical-GC retirements, the others follow.
+                from .tensor_parallel import configure_history_gc
+                configure_history_gc(self._kvmem_prepared_archive)
             self._kvmem_saved_capture = None
             self._kvmem_window_adapter = None
             self._kvmem_window_batch = None
@@ -230,6 +292,9 @@ def make_probe_runner(base):
                     from .restore_lease import FreshRestoreLease
                     self._kvmem_restore_allocations[request.req_id] = FreshRestoreLease.capture(
                         self, request.req_id, request.block_ids)
+            if getattr(self, '_kvmem_qsa_stream', None) is not None:
+                from ..adapters.qsa_stream_runtime import after_add_requests
+                after_add_requests(self, scheduler_output)
             return result
 
         def update_requests(self, scheduler_output):
@@ -253,7 +318,11 @@ def make_probe_runner(base):
                 scheduler_output = replace(scheduler_output, scheduled_cached_reqs=replace(
                     cached, new_block_ids=[None if rid in table_updates else blocks
                         for rid, blocks in zip(cached.req_ids, cached.new_block_ids, strict=True)]))
-            return super().update_requests(scheduler_output)
+            result = super().update_requests(scheduler_output)
+            if getattr(self, '_kvmem_qsa_stream', None) is not None:
+                from ..adapters.qsa_stream_runtime import after_update_requests
+                after_update_requests(self, scheduler_output, table_updates)
+            return result
 
         def initialize_kv_cache(self, *args, **kwargs):
             result = super().initialize_kv_cache(*args, **kwargs)
@@ -263,6 +332,9 @@ def make_probe_runner(base):
             refresh = getattr(self, '_kvmem_async_refresh', None)
             if refresh is not None:
                 refresh.initialize_cache()
+            if getattr(self, '_kvmem_qsa_stream', None) is not None and not is_profiling:
+                from ..adapters.qsa_streaming import bind_qsa_streaming
+                bind_qsa_streaming(self)
             if getattr(self, '_kvmem_graph', False):
                 from .graph_runtime import initialize_graph_window
                 initialize_graph_window(self)
@@ -291,6 +363,13 @@ def make_probe_runner(base):
         def finish_requests(self, scheduler_output):
             if getattr(self, '_kvmem_restore_allocations', {}).keys() & scheduler_output.finished_req_ids:
                 raise RuntimeError('Native request was freed before its restore fence')
+            if getattr(self, '_kvmem_qsa_stream', None) is not None:
+                from ..adapters.qsa_stream_runtime import before_finish_requests
+                before_finish_requests(self, scheduler_output)
+            pressure = getattr(self, '_kvmem_qsa_pressure', None)
+            if pressure is not None:
+                for request_id in scheduler_output.finished_req_ids:
+                    pressure.retire(request_id)
             result = super().finish_requests(scheduler_output)
             for request_id in scheduler_output.finished_req_ids:
                 self._kvmem_request_generations.pop(request_id, None)
@@ -486,6 +565,13 @@ def make_probe_runner(base):
                     # MTP's authoritative shifted-token prefix is produced by
                     # propose after sampling; publish both layers together.
                     self._kvmem_mtp_rejected = result[2]
+                elif getattr(self, '_kvmem_defer_dflash_submit', False):
+                    # Opt-in KVMEM_DFLASH_SUBMIT_AFTER_DRAFT: submitted right after
+                    # the draft is enqueued (adapters/draft_graphs.py).
+                    if getattr(self, '_kvmem_deferred_submit', None) is not None:
+                        raise RuntimeError('A deferred DFlash2 capture submission was never flushed')
+                    self._kvmem_deferred_submit = (captured, input_batch, result[2])
+                    self._kvmem_pending_capture = None
                 else:
                     self._kvmem_capture_runtime.submit(captured, input_batch, result[2])
                     self._kvmem_pending_capture = None
@@ -498,6 +584,10 @@ def make_probe_runner(base):
                 gil_gate.open()     # the engine now blocks on the GPU's results
             try:
                 result = super().sample_tokens(grammar_output)
+                if getattr(self, '_kvmem_deferred_submit', None) is not None:
+                    # A step that ran no proposal still submits before returning.
+                    from ..adapters.draft_graphs import flush_deferred_submit
+                    flush_deferred_submit(self)
             finally:
                 if gil_gate is not None:
                     gil_gate.end_step()  # update and schedule; reopens itself if idle
@@ -616,6 +706,12 @@ def make_probe_runner(base):
             if not dummy_run and not is_profile:
                 from .systemone_fork import before_step
                 before_step(self, scheduler_output)
+                stream = getattr(self, '_kvmem_qsa_stream', None)
+                if stream is not None and stream.carve is not None:
+                    stream.begin_step(scheduler_output)
+                pressure = getattr(self, '_kvmem_qsa_pressure', None)
+                if pressure is not None:
+                    pressure.flush()          # the previous step's chunks are complete
             timing = getattr(self, '_kvmem_step_timing', None)
             if (timing is not None and not dummy_run and not is_profile and
                     scheduler_output.total_num_scheduled_tokens and
@@ -716,6 +812,14 @@ def make_probe_runner(base):
                     runtime.advance_publication(scheduler_output.num_scheduled_tokens, refresh)
                 if timing is not None:
                     timing.mark('publication')
+                if getattr(runtime, 'tp_history_gc', False):
+                    # Every rank reaches this point once per step, after the
+                    # same pump_refresh collectives: the historical-GC commit
+                    # point (rank 0 proposes, all ranks retire the agreed set).
+                    from .tensor_parallel import gc_sync
+                    gc_sync(runtime, refresh, sessions)
+                    if timing is not None:
+                        timing.mark('history_gc')
             if not dummy_run and getattr(self, "_kvmem_window_adapter", None) is not None:
                 for request_id in scheduler_output.finished_req_ids:
                     self._kvmem_window_adapter.free(request_id)

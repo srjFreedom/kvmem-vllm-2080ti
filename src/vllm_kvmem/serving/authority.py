@@ -371,6 +371,13 @@ class RequestAuthority:
                 raise ValueError('Historical KV management and legacy repository GC cannot share an authority')
             from ..core.historical_gc import HistoricalAuthorityGc
             self.gc = HistoricalAuthorityGc(self.memory, archive)
+            if active():
+                # Leader-decided GC: records leave this index only in the
+                # rank-synchronous tensor_parallel.gc_sync, never at a
+                # rank-local completion time.
+                from .tensor_parallel import register_gc_authority
+                self._tp_history_gc = True
+                register_gc_authority(self)
         elif gc_config is not None:
             from ..core.repository_gc import AuthorityGc
             self.gc = AuthorityGc(self.memory, archive, gc_config, gc_progress)
@@ -388,7 +395,12 @@ class RequestAuthority:
         retired = []
         finalizing = getattr(self.gc, 'stopped', False)
         if getattr(self.gc, 'native_history', False):
-            self.gc.drain(self.records, self.discarded_records, retired=retired)
+            if self.__dict__.get('_tp_history_gc', False):
+                # Finalization and close may release live records at local times.
+                self.gc.drain(self.records, self.discarded_records, retired=retired,
+                              synchronized=not finalizing and not self.closing)
+            else:
+                self.gc.drain(self.records, self.discarded_records, retired=retired)
         else:
             self.gc.drain(self.records, self.discarded_records)
         if retired and not finalizing:
@@ -400,6 +412,26 @@ class RequestAuthority:
         for key, record in staged:
             if key not in self.discarded_records:
                 self._return_record_buffers(record)
+
+    def retire_synchronized(self, keys):
+        """Tensor-parallel GC: remove the records every rank just retired.
+
+        Runs inside tensor_parallel.gc_sync while the native round still holds
+        its prepared records, so no CPU completion can precede the removal.
+        """
+        retired = []
+        self.gc.retire_synchronized(self.records, keys, retired)
+        return retired
+
+    def finish_synchronized_retirements(self, retired):
+        """The metadata pruning drain applies after a retirement, at the same step on every rank."""
+        if not retired:
+            return
+        if not getattr(self.gc, 'stopped', False):
+            self._trace_evictions(retired)
+        self._pending_cache_retire.extend(retired)
+        self._drain_cache_retirements()
+        self._prune_history_metadata()
 
     def _trace_evictions(self, retired):
         """Strategy layer: the historical-GC evictor's decisions join the decision trace.
@@ -840,6 +872,9 @@ class RequestAuthority:
         _c2 = _time.perf_counter()
         self.memory.attach_completion(_Ready())
         assert self.memory.commit_append(count)
+        tool_results = getattr(self, 'tool_result_history', None)
+        if tool_results is not None:
+            tool_results.advance(self.history_end)
         thinking = getattr(self, 'thinking_history', None)
         if thinking is not None:
             thinking.note_append(self.history_end-count, count, rows)
@@ -1120,6 +1155,103 @@ class RequestAuthority:
             for lease in leases:
                 lease.reset()
 
+    def raw_layer_hole(self, first, count):
+        """(offset, bytes) of raw-plane archive layers [first, first + count) in a record,
+        or (0, 0) when that range is not 4 KiB aligned (then it is read)."""
+        per_layer = self.shape[1] * self.shape[2] * self.shape[3] * self.raw_element_bytes
+        offset, size = first * per_layer, count * per_layer
+        if count <= 0 or first + count > self.shape[0] or offset % 4096 or size % 4096:
+            return 0, 0
+        return offset, size
+
+    def start_direct_read(self, handles, destination, hole=(0, 0)):
+        """SSD tier: start reading records' archive bytes into a pinned, 4 KiB aligned uint8 tensor.
+
+        Record i lands at destination[i * record_bytes:] in the archive layout
+        (raw plane, then values). Records still held in memory are copied from
+        RAM; the rest are read with O_DIRECT, except hole = (offset, bytes) of
+        every record (bytes the caller does not use). Returns (pending, counts):
+        pending.wait() blocks on the drive and releases the leases.
+        """
+        self._require_open()
+        self.poll()
+        records = [self.records[record_key(handle)] for handle in handles]
+        admitted = [self.memory.admitted_read(handle) for handle in handles]
+        leases = [entry[0] for entry in admitted]
+        pending = None
+        try:
+            if not all(leases):
+                raise ValueError("Stale authority handle")
+            if any(record.raw is None and not record.archived for record in records):
+                raise BlockingIOError("Immutable record write is still in flight")
+            for i, record in enumerate(records):
+                if record.raw is None:
+                    continue
+                base, count = i * self.record_bytes, record.count
+                raw = destination[base:base + self.raw_record_bytes].view(self.raw_dtype).view(self.shape)
+                raw[:, :count].copy_(record.raw[:, :count])
+                values = destination[base + self.raw_record_bytes:base + self.record_bytes].view(self.shape)
+                values[:, :count].copy_(record.values[:, :count])
+            pending = self.archive.read_direct(
+                self.memory.request_id, [lease if record.raw is None else None
+                                         for lease, record in zip(leases, records)], destination, hole)
+            return _HeldDirectRead(pending, leases), [record.count for record in records]
+        finally:
+            if pending is None:
+                for lease in leases:
+                    lease.reset()
+
+    def start_group_read(self, handles, groups, destination):
+        """SSD tier, archive_layout=layer: start reading packed layer groups of records.
+
+        Group groups[k] of record i lands at destination[offset_k + i * group_bytes]
+        where the groups are laid out one after another (plane-major), each over
+        all records. Records still held in memory are packed from RAM. Returns
+        (pending, counts, offsets); pending.wait() blocks on the drive and
+        releases the leases.
+        """
+        self._require_open()
+        self.poll()
+        group_bytes = self.archive.layer_group_bytes
+        offsets, cursor = [], 0
+        for group in groups:
+            offsets.append(cursor)
+            cursor += len(handles) * group_bytes[group]
+        if cursor > destination.numel():
+            raise ValueError('Layer group destination is smaller than the batch')
+        records = [self.records[record_key(handle)] for handle in handles]
+        admitted = [self.memory.admitted_read(handle) for handle in handles]
+        leases = [entry[0] for entry in admitted]
+        pending = None
+        try:
+            if not all(leases):
+                raise ValueError("Stale authority handle")
+            if any(record.raw is None and not record.archived for record in records):
+                raise BlockingIOError("Immutable record write is still in flight")
+            in_memory = [i for i, record in enumerate(records) if record.raw is not None]
+            if in_memory:
+                from ..core.layer_major import pack_record_groups
+                for i in in_memory:
+                    record = records[i]
+                    whole = torch.zeros(self.record_bytes, dtype=torch.uint8)
+                    whole[:self.raw_record_bytes].view(self.raw_dtype).view(self.shape)[:, :record.count].copy_(
+                        record.raw[:, :record.count])
+                    whole[self.raw_record_bytes:].view(self.shape)[:, :record.count].copy_(
+                        record.values[:, :record.count])
+                    for group, offset in zip(groups, offsets):
+                        size = group_bytes[group]
+                        pack_record_groups(whole, self.archive.tier.groups[group],
+                                           destination[offset + i * size:offset + (i + 1) * size])
+            pending = self.archive.read_groups(
+                self.memory.request_id, [lease if record.raw is None else None
+                                         for lease, record in zip(leases, records)],
+                groups, offsets, destination)
+            return _HeldDirectRead(pending, leases), [record.count for record in records], offsets
+        finally:
+            if pending is None:
+                for lease in leases:
+                    lease.reset()
+
     def select_for_queries(self, queries, mandatory_handles=(), *, observe_only=False, max_tokens=None,
                            guided_pressure=False):
         """Reference MeanK-to-native-selection bridge over accepted history only.
@@ -1242,6 +1374,9 @@ class RequestAuthority:
             # leaves rejected or deferred rewinds untouched.
             redundancy.invalidate()
         spans = self.memory.begin_rewind(checkpoint)
+        tool_results = getattr(self, 'tool_result_history', None)
+        if tool_results is not None:
+            tool_results.rewind(checkpoint.position)
         thinking = getattr(self, 'thinking_history', None)
         if thinking is not None:
             thinking.rewind(checkpoint.position)
@@ -1474,3 +1609,17 @@ def append_authority_batch(entries):
     _trace('append_batch', records=len(jobs), prepare=_t1-_t0, scatter=_t2-_t1,
            commit=_time.perf_counter()-_t2)
     return len(plans)
+
+
+class _HeldDirectRead:
+    """Authority leases stay held until the drive has written the destination."""
+    def __init__(self, pending, leases):
+        self._pending, self._leases = pending, leases
+
+    def wait(self):
+        try:
+            return self._pending.wait()
+        finally:
+            leases, self._leases = self._leases, ()
+            for lease in leases:
+                lease.reset()
