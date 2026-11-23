@@ -545,7 +545,10 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
                         if cfg['draft_quantization'] else {})})
     argv = ['serve', cfg['model'], '--served-model-name', cfg['served_model_name'],
         '--host', cfg['host'], '--port', str(cfg['port']), '--tokenizer', cfg['tokenizer'],
-        '--hf-config-path', cfg['hf_config_path'], '--config-format', 'hf',
+        '--hf-config-path', cfg['hf_config_path'],
+        # A GGUF target is not a transformers checkpoint: its architecture comes
+        # from the gguf header, not from a config.json next to the weights.
+        '--config-format', 'hf' if not is_gguf else 'auto',
         # SM75 (2080 Ti) has no native bfloat16: default the profile's dtype, which the
         # 2080 Ti fork resolves to float16 (vLLM refuses bf16 below compute capability 8.0).
         '--dtype', str(cfg.get('dtype', 'bfloat16')),
@@ -730,7 +733,9 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
         if options.gpu_memory_admission != 'incremental':
             raise ValueError('verify_request_swap requires incremental GPU admission')
         env['KVMEM_VERIFY_REQUEST_SWAP'] = '1'
-    if not is_gguf:
+    if is_gguf:
+        argv += ['--load-format', 'gguf']
+    else:
         # Native vLLM resolves weight precision and kernels from the checkpoint.
         # Preserve all quantization metadata, including an unquantized config.
         argv += ['--load-format', 'instanttensor' if qsa else 'safetensors']
