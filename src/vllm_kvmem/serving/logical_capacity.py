@@ -39,7 +39,13 @@ def physical_config(config):
         from ..adapters.draft_contract import DraftContract
         contract = DraftContract.from_vllm(config, options.memory)
         frame = options.memory.select_budget + options.memory.gen_budget
-        if (contract.query_tokens != 2 or recall or finite_history or incremental or options.historical_gc is not None or
+        # The bound only has to cover a draft round: the verified width (k+1)
+        # plus its append, which the window's gen reserve R must hold. Depth
+        # itself is qualified by the capture path (k=1, or 3/7 with
+        # experimental_dflash_compiled_multi).
+        if (not 2 <= contract.query_tokens <= 8 or
+                options.memory.gen_budget < contract.query_tokens or
+                recall or finite_history or incremental or options.historical_gc is not None or
                 not options.request_planning or not options.rolling_active_window or
                 not options.cpu_history_coordination or not options.cpu_progress_reserve or
                 not options.session_capacity or options.async_refresh or options.async_restore or
@@ -126,7 +132,12 @@ def check_specs(specs, *, allow_dflash=False, expected_workers=1):
         for spec in row.values():
             if allow_dflash and type(spec) is SlidingWindowSpec:
                 import torch
-                if spec.dtype != torch.bfloat16 or spec.sliding_window != 2048:
+                # A Turing worker has no bfloat16: vLLM casts this bf16 draft to
+                # fp16 and the engine's dflash2_sm75 codec covers that pair, so
+                # the sliding cache legitimately carries fp16 there.
+                sm75_cast = (spec.dtype == torch.float16 and torch.cuda.is_available() and
+                             torch.cuda.get_device_capability() == (7, 5))
+                if (spec.dtype != torch.bfloat16 and not sm75_cast) or spec.sliding_window != 2048:
                     raise ValueError('Unqualified DFlash2 sliding cache for bounded planning')
             elif type(spec) not in (FullAttentionSpec, MambaSpec):
                 raise ValueError('Unsupported cache type for bounded logical planning')

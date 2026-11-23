@@ -53,17 +53,26 @@ class ReservedKVCacheManager:
         self.guided_reserve = 0
         self.groups = tuple(native.coordinator.single_type_managers)
         self.static_blocks = {}
+        self.excluded_blocks = set()
+        # A DFlash2 draft keeps its KV in a cyclic ring the engine owns on its own
+        # page pool. Its per-request demand is a constant set by the draft window,
+        # not by the context, so it is charged to that pool and never to the
+        # target pool the bounded window is sized against.
+        self.draft_pool = None
+        self.draft_blocks = 0
         for index, manager in enumerate(self.groups):
             if manager.block_pool is not native.block_pool:
                 spec = manager.kv_cache_spec
                 if isinstance(spec, UniformTypeKVCacheSpecs):
                     spec = spec.first_spec
-                # A DFlash2 draft owns its own page pool: the engine sizes and
-                # recycles it, so it must not be charged against the target
-                # pool. Every other group has to share the native pool.
                 if (type(manager) is SlidingWindowManager and draft_contract is not None and
                         type(spec) is SlidingWindowSpec and
-                        spec.sliding_window == draft_contract.sliding_window):
+                        spec.sliding_window == draft_contract.sliding_window and
+                        self.draft_pool is None):
+                    self.draft_pool = manager.block_pool
+                    self.draft_blocks = spec.max_admission_blocks_per_request(
+                        vllm_config.max_in_flight_tokens + self.lookahead, native.max_model_len)
+                    self.excluded_blocks.add(index)
                     continue
                 sw = getattr(spec, 'sliding_window', None)
                 draft_sw = getattr(draft_contract, 'sliding_window', None)
@@ -128,6 +137,8 @@ class ReservedKVCacheManager:
         # qsa_streaming owns a fixed page set per request whatever its frame extent, so
         # charge that physical extent instead of the logical one.
         def blocks(index, manager):
+            if index in self.excluded_blocks:
+                return 0
             if index in self.static_blocks:
                 return self.static_blocks[index]
             unit = int(getattr(manager, 'guided_block_tokens', 0) or 0) or int(manager.block_size)
@@ -379,6 +390,11 @@ class ReservedKVCacheManager:
         if existing is None and self.max_authorities is not None and len(self.reservations) >= self.max_authorities:
             self.rejections += 1
             self.authority_rejections += 1
+            return None
+        if (existing is None and self.draft_pool is not None and
+                self.draft_pool.get_num_free_blocks() < self.draft_blocks):
+            # One cyclic draft ring per active request, in the draft's own pool.
+            self.rejections += 1
             return None
         # A terminal speculative step may verify a full block and draft another
         # before the scheduler observes EOS/max_tokens. Retain those credits.

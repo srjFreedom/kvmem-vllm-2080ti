@@ -37,6 +37,10 @@ DEFAULTS = {
     'max_num_seqs': 4, 'max_num_batched_tokens': 4224, 'tensor_parallel_size': 1,
     'long_prefill_token_threshold': 1024, 'gpu_memory_utilization': .72,
     'kv_cache_memory_bytes': None,
+    # Opt-in: plan the logical KV capacity by the window (B+R) instead of the
+    # logical context. The DFlash2 bounded route needs it without the
+    # incremental admission flavour, which that route rejects.
+    'logical_kv_capacity': False,
     'max_model_len': 262144, 'q8_tensorcore': False,
     'prefill_chunk_tokens': 0,
     'chat_prefill_blocks': 32,
@@ -631,7 +635,7 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
         # do not alter the checkpoint's rotary frequencies or quantization.
         env['VLLM_ALLOW_LONG_MAX_MODEL_LEN'] = '1'
     if (cfg['max_model_len'] > 1048576 or cfg['recall_experiment'] is not None or
-            options.gpu_memory_admission == 'incremental'):
+            options.gpu_memory_admission == 'incremental' or cfg['logical_kv_capacity']):
         env['KVMEM_LOGICAL_KV_CAPACITY'] = '1'
     if cfg['full_history_benchmark']:
         env['KVMEM_FULL_HISTORY_BENCHMARK'] = '1'
