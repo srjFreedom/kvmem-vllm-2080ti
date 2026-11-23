@@ -38,7 +38,13 @@ def write_mean_k_geometry(config, kv_cache_config, directory):
     capacity_bytes = sizes.pop()
     pool_page_bytes, remainder = divmod(capacity_bytes, kv_cache_config.num_blocks)
     if remainder:
-        raise ValueError('Native KV backing is not an integral shared page pool')
+        # A speculative draft adds its own KV group with a different page size,
+        # so the overlay is no longer an exact multiple of the block count. The
+        # per-group payload bytes below stay exact; keep the floor so a profile
+        # with a draft can still publish its geometry.
+        import sys
+        print('KVMem: native KV backing splits into non-integral pages by '
+              f'{remainder} bytes; recording the floor page size', file=sys.stderr, flush=True)
     groups = []
     for group in kv_cache_config.kv_cache_groups:
         spec = group.kv_cache_spec

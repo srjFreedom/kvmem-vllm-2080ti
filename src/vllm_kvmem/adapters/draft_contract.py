@@ -55,11 +55,25 @@ class DraftContract:
         query = spec.num_speculative_tokens + 1
         window = getattr(hf, 'sliding_window', 0)
         layers = hf.num_hidden_layers
+        # `draft.dtype` is the resolved *runtime* dtype, not the checkpoint's. A
+        # Turing worker has no bfloat16, so vLLM casts this bf16 draft to fp16
+        # ("Casting torch.bfloat16 to torch.float16") and the engine's
+        # dflash2_sm75 codec exists exactly for that BF16-checkpoint/FP16-worker
+        # pair. Require a bf16 checkpoint and accept the SM75 cast it enables.
+        checkpoint_dtype = getattr(hf, 'torch_dtype', None) or getattr(hf, 'dtype', None)
+        # transformers exposes this as a torch.dtype here and as a plain
+        # string in the engine's resolved config; accept both spellings.
+        checkpoint_bf16 = checkpoint_dtype == torch.bfloat16 or str(
+            checkpoint_dtype).lower() in ('bfloat16', 'bf16', 'torch.bfloat16')
+        sm75_cast = (draft.dtype == torch.float16 and checkpoint_bf16 and
+                     torch.cuda.is_available() and torch.cuda.get_device_capability() == (7, 5))
         if (hf.architectures != ['DFlash2DraftModel'] or
                 type(block) is not int or not 1 < query <= block or query > memory.block_tokens // 2 or
                 type(window) is not int or window <= 0 or
                 hf.layer_types != ['sliding_attention'] * layers or layers <= 0 or
-                not hf.use_sliding_window or draft.dtype != torch.bfloat16):
+                not hf.use_sliding_window or
+                not (draft.dtype == torch.bfloat16 or
+                     (sm75_cast and checkpoint_bf16))):
             raise ValueError('Unqualified DFlash2 query, layer or KV geometry')
         if memory.recent_blocks * memory.block_tokens < window - 1:
             raise ValueError('Target mandatory recent band must contain the draft context window')

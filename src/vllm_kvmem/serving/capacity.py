@@ -55,7 +55,21 @@ class ReservedKVCacheManager:
         self.static_blocks = {}
         for index, manager in enumerate(self.groups):
             if manager.block_pool is not native.block_pool:
-                raise ValueError("Capacity reservation requires the native shared page pool")
+                spec = manager.kv_cache_spec
+                if isinstance(spec, UniformTypeKVCacheSpecs):
+                    spec = spec.first_spec
+                # A DFlash2 draft owns its own page pool: the engine sizes and
+                # recycles it, so it must not be charged against the target
+                # pool. Every other group has to share the native pool.
+                if (type(manager) is SlidingWindowManager and draft_contract is not None and
+                        type(spec) is SlidingWindowSpec and
+                        spec.sliding_window == draft_contract.sliding_window):
+                    continue
+                sw = getattr(spec, 'sliding_window', None)
+                draft_sw = getattr(draft_contract, 'sliding_window', None)
+                raise ValueError('Capacity reservation requires the native shared page pool '
+                                 f'[group={index} {type(manager).__name__} '
+                                 f'spec={type(spec).__name__} sw={sw} draft_sw={draft_sw}]')
             if isinstance(manager, WorkingSetManager):
                 continue
             spec = manager.kv_cache_spec

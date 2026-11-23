@@ -319,9 +319,19 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
         dflash_tp = (cfg['draft_method'] == 'dflash' and cfg['tensor_parallel_size'] == 2
             and cfg['draft_tokens'] in compiled_depths and cfg['execution_mode'] == 'compiled_graph'
             and cfg['experimental_dflash_query_planning'])
-        if is_gguf or (cfg['draft_method'] != 'mtp' and not dflash_tp):
+        # Upstream qualified TP=2 DFlash2 only on the compiled path, so the draft
+        # installs its own graph policy. A FULL-graph pair is not proven yet: the
+        # draft then inherits the target's mode and checks its own attention
+        # capability. Let an operator opt in explicitly instead of silently
+        # widening the qualified set.
+        dflash_full_graph_tp = (cfg['draft_method'] == 'dflash' and cfg['tensor_parallel_size'] == 2
+            and cfg['draft_tokens'] == 1 and cfg['execution_mode'] == 'full_graph'
+            and cfg['experimental_dflash_query_planning']
+            and os.environ.get('KVMEM_DFLASH_FULL_GRAPH_TP2') == '1')
+        if is_gguf or (cfg['draft_method'] != 'mtp' and not dflash_tp and not dflash_full_graph_tp):
             raise ValueError('Tensor-parallel serving requires native MTP or compiled planned DFlash2 k=1 TP=2 '
-                             '(k=3/7 with experimental_dflash_compiled_multi)')
+                             '(k=3/7 with experimental_dflash_compiled_multi; '
+                             'unqualified FULL-graph DFlash2 TP=2 needs KVMEM_DFLASH_FULL_GRAPH_TP2=1)')
     # Explicit Query planning resolves this native threshold to zero. Saved
     # resolved profiles must remain valid inputs to the launcher.
     if type(cfg['long_prefill_token_threshold']) is not int or cfg['long_prefill_token_threshold'] < 0:
@@ -515,7 +525,11 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
                    if cfg['draft_method'] == 'mtp' else
                    {'method': 'dflash', 'model': cfg['draft_model'],
                     'num_speculative_tokens': cfg['draft_tokens'], 'draft_load_config': {'load_format': 'safetensors'},
-                    'kv_cache_dtype': 'bfloat16', **({'quantization': cfg['draft_quantization']}
+                    # The draft KV group must carry the worker's dtype: the
+                    # engine asserts kv_cache_spec.dtype == model dtype, and a
+                    # Turing worker resolves this bf16 checkpoint to fp16.
+                    'kv_cache_dtype': str(cfg.get('dtype') or 'bfloat16'),
+                    **({'quantization': cfg['draft_quantization']}
                         if cfg['draft_quantization'] else {})})
     argv = ['serve', cfg['model'], '--served-model-name', cfg['served_model_name'],
         '--host', cfg['host'], '--port', str(cfg['port']), '--tokenizer', cfg['tokenizer'],
