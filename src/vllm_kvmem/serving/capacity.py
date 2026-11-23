@@ -117,9 +117,12 @@ class ReservedKVCacheManager:
             if index in self.static_blocks:
                 return self.static_blocks[index]
             unit = int(getattr(manager, 'guided_block_tokens', 0) or 0) or int(manager.block_size)
-            extent = (min(tokens, manager.capacity) if manager.physical_tokens is None else
+            # Only the working-set groups carry a streaming extent; a GDN/Mamba
+            # group is a plain native manager with no such attribute.
+            physical = getattr(manager, 'physical_tokens', None)
+            extent = (min(tokens, manager.capacity) if physical is None else
                       # qsa_streaming: the full page set is allocated with the first token.
-                      (manager.physical_tokens if tokens > 0 else 0))
+                      (physical if tokens > 0 else 0))
             return (extent + unit - 1) // unit
         return sum(blocks(index, manager)
                    for index, manager in enumerate(self.groups))

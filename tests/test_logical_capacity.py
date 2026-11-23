@@ -20,14 +20,19 @@ def config(tmp_path):
     p = profile(tmp_path)
     cache=CacheConfig(cache_dtype='fp8_e4m3',enable_prefix_caching=False,mamba_cache_mode='none')
     cache.kv_cache_layout='LBNHC'
-    return NS(model_config=NS(max_model_len=10000000,original_max_model_len=10000000),
+    return NS(model_config=NS(max_model_len=10000000,original_max_model_len=10000000,
+            # The engine resolves DFlash draft layer ids from the target depth.
+            get_total_num_hidden_layers=lambda:64),
         kv_transfer_config=NS(kv_connector='KVMemConnector',kv_connector_module_path='vllm_kvmem.serving.connector',
                              kv_connector_extra_config={'kvmem':p['kvmem']}),
         scheduler_config=NS(scheduler_cls='vllm_kvmem.serving.scheduler.KVMemScheduler',
                             async_scheduling=False,max_num_seqs=8,disable_hybrid_kv_cache_manager=False),
         cache_config=cache,
         speculative_config=NS(method='mtp',num_speculative_tokens=4,
-            use_multi_module_mtp=lambda:False,use_eagle=lambda:False,use_eagle_block_drop=lambda:False),
+            use_multi_module_mtp=lambda:False,use_eagle=lambda:False,use_eagle_block_drop=lambda:False,
+            # The engine's dflash coarsening path asks the real SpeculativeConfig;
+            # the namespace fake has to answer the same question.
+            use_dflash=lambda:False),
         parallel_config=NS(tensor_parallel_size=1,pipeline_parallel_size=1,
             decode_context_parallel_size=1,prefill_context_parallel_size=1),
         attention_config=NS(hisparse_config=None))
@@ -262,6 +267,7 @@ def dflash_config(tmp_path):
         select_budget=32768,gen_budget=16384,recent_blocks=64,
         historical_gc=None,async_refresh=False,async_restore=False,maintenance_max_steps=0)
     cfg.speculative_config.method="dflash"
+    cfg.speculative_config.use_dflash=lambda:True
     cfg.speculative_config.num_speculative_tokens=1
     cfg.speculative_config.draft_model_config=NS(dtype=torch.bfloat16,hf_config=NS(
         architectures=["DFlash2DraftModel"],dflash_config={"block_size":8},
