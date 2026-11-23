@@ -160,7 +160,9 @@ class PromptStateAdapter:
             for name in self.runner.kv_cache_config.kv_cache_groups[gid].layer_names:
                 layer = modules.get(name)
                 cache = getattr(layer, 'kv_cache', None)
-                if (cache is None or cache.dtype != torch.bfloat16 or cache.ndim != 4 or
+                # A Turing worker runs this bf16 draft as fp16 (dflash2_sm75),
+                # so the native draft pages may be either dtype.
+                if (cache is None or cache.dtype not in (torch.bfloat16, torch.float16) or cache.ndim != 4 or
                         cache.shape[1] != layer.num_kv_heads or
                         cache.shape[2] != block_size or cache.shape[3] != 2 * layer.head_size or
                         cache.stride(-1) != 1 or cache.device != table.device or
