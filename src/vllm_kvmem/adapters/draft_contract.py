@@ -123,8 +123,12 @@ class DraftContract:
             group = runner.kv_cache_config.kv_cache_groups[group_id]
             spec = group.kv_cache_spec
             specs = tuple(spec.kv_cache_specs.values()) if isinstance(spec, UniformTypeKVCacheSpecs) else (spec,)
+            # A Turing worker runs this bf16 draft as fp16 (the engine's
+            # dflash2_sm75 codec), so the native draft pages may legitimately be
+            # either dtype; anything else is unqualified.
+            allowed_dtypes = (torch.bfloat16, torch.float16)
             if any(type(item) is not SlidingWindowSpec or item.sliding_window != self.sliding_window or
-                   item.dtype != torch.bfloat16 for item in specs):
+                   item.dtype not in allowed_dtypes for item in specs):
                 raise ValueError('Draft cache must retain native BF16 sliding-window pages')
             layers += len(group.layer_names)
         if layers != self.layers or proposer.num_query_per_req != self.query_tokens:

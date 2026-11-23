@@ -15,7 +15,8 @@ class ReservedKVCacheManager:
     def __init__(self, native, vllm_config, *, draft_contract=None, max_authorities=None, selector_carve=None,
                  streaming_carve=None):
         from vllm.v1.core.single_type_kv_cache_manager import MambaManager, SlidingWindowManager
-        from vllm.v1.kv_cache_interface import MambaSpec, SlidingWindowSpec, UniformTypeKVCacheSpecs
+        from vllm.v1.kv_cache_interface import (FullAttentionSpec, MambaSpec, SlidingWindowSpec,
+                                                  UniformTypeKVCacheSpecs)
 
         from ..adapters.engine_api import require_contract
         require_contract('capacity')
@@ -57,31 +58,41 @@ class ReservedKVCacheManager:
         self.groups = tuple(native.coordinator.single_type_managers)
         self.static_blocks = {}
         self.excluded_blocks = set()
-        # A DFlash2 draft keeps its KV in a cyclic ring the engine owns on its own
-        # page pool. Its per-request demand is a constant set by the draft window,
-        # not by the context, so it is charged to that pool and never to the
-        # target pool the bounded window is sized against.
-        self.draft_pool = None
-        self.draft_blocks = 0
+        # A speculative draft gives the engine its own pages, and the native
+        # DFlash grouping gives each draft layer its own (smaller) page size, so
+        # one deployment can own several pools. KVMem keeps its credit machine on
+        # the shared target pool and charges every other pool its own constant
+        # per-request reservation: a draft ring is set by the draft window, not
+        # by the context.
+        self.extra_pools = []
+        _window_tokens = 0
+        try:
+            import os as _os_pool
+            _window_tokens = int(_os_pool.environ.get('KVMEM_WINDOW_TOKENS', '0') or 0)
+        except Exception:
+            _window_tokens = 0
+        _frame = min(int(native.max_model_len), _window_tokens) if _window_tokens > 0 else int(native.max_model_len)
         for index, manager in enumerate(self.groups):
             if manager.block_pool is not native.block_pool:
                 spec = manager.kv_cache_spec
                 if isinstance(spec, UniformTypeKVCacheSpecs):
                     spec = spec.first_spec
-                if (type(manager) is SlidingWindowManager and draft_contract is not None and
-                        type(spec) is SlidingWindowSpec and
-                        spec.sliding_window == draft_contract.sliding_window and
-                        self.draft_pool is None):
-                    self.draft_pool = manager.block_pool
-                    self.draft_blocks = spec.max_admission_blocks_per_request(
+                if type(spec) is SlidingWindowSpec:
+                    if (draft_contract is None or
+                            spec.sliding_window != draft_contract.sliding_window):
+                        raise ValueError('Unqualified draft sliding-window reservation')
+                    blocks = spec.max_admission_blocks_per_request(
                         vllm_config.max_in_flight_tokens + self.lookahead, native.max_model_len)
-                    self.excluded_blocks.add(index)
-                    continue
-                sw = getattr(spec, 'sliding_window', None)
-                draft_sw = getattr(draft_contract, 'sliding_window', None)
-                raise ValueError('Capacity reservation requires the native shared page pool '
-                                 f'[group={index} {type(manager).__name__} '
-                                 f'spec={type(spec).__name__} sw={sw} draft_sw={draft_sw}]')
+                elif type(spec) is MambaSpec:
+                    blocks = 1 + spec.num_speculative_blocks
+                elif type(spec) is FullAttentionSpec:
+                    blocks = spec.max_num_blocks_per_req(vllm_config, _frame)
+                else:
+                    raise ValueError('Capacity reservation requires the native shared page pool '
+                                     f'[group={index} {type(manager).__name__} '
+                                     f'spec={type(spec).__name__}]')
+                self.extra_pools.append((index, manager.block_pool, blocks))
+                self.excluded_blocks.add(index)
             if isinstance(manager, WorkingSetManager):
                 continue
             spec = manager.kv_cache_spec
@@ -134,6 +145,22 @@ class ReservedKVCacheManager:
             raise ValueError(
                 "GPU page pool cannot fit one worst-case KVMem request "
                 f"(admission tokens={_admission}, window={_window}, max_model_len={native.max_model_len})")
+        if not self._extra_pool_capacity(1):
+            raise ValueError(
+                "A side page pool cannot fit one request's constant reservation "
+                f"({[(type(self.groups[i]).__name__, b) for i, _, b in self.extra_pools]})")
+
+    def _extra_pool_capacity(self, extra_requests=1):
+        """Every admitted request holds one constant reservation in each side pool."""
+        if not self.extra_pools:
+            return True
+        per_pool = {}
+        for _, pool, blocks in self.extra_pools:
+            entry = per_pool.setdefault(id(pool), [pool, 0])
+            entry[1] += blocks
+        admitted = len(self.reservations) + extra_requests
+        return all(blocks * admitted <= pool.get_num_free_blocks()
+                   for pool, blocks in per_pool.values())
 
     def __getattr__(self, name):
         return getattr(self.native, name)
@@ -163,7 +190,11 @@ class ReservedKVCacheManager:
 
     def _owned(self, request_id):
         # APC is disabled: live pages are exclusive and null pages own no credit.
-        return sum(not block.is_null for manager in self.groups
+        # Side pools are reserved separately, so the credit machine must count
+        # only the shared target pool that _demand describes.
+        return sum(not block.is_null
+                   for index, manager in enumerate(self.groups)
+                   if index not in self.excluded_blocks
                    for block in manager.req_to_blocks.get(request_id, ()))
 
     def _remaining(self, request_id, demand):
@@ -400,9 +431,8 @@ class ReservedKVCacheManager:
             self.rejections += 1
             self.authority_rejections += 1
             return None
-        if (existing is None and self.draft_pool is not None and
-                self.draft_pool.get_num_free_blocks() < self.draft_blocks):
-            # One cyclic draft ring per active request, in the draft's own pool.
+        if existing is None and not self._extra_pool_capacity(1):
+            # One constant reservation per active request in every side pool.
             self.rejections += 1
             return None
         # A terminal speculative step may verify a full block and draft another
