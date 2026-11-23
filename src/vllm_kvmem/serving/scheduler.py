@@ -14,7 +14,7 @@ from vllm.v1.core.single_type_kv_cache_manager import FullAttentionManager
 
 from .connector import KVMemConnector, RefreshCommand, RestoreCommand, ControlMetadata
 from ..core.options import RuntimeOptions
-from .window_manager import WorkingSetManager
+from .window_manager import WorkingSetManager, RefreshRequired
 from .admission import QueryPolicy
 from ..core import settings as _settings
 
@@ -182,9 +182,14 @@ class KVMemScheduler(Scheduler):
             raise ValueError('KVMEM_PREFILL_WINDOW_TOKENS must be a non-negative multiple of the block size')
         # A single step is not bounded by the chat cap alone: the native MTP
         # lookahead is re-applied after it (see _reserve_kvmem_lookahead), so a
-        # step can still reach max_num_batched_tokens. Keep the batch budget here.
+        # step can still reach max_num_batched_tokens. Keep the batch budget here
+        # and add one chat prefill cap: a plan-less prefill slide must fire a
+        # full chunk before the step that would overshoot the working window,
+        # otherwise the trailing MTP lookahead lands a few tokens past capacity.
+        from .prefill_control import chat_prefill_cap
         self._kvmem_prefill_lookahead = int(
-            getattr(self, 'scheduler_config').max_num_batched_tokens)
+            getattr(self, 'scheduler_config').max_num_batched_tokens) + chat_prefill_cap(
+                config.block_tokens, config.gen_budget)
         self.query_policy = QueryPolicy(config.block_tokens, config.select_budget, config.gen_budget)
         if self.draft_contract is not None:
             from .speculative_admission import SpeculativeQueryPolicy
@@ -1857,6 +1862,22 @@ class KVMemScheduler(Scheduler):
                 self.kv_cache_manager.begin_step()
             try:
                 output = super().schedule(throttle_prefills or self._throttle_mixed_prefill())
+            except RefreshRequired as exc:
+                self._reconcile_coalescing()
+                # Safety net behind the chat-cap cushion in
+                # _kvmem_prefill_lookahead: the native allocation overshot the
+                # working window by the trailing MTP lookahead. Slide the window
+                # now and take an empty step; the queued refresh command is
+                # delivered by the next schedule so it cannot deadlock here.
+                from vllm.v1.core.sched.output import SchedulerOutput
+                output = SchedulerOutput.make_empty()
+                request = self.requests.get(str(exc))
+                if request is not None and request.request_id not in self.transactions:
+                    window = min(self.query_policy.select_budget, request.num_computed_tokens)
+                    self.begin_refresh(request, window, selection='pressure')
+                # Bounded capture requires the control metadata even on an
+                # empty step, so the queued refresh command reaches the worker.
+                output.kv_connector_metadata = self._build_kv_connector_meta(self.connector, output)
             except BaseException:
                 self._reconcile_coalescing()
                 raise
