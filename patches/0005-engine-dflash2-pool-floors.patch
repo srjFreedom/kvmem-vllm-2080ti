@@ -11,6 +11,7 @@
 -        )
 -        for group in kv_cache_groups
 -    ]
++    conforming = max(1, int(getattr(vllm_config.scheduler_config, "max_num_seqs", 1) or 1))
 +    requirements = []
 +    for group in kv_cache_groups:
 +        spec = group.kv_cache_spec
@@ -20,7 +21,7 @@
 +        if isinstance(first, MambaSpec):
 +            # live state + one per speculative token + the pool's null block
 +            required = max(required,
-+                           2 + int(getattr(first, "num_speculative_blocks", 0) or 0))
++                           conforming * (2 + int(getattr(first, "num_speculative_blocks", 0) or 0)))
 +        elif isinstance(first, SlidingWindowSpec):
 +            spec = first
 +            # The draft ring must hold the in-flight batch plus the drafter
@@ -31,14 +32,13 @@
 +                      + int(getattr(vllm_config.speculative_config,
 +                                    "num_speculative_tokens", 0) or 0) + 1)
 +            if tokens:
-+                required = max(required,
-+                               spec.max_admission_blocks_per_request(
-+                                   tokens, vllm_config.model_config.max_model_len) + 1)
++                required = max(required, conforming * spec.max_admission_blocks_per_request(
++                    tokens, vllm_config.model_config.max_model_len) + 1)
 +        requirements.append(required)
      page_bytes = [_group_page_bytes(group) for group in kv_cache_groups]
      null_bytes = sum(page_bytes)
      required_bytes = sum(req * page for req, page in zip(requirements, page_bytes))
-@@ -1212,8 +1229,22 @@
+@@ -1212,8 +1229,23 @@
              )
          import logging as _mod_dflash_skip
          budget = available_memory - null_bytes
@@ -49,7 +49,8 @@
 +            first = getattr(getattr(group, "kv_cache_spec", None), "first_spec",
 +                            getattr(group, "kv_cache_spec", None))
 +            if isinstance(first, MambaSpec):
-+                floors.append(2 + int(getattr(first, "num_speculative_blocks", 0) or 0))
++                floors.append(conforming
++                              * (2 + int(getattr(first, "num_speculative_blocks", 0) or 0)))
 +            elif isinstance(first, SlidingWindowSpec):
 +                # The draft ring is sized by the in-flight batch, not slack.
 +                floors.append(requirements[index])

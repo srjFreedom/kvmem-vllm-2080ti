@@ -50,9 +50,10 @@ with `AttributeError: 'QKVParallelLinear' object has no attribute 'weight'`.
 `0004` also teaches `_dflash_group_capacities` to honour `KVMEM_SKIP_KV_CHECK`: without it the
 DFlash2 route refuses to start whenever `max_model_len` exceeds what the pool can hold, which is
 exactly the MTP-style layout KVMem uses everywhere else. With the clamp the draft pools are sized from
-the budget and the window covers the difference — measured **slower than the bounded route**
-(128K unbounded: 96 tok/s code, 168 repeat; bounded 262K: 106 / 197), so the bounded planner stays the
-recommended layout for DFlash2.
+the budget and the window covers the difference. This is the layout that can serve more than one
+request: the bounded planner reserves a full window per admitted request, so it stays single-request
+(faster per request: 106 / 197 against 93.6 / 170.6), while the MTP-style lane admits
+`max_num_seqs` and measured **1.59x aggregate throughput at three concurrent requests**.
 
 The DFlash2 route also needs `VLLM_KV_CACHE_LAYOUT=BLHNC` at runtime (mixed target/draft page sizes) —
 that is a flag, not a patch. See the [DFlash2 route](../README.md#dflash2-route) section for the
@@ -69,6 +70,8 @@ made a pool smaller than a single decode step needs:
 
 With them the route runs **without the bounded planner**: `max_model_len=262144`, a 4 GiB
 pool, `mamba_block_size=1648`, no APC and no static window reservation — i.e. the MTP-style
-layout. Measured on this host: code **93.6 tok/s**, repeat **170.6 tok/s**, chat native. The
-bounded planner is still the faster layout (106 / 197), so it stays the recommended one; this
-patch makes the MTP-style layout possible rather than preferable.
+layout. Measured on this host: code **93.6 tok/s**, repeat **170.6 tok/s**, chat native, and
+**1.59x** aggregate with three concurrent requests. The bounded planner is faster per request
+(106 / 197) but cannot admit a second request; this patch makes the concurrent, MTP-style layout
+available, and the pool floors scale with `max_num_seqs` so the recurrent and draft pools hold
+one set per admitted request.
