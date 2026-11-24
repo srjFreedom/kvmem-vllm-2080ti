@@ -38,11 +38,11 @@ Measurement notes for the DFlash2 lane (all on the same box, `B=32K`, `R=8K`, po
 
 Engine-side prerequisites for the DFlash2 route (they live in the engine fork, not here):
 
-- `weicj/vLLM-2080Ti-Definitive#265` — W4A16 / pack-quantized draft weights (dense `.weight` assumption in
-  `_build_context_kv_buffers`),
-- `VLLM_DFLASH_NATIVE_GROUPS_WITHOUT_APC=1` — native per-layer draft groups without APC,
-- `VLLM_MAMBA_NONE_SMALL_BLOCK=1` — `--mamba-block-size` without APC,
-- `VLLM_KV_CACHE_LAYOUT=BLHNC` — mixed target/draft page sizes.
+- `patches/0003-engine-dflash2-w4a16-draft.patch` — [`weicj/vLLM-2080Ti-Definitive#265`](https://github.com/weicj/vLLM-2080Ti-Definitive/pull/265):
+  a quantized draft exposes its K/V rows through the quantization kernel instead of a dense `.weight`,
+- `patches/0004-engine-dflash2-no-apc-gates.patch` — `VLLM_DFLASH_NATIVE_GROUPS_WITHOUT_APC=1`,
+  `VLLM_DFLASH_DRAFT_PAGE_ALIGN=1`, `VLLM_MAMBA_NONE_SMALL_BLOCK=1`,
+- `VLLM_KV_CACHE_LAYOUT=BLHNC` — mixed target/draft page sizes (a runtime flag, not a patch).
 
 ## What runs, and what we changed
 
@@ -62,7 +62,7 @@ Engine-side prerequisites for the DFlash2 route (they live in the engine fork, n
 | `src/vllm_kvmem/**` | upstream `kvmem/kvmem-vllm` | SM75/float16 compatibility, auto session id, page-pool demand in guided-block units, miss diagnostics, **chat through the rolling window**, **`enable_prefix_caching` switch**, **diagnostics passthrough** |
 | engine | `vLLM-2080Ti-Definitive` (`v0.2.2.post3` + SM75 work) | **one 15-line patch** (allow `max_model_len` above the KV pool when KVMem bounds the window) plus the DFlash2 route: quantized-draft weight access, native draft groups without APC, and draft page alignment |
 | `local/`, `deploy/`, `scripts/` | — | serving profiles, watchdog, launcher, systemd unit |
-| `patches/` | — | both patches as plain files, with base commits |
+| `patches/` | — | engine and plugin patches as plain files, with base commits (0003/0004 add the DFlash2 route) |
 
 ## Verified on real hardware
 

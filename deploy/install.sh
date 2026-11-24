@@ -22,13 +22,19 @@ command -v nvidia-smi >/dev/null || { echo "nvidia-smi not found (NVIDIA driver)
 [ -x "$VENV/python" ] || { echo "no virtualenv at $VENV (create it in the engine checkout)"; exit 1; }
 [ -f "$MODEL/config.json" ] || { echo "no config.json under $MODEL"; exit 1; }
 
-echo "[1/3] engine patch"
-if git -C "$ENGINE" apply --check "$REPO/patches/0001-engine-skip-kv-check.patch" 2>/dev/null; then
-  git -C "$ENGINE" apply "$REPO/patches/0001-engine-skip-kv-check.patch"
-  echo "      applied 0001-engine-skip-kv-check.patch"
-else
-  echo "      already applied (or the tree differs) — check with: git -C $ENGINE diff --stat"
-fi
+echo "[1/3] engine patches"
+for patch in 0001-engine-skip-kv-check \
+             0003-engine-dflash2-w4a16-draft \
+             0004-engine-dflash2-no-apc-gates; do
+  file="$REPO/patches/$patch.patch"
+  [ -f "$file" ] || continue
+  if git -C "$ENGINE" apply --check "$file" 2>/dev/null; then
+    git -C "$ENGINE" apply "$file"
+    echo "      applied $patch.patch"
+  else
+    echo "      skipped $patch.patch (already applied, or the tree differs) — check with: git -C $ENGINE diff --stat"
+  fi
+done
 
 echo "[2/3] plugin install (editable)"
 if command -v uv >/dev/null; then
