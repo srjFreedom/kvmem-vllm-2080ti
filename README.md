@@ -257,6 +257,7 @@ Boundaries of the route:
 | KV layout | `BLHNC` — the target and the draft have mixed page sizes |
 | KV pool | FP8 target (28.7 GB weights): **4.0 GiB works, 4.5 GiB OOMs at startup**; NVFP4 target (18.8 GB): 5 GiB reachable |
 | per-request reservation | `3 × (1 + k)` mamba state pages + `ceil((B+R)/page)` attention pages + 5 draft pages + 1 null page = **54 pages ≈ 3.0 GiB at k=7**. Dropping to k=3 halves the mamba term (24 → 12 pages, ≈0.85 GiB) |
+| without the bounded planner | supported from `patches/0005`: `logical_kv_capacity=false`, `max_model_len=262144`, pool 4 GiB, `mamba_block_size=1648`, `skip_kv_check=true`, native draft groups off. Needs no static reservation and keeps chat native; measured **93.6 code / 170.6 repeat**, so the bounded layout above stays the faster one |
 | step cost | ≈8 ms/step above the pristine engine on identical prompts (scheduler 0.14 ms, connector hooks 0.11 ms — the rest is launch-side) |
 | throughput | bounded lane: **106 tok/s** code, **197 tok/s** repeat; pristine engine on the same draft: **151 / 254** |
 | chat | supported — a chat request is rendered to token ids and planned through the same rolling window |
