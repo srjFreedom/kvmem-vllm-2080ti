@@ -219,13 +219,48 @@ verified checkpoint records temperature 0.3, top_p 0.95, top_k 20.
 Full tables, the parameter mapping from the old adapter (`B/R/CTX/HOST_MIB/SESSIONS`) and capacity
 arithmetic: [docs/sm75/CONFIGURATION.md](docs/sm75/CONFIGURATION.md).
 
+## DFlash2 route
+
+`draft_method=dflash`, `draft_tokens=7`, bounded window (`logical_kv_capacity=true`).
+
+**Draft we run: [`syvai/Qwen3.8-27B-DFlash2-W4A16`](https://huggingface.co/syvai/Qwen3.8-27B-DFlash2-W4A16)**
+— 4-bit pack-quantized (compressed-tensors, group 128), 1.28 GB. It needs the engine's W4A16
+draft patch ([`weicj/vLLM-2080Ti-Definitive#265`](https://github.com/weicj/vLLM-2080Ti-Definitive/pull/265)),
+which reads the draft's K/V rows through the quantization kernel instead of a dense `.weight`.
+
+The BF16 draft [`incoai/Qwen3.8-27B-DFlash2`](https://huggingface.co/incoai/Qwen3.8-27B-DFlash2)
+(3.85 GB) also works and is the pairing the engine's own profiles use; it costs 1.3 GB per card
+more, which comes straight out of the KV pool.
+
+**Block-FP8 drafts do not work here.** Every `DFlash2-FP8` artifact we tried (the published one and
+two we quantized ourselves, including a build with only `o_proj` quantized) drops the acceptance
+length to 1.0 — no speculation at all. The weights are sound (dequantizing reproduces the BF16
+tensor within 2%), so the failure is in the FP8 forward path for this five-layer draft, not in the
+checkpoint. Treat FP8 drafts as unsupported on SM75.
+
+Boundaries of the route:
+
+| boundary | detail |
+|---|---|
+| concurrency | **1**. The bounded planner reserves one full window per admitted request; three windows would need ≈9 GiB |
+| prefix caching | must stay **off** (`draft_contract.py`: bounded DFlash2 requires APC-off GDN state) |
+| KV layout | `BLHNC` — the target and the draft have mixed page sizes |
+| KV pool | FP8 target (28.7 GB weights): **4.0 GiB works, 4.5 GiB OOMs at startup**; NVFP4 target (18.8 GB): 5 GiB reachable |
+| per-request reservation | `3 × (1 + k)` mamba state pages + `ceil((B+R)/page)` attention pages + 5 draft pages + 1 null page = **54 pages ≈ 3.0 GiB at k=7**. Dropping to k=3 halves the mamba term (24 → 12 pages, ≈0.85 GiB) |
+| step cost | ≈8 ms/step above the pristine engine on identical prompts (scheduler 0.14 ms, connector hooks 0.11 ms — the rest is launch-side) |
+| throughput | bounded lane: **106 tok/s** code, **197 tok/s** repeat; pristine engine on the same draft: **151 / 254** |
+| chat | supported — a chat request is rendered to token ids and planned through the same rolling window |
+
 ## Known limits
 
 1. **Concurrency is serialized.** Two windowed requests are admitted but scheduled one per step, so
    the second waits for the first. A real fix needs the plugin to keep one selection/query-capture
-   frame per request.
-2. **Rolling window mode** (`rolling_active_window=true`) works but only accepts token-ID
-   `/v1/completions`; it is incompatible with chat and measured the same throughput.
+   frame per request. In the bounded DFlash2 route the limit is stricter — `max_num_seqs=1`, because
+   every admitted request reserves a full window (see [DFlash2 route](#dflash2-route)).
+2. **Rolling window mode** (`rolling_active_window=true`) plans from token ids. `/v1/completions`
+   takes them directly; from 0.6.5 a `/v1/chat/completions` request is rendered with the served
+   tokenizer and planned through the same window (before that it was rejected). What it still cannot
+   do is accept a raw string prompt without tokenization on the server side.
 3. **Prefix images** (multi-image prefix sharing) are refused for TP > 1 upstream.
 4. **Context is not capped at 262,144.** The launcher accepts `max_model_len` up to 10,000,000 for
    MTP (with `request_planning` and `B+R ≤ 262,144`), and this host served a **269,654-token** prompt
