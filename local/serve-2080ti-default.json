@@ -6,7 +6,7 @@
   "draft_method": "mtp",
   "draft_model": null,
   "draft_tokens": 4,
-  "execution_mode": "full_graph",
+  "execution_mode": "compiled_graph",
   "served_model_name": "kvmem-2080ti",
   "host": "127.0.0.1",
   "port": 18200,

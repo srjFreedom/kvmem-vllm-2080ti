@@ -94,7 +94,58 @@ def auto_session_id(payload, prefix_chars):
     return 'auto-' + hashlib.sha256(text.encode()).hexdigest()[:24]
 
 
-def normalize_query_plan(payload, session_header=None):
+_CHAT_TOKENIZER = {}
+
+
+def _served_tokenizer(app_state):
+    """The engine's own tokenizer, so ids match what the chat path renders."""
+    if app_state is None:
+        return None
+    for name in ('openai_serving_chat', 'openai_serving_completion'):
+        serving = getattr(app_state, name, None)
+        renderer = getattr(serving, 'renderer', None)
+        tokenizer = getattr(renderer, 'tokenizer', None)
+        if tokenizer is not None:
+            return tokenizer
+    return None
+
+
+def chat_prompt_tokens(payload, app_state=None):
+    """Token ids of a chat payload, rendered with the served chat template.
+
+    The rolling window plans from the prompt length, so a chat request needs the
+    ids a completion request would carry. The served tokenizer renders them.
+    """
+    messages = payload.get('messages')
+    if not isinstance(messages, list) or not messages:
+        return None
+    tokenizer = _served_tokenizer(app_state)
+    if tokenizer is None:
+        import os as _os
+        from transformers import AutoTokenizer
+        path = _os.environ.get('KVMEM_TOKENIZER_PATH')
+        if not path:
+            return None
+        if path not in _CHAT_TOKENIZER:
+            _CHAT_TOKENIZER[path] = AutoTokenizer.from_pretrained(path, trust_remote_code=False)
+        tokenizer = _CHAT_TOKENIZER[path]
+    try:
+        ids = tokenizer.apply_chat_template(
+            messages, tokenize=True, add_generation_prompt=True,
+            **(payload.get('chat_template_kwargs') or {}))
+    except (ValueError, TypeError, AttributeError):
+        return None
+    # A HF tokenizer returns a BatchEncoding for tokenize=True; unwrap it.
+    if isinstance(ids, dict) or hasattr(ids, 'input_ids'):
+        ids = ids['input_ids'] if not isinstance(ids, dict) else ids.get('input_ids')
+    if hasattr(ids, 'tolist'):
+        ids = ids.tolist()
+    if isinstance(ids, list) and ids and isinstance(ids[0], list):
+        ids = ids[0]
+    return [int(t) for t in ids] if isinstance(ids, list) and ids else None
+
+
+def normalize_query_plan(payload, session_header=None, app_state=None):
     if not isinstance(payload, dict):
         return False  # Preserve native request-schema errors.
     from .request_plan import FIELDS, RequestPlan
@@ -112,10 +163,16 @@ def normalize_query_plan(payload, session_header=None):
     prompt = payload.get('prompt')
     if not isinstance(prompt, list) or any(type(x) is not int or x < 0 for x in prompt):
         if cfg.get('rolling_active_window', False):
-            raise ValueError('Rolling active window requires a token-ID completion prompt')
-        if fields:
+            # A chat payload carries messages, not ids. Render them with the
+            # served template so the same rolling-window plan applies instead of
+            # sending the request down the unmetered legacy entry.
+            prompt = chat_prompt_tokens(payload, app_state)
+            if prompt is None:
+                raise ValueError('Rolling active window requires a token-ID completion prompt')
+        elif fields:
             raise ValueError('Explicit Query coordinates require a token-ID completion prompt')
-        return False  # Native chat remains an independent legacy entry.
+        else:
+            return False  # Native chat remains an independent legacy entry.
     reserve = cfg.get('guided_reserve',0)
     if cfg.get('guided_reselect') == 'prefill':
         reserve = 0  # Private scratch precedes pressure, not the final Query.
@@ -126,6 +183,8 @@ def normalize_query_plan(payload, session_header=None):
     if plan.query is not None and reserve and plan.replay_end + reserve > cfg['max_model_len']:
         raise ValueError('Guided Query scratch exceeds the model position limit')
     max_tokens = payload.get('max_tokens')
+    if max_tokens is None:
+        max_tokens = payload.get('max_completion_tokens')
     if max_tokens is None:
         max_tokens = 16
         payload['max_tokens'] = max_tokens
@@ -179,7 +238,8 @@ async def validate_prompt_session(request, call_next):
                             payload['session_id'] = derived
                             mutated = True
                 validate_session_payload(payload, request.headers.get('X-Session-ID'))
-                if normalize_query_plan(payload,request.headers.get('X-Session-ID')):
+                if normalize_query_plan(payload, request.headers.get('X-Session-ID'),
+                                        getattr(request.app, 'state', None)):
                     mutated = True
                 if mutated:
                     request._body = json.dumps(payload).encode()

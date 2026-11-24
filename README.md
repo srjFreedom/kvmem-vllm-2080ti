@@ -13,6 +13,37 @@ measured configuration for two 22 GB Turing cards.
 
 ---
 
+---
+
+## What's new in 0.6.5
+
+| change | why it matters |
+|---|---|
+| **MTP defaults to `compiled_graph`** | torch.compile + `FULL_AND_PIECEWISE` beats `full_graph` on the same profile: code **66.8 vs 59.4 tok/s (+12%)**, repeat **103.6 vs 95.2 tok/s (+9%)** |
+| **Chat rides the rolling window** | `/v1/chat/completions` used to be rejected with *"Rolling active window requires a token-ID completion prompt"*. The middleware now renders the messages with the served tokenizer and plans the chat request through the same B/R window, so chat no longer bypasses the mechanism |
+| **DFlash2 draft support** | DFlash2 k=7 with a **4-bit W4A16 draft** (`syvai/Qwen3.8-27B-DFlash2-W4A16`, 1.28 GB) loads and serves: code **106 tok/s**, repeat **197 tok/s** (KVMem lane), **151 / 254** on the pristine engine. Needs the engine-side DFlash2 patch stack (see below) |
+| **`enable_prefix_caching` switch** | the launcher used to hardcode `--no-enable-prefix-caching`; the profile can now ask for APC. The bounded DFlash2 contract still requires it off |
+| **Draft page geometry knob** | `VLLM_DFLASH_DRAFT_PAGE_ALIGN=1` makes an APC-free target give the draft attention-sized pages. Measured neutral on the bounded lane, 6 ms/step better on the engine alone |
+| **Diagnostics passthrough** | `PER_REQUEST_SPEC_DECODE_METRICS`, `VLLM_LOG_STATS_INTERVAL`, `VLLM_TORCH_PROFILER_DIR` now reach the engine, and `extra_vllm_args` carries argv-level diagnostics such as `--profiler-config` |
+
+Measurement notes for the DFlash2 lane (all on the same box, `B=32K`, `R=8K`, pool 3.5 GiB):
+
+- The bounded window reserves, per admitted request, `3 × (1 + k) mamba state blocks + ceil((B+R)/page) attention
+  pages + 5 draft pages + 1 null page`. At `k=7` that is **54 native pages ≈ 3.0 GiB**; **44% of it is the
+  mamba state set**, which scales with the draft depth. Dropping to `k=3` releases 12 pages (≈0.85 GiB).
+- Against the pristine engine on identical prompts the bounded lane costs **≈8 ms/step**; the scheduler
+  accounts for 0.14 ms and the connector hooks for 0.11 ms, so the remainder is launch-side, not logic.
+- Pool ceiling with the FP8 target (28.7 GB weights): **4.0 GiB works, 4.5 GiB OOMs at startup**. With the
+  NVFP4 target (18.8 GB weights) 5 GiB is reachable.
+
+Engine-side prerequisites for the DFlash2 route (they live in the engine fork, not here):
+
+- `weicj/vLLM-2080Ti-Definitive#265` — W4A16 / pack-quantized draft weights (dense `.weight` assumption in
+  `_build_context_kv_buffers`),
+- `VLLM_DFLASH_NATIVE_GROUPS_WITHOUT_APC=1` — native per-layer draft groups without APC,
+- `VLLM_MAMBA_NONE_SMALL_BLOCK=1` — `--mamba-block-size` without APC,
+- `VLLM_KV_CACHE_LAYOUT=BLHNC` — mixed target/draft page sizes.
+
 ## What runs, and what we changed
 
 ```
@@ -28,8 +59,8 @@ measured configuration for two 22 GB Turing cards.
 
 | layer | source | our change |
 |---|---|---|
-| `src/vllm_kvmem/**` | upstream `kvmem/kvmem-vllm` | SM75/float16 compatibility, auto session id, page-pool demand in guided-block units, miss diagnostics |
-| engine | `vLLM-2080Ti-Definitive` (`v0.2.2.post3` + SM75 work) | **one 15-line patch**: allow `max_model_len` above the KV pool when KVMem bounds the window |
+| `src/vllm_kvmem/**` | upstream `kvmem/kvmem-vllm` | SM75/float16 compatibility, auto session id, page-pool demand in guided-block units, miss diagnostics, **chat through the rolling window**, **`enable_prefix_caching` switch**, **diagnostics passthrough** |
+| engine | `vLLM-2080Ti-Definitive` (`v0.2.2.post3` + SM75 work) | **one 15-line patch** (allow `max_model_len` above the KV pool when KVMem bounds the window) plus the DFlash2 route: quantized-draft weight access, native draft groups without APC, and draft page alignment |
 | `local/`, `deploy/`, `scripts/` | — | serving profiles, watchdog, launcher, systemd unit |
 | `patches/` | — | both patches as plain files, with base commits |
 
@@ -50,6 +81,9 @@ layers, weight-only FP8, BF16 `lm_head`), TP = 2, `dtype=float16`, `kv-cache-dty
 | long generation past the window | 9,000 tokens, 100.5 tok/s, 2 bounded refreshes |
 | multi-session alternation | each session hits (0.25–0.40 s) |
 | concurrency | independent sessions **decode in one step**; refresh and archive stay serial |
+| **MTP `compiled_graph` vs `full_graph`** | code **66.8 vs 59.4 tok/s (+12%)**, repeat **103.6 vs 95.2 tok/s (+9%)** |
+| **DFlash2 k=7, 4-bit W4A16 draft** | code **106 tok/s**, repeat **197 tok/s** (bounded lane); pristine engine on the same draft: **151 / 254** |
+| **Chat over the rolling window** | `/v1/chat/completions` accepted under `rolling_active_window`, planned through the same B/R window |
 
 Details and the exact commands: [docs/sm75/VERIFICATION.md](docs/sm75/VERIFICATION.md).
 

@@ -32,6 +32,8 @@ DEFAULTS = {
     'draft_tokens': 7,
     'draft_method': 'dflash',
     'draft_quantization': None,
+    'enable_prefix_caching': False,
+    'extra_vllm_args': None,
     'profiler_config': None,
     'cudagraph_capture_sizes': None,
     'max_num_seqs': 4, 'max_num_batched_tokens': 4224, 'tensor_parallel_size': 1,
@@ -558,7 +560,9 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
         *(['--mamba-block-size', str(cfg['mamba_block_size'])] if cfg['mamba_block_size'] else []),
         '--max-num-seqs', str(cfg['max_num_seqs']), '--max-num-batched-tokens', str(cfg['max_num_batched_tokens']),
         '--tensor-parallel-size', str(cfg['tensor_parallel_size']),
-        '--gpu-memory-utilization', str(utilization), '--no-enable-prefix-caching',
+        '--gpu-memory-utilization', str(utilization),
+        *(['--enable-prefix-caching'] if cfg.get('enable_prefix_caching') else
+          ['--no-enable-prefix-caching']),
         '--generation-config', str(cfg.get('generation_config', 'vllm')),
         '--long-prefill-token-threshold', str(cfg['long_prefill_token_threshold']), '--no-async-scheduling',
         '--scheduler-cls', 'vllm_kvmem.serving.scheduler.KVMemScheduler', '--kv-transfer-config', json.dumps(transfer),
@@ -569,6 +573,8 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
         # A stream that goes silent while its request is still decoding is a failure, not a
         # slow answer: fail it fast so the client retries instead of hitting its own timeout.
         '--middleware', 'vllm_kvmem.serving.http_stream_watchdog.StreamWatchdogMiddleware',
+        # Diagnostics only: profiling needs argv wiring (--profiler-config), not an env var.
+        *list(cfg.get('extra_vllm_args') or []),
         '--enable-auto-tool-choice', '--tool-call-parser', 'qwen3_xml', '--reasoning-parser', 'qwen3']
     # Media handling mirrors the native launcher's text+image recipe: a positive
     # image limit replaces --language-model-only and enables raw media, and a
@@ -655,6 +661,13 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
     if cfg['prefill_chunk_tokens']:
         env['KVMEM_PREFILL_CHUNK_TOKENS'] = str(cfg['prefill_chunk_tokens'])
     env['KVMEM_CHAT_PREFILL_BLOCKS'] = str(cfg['chat_prefill_blocks'])
+    # The rolling window plans a chat request from its rendered token ids.
+    env['KVMEM_TOKENIZER_PATH'] = str(cfg['tokenizer'])
+    # Operator-visible diagnostics pass through the curated engine environment.
+    for _passthrough in ('PER_REQUEST_SPEC_DECODE_METRICS', 'VLLM_LOG_STATS_INTERVAL',
+                         'VLLM_TORCH_PROFILER_DIR'):
+        if os.environ.get(_passthrough):
+            env[_passthrough] = os.environ[_passthrough]
     env['KVMEM_PREFILL_WINDOW_TOKENS'] = str(cfg['prefill_window_tokens'])
     env['KVMEM_PREFILL_SELECT_TOKENS'] = str(cfg['prefill_select_tokens'])
     env['KVMEM_PREFILL_RECENT_TOKENS'] = str(cfg['prefill_recent_tokens'])
