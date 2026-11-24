@@ -45,6 +45,13 @@ with `AttributeError: 'QKVParallelLinear' object has no attribute 'weight'`.
 | `VLLM_DFLASH_DRAFT_PAGE_ALIGN=1` | draft pages sized like the attention page when APC is off (64-token draft pages cost ~6 ms/step on the engine alone) |
 | `VLLM_MAMBA_NONE_SMALL_BLOCK=1` | `--mamba-block-size` without `--enable-prefix-caching` |
 
+`0004` also teaches `_dflash_group_capacities` to honour `KVMEM_SKIP_KV_CHECK`: without it the
+DFlash2 route refuses to start whenever `max_model_len` exceeds what the pool can hold, which is
+exactly the MTP-style layout KVMem uses everywhere else. With the clamp the draft pools are sized from
+the budget and the window covers the difference — measured **slower than the bounded route**
+(128K unbounded: 96 tok/s code, 168 repeat; bounded 262K: 106 / 197), so the bounded planner stays the
+recommended layout for DFlash2.
+
 The DFlash2 route also needs `VLLM_KV_CACHE_LAYOUT=BLHNC` at runtime (mixed target/draft page sizes) —
 that is a flag, not a patch. See the [DFlash2 route](../README.md#dflash2-route) section for the
 route's boundaries and for the draft we run.

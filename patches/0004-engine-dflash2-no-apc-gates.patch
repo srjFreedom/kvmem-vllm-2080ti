@@ -18,10 +18,48 @@ index fbe0213855..99d7b49c82 100644
  
      @model_validator(mode="after")
 diff --git a/vllm/v1/core/kv_cache_utils.py b/vllm/v1/core/kv_cache_utils.py
-index 44f685ce4c..a268e6b8f4 100644
+index 44f685ce4c..28adf5f3ad 100644
 --- a/vllm/v1/core/kv_cache_utils.py
 +++ b/vllm/v1/core/kv_cache_utils.py
-@@ -2623,12 +2623,45 @@ def _try_get_dflash_native_groups(
+@@ -1197,10 +1197,33 @@ def _dflash_group_capacities(
+     null_bytes = sum(page_bytes)
+     required_bytes = sum(req * page for req, page in zip(requirements, page_bytes))
+     if required_bytes + null_bytes > available_memory:
+-        raise ValueError(
+-            "Insufficient memory for the requested DFlash2 KV cache groups: "
+-            f"need {required_bytes + null_bytes} bytes, have {available_memory}."
+-        )
++        # KVMem keeps a bounded window on the GPU and the history in host RAM,
++        # so `max_model_len` is a LOGICAL bound: when the operator skips the
++        # capacity check, size the draft pools from the budget instead of
++        # refusing to start. The recurrent state set is context independent, so
++        # the clamp lands on the position-indexed pools, exactly the ones the
++        # window covers.
++        import os as _os_dflash_skip
++        if _os_dflash_skip.environ.get("KVMEM_SKIP_KV_CHECK", "0") not in (
++                "1", "true", "yes", "on"):
++            raise ValueError(
++                "Insufficient memory for the requested DFlash2 KV cache groups: "
++                f"need {required_bytes + null_bytes} bytes, have {available_memory}."
++            )
++        import logging as _mod_dflash_skip
++        budget = available_memory - null_bytes
++        scale = budget / required_bytes if required_bytes else 1.0
++        requirements = [max(1, int(req * scale)) for req in requirements]
++        required_bytes = sum(req * page for req, page in zip(requirements, page_bytes))
++        _mod_dflash_skip.getLogger(__name__).warning(
++            "KVMem: capping DFlash2 KV groups at %.1f%% of the requested capacity "
++            "(max_model_len is a logical bound; the window lives on the GPU)",
++            100.0 * scale)
++        if required_bytes + null_bytes > available_memory:
++            raise ValueError(
++                "Insufficient memory even for the clamped DFlash2 KV cache groups: "
++                f"need {required_bytes + null_bytes} bytes, have {available_memory}."
++            )
+ 
+     usable_memory = available_memory - null_bytes
+     if required_bytes:
+@@ -2623,12 +2646,45 @@ def _try_get_dflash_native_groups(
          isinstance(spec, SlidingWindowSpec) for spec in draft_specs.values()
      ):
          return None
