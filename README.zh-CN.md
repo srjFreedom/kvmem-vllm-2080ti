@@ -52,7 +52,10 @@
 | 会话续写（窗口内）| 2.4 s → **0.25 s** |
 | 超窗口长输出 | 9,000 token，100.5 tok/s，触发 2 次 bounded refresh |
 | 多会话交替 | 各自命中（0.25–0.40 s）|
-| 并发 | 能准入，但**被串行调度**（每步只跑一个窗口化请求）|
+| 并发 | 独立会话**在同一步解码**；refresh 与归档串行 |
+| **MTP `compiled_graph` vs `full_graph`** | 代码 **66.8 vs 59.4 tok/s（+12%）**、重复 **103.6 vs 95.2 tok/s（+9%）** |
+| **DFlash2 k=7 + 4-bit W4A16 草稿** | 有界 lane：代码 **106 tok/s**、重复 **197 tok/s**；基座同草稿：**151 / 254** |
+| **chat 走滚动窗口** | `rolling_active_window` 下接受 `/v1/chat/completions`，走同一套 B/R 窗口 |
 
 完整命令与证据：[docs/sm75/zh-CN/development-log.md](docs/sm75/zh-CN/development-log.md)
 
@@ -176,12 +179,43 @@ temperature 0.3、top_p 0.95、top_k 20。
 [docs/sm75/zh-CN/parameter-map.md](docs/sm75/zh-CN/parameter-map.md) 与
 [docs/sm75/zh-CN/baseline.md](docs/sm75/zh-CN/baseline.md)。
 
+## DFlash2 路线
+
+`draft_method=dflash`、`draft_tokens=7`、有界窗口（`logical_kv_capacity=true`）。
+
+**我们跑的草稿：[`syvai/Qwen3.8-27B-DFlash2-W4A16`](https://huggingface.co/syvai/Qwen3.8-27B-DFlash2-W4A16)**
+——4-bit pack-quantized（compressed-tensors，group 128），1.28 GB。它依赖引擎侧的 W4A16 草稿补丁
+（[`weicj/vLLM-2080Ti-Definitive#265`](https://github.com/weicj/vLLM-2080Ti-Definitive/pull/265)，
+见 `patches/0003`），该补丁让草稿的 K/V 行通过量化 kernel 暴露，而不是稠密 `.weight`。
+
+BF16 草稿 [`incoai/Qwen3.8-27B-DFlash2`](https://huggingface.co/incoai/Qwen3.8-27B-DFlash2)（3.85 GB）
+同样可用，也是引擎自带 profile 的搭配；代价是每卡多占 1.3 GB，直接吃掉 KV 池。
+
+**block-FP8 草稿在本机不可用。** 试过的 `DFlash2-FP8`（官方那份、我们自己压的两份、以及只量化
+`o_proj` 的版本）接受率一律掉到 1.0——完全没有投机效果。权重本身是好的（解量化与 BF16 误差 2%），
+问题在 FP8 前向路径，不在 checkpoint。
+
+路线边界：
+
+| 边界 | 说明 |
+|---|---|
+| 并发 | **1**。有界规划给每个准入请求预留完整窗口，三个窗口约需 9 GiB |
+| prefix caching | 必须**关闭**（`draft_contract.py`：有界 DFlash2 要求 APC-off 的 GDN 状态） |
+| KV 布局 | `BLHNC`（目标与草稿页大小不同） |
+| KV 池 | FP8 目标（28.7 GB 权重）：**4.0 GiB 可用，4.5 GiB 启动 OOM**；NVFP4 目标（18.8 GB）：可达 5 GiB |
+| 每请求预留 | `3 × (1 + k)` 个 mamba 状态页 + `ceil((B+R)/页)` 个 attention 页 + 5 个草稿页 + 1 个空页 = **k=7 时 54 页 ≈ 3.0 GiB**；k 降到 3 时 mamba 项减半（24 → 12 页，约 0.85 GiB） |
+| 每步成本 | 同 prompt 下比基座多约 **8 ms/步**（调度器 0.14 ms、connector 钩子 0.11 ms，其余在 launch 侧） |
+| 吞吐 | 有界 lane：代码 **106 tok/s**、重复 **197 tok/s**；基座同草稿：**151 / 254** |
+| chat | 支持——chat 请求渲染成 token id 后走同一套滚动窗口 |
+
 ## 已知边界
 
-1. **并发是串行的**：两个窗口化请求能准入，但每步只调度一个，第二个要等第一个跑完。
-   真正的修复需要插件为每个请求维护独立的选片帧/查询捕获流。
-2. **rolling 模式**（`rolling_active_window=true`）可用，但只接受 token-ID 形式的
-   `/v1/completions`，不兼容 chat；实测吞吐与默认模式相同。
+1. **并发是"批处理"，但不是免费**：独立会话在同一步解码——MTP lane 跑 `max_num_seqs=3`，
+   三个窗口化会话一起推进；但窗口刷新与归档仍是串行，需要重建的会话会让其他请求等这一步。
+   有界 DFlash2 更严格：`max_num_seqs=1`，因为每个准入请求都要预留完整窗口（见 [DFlash2 路线](#dflash2-路线)）。
+2. **rolling 模式**（`rolling_active_window=true`）按 token id 规划：`/v1/completions` 直接接受；
+   0.6.5 起 `/v1/chat/completions` 会用服务端 tokenizer 渲染后走同一套窗口（此前会被拒绝）。
+   仍然不接受"服务端未分词的原样字符串"。
 3. **prefix image**（多任务共享前缀）上游拒绝 TP>1，本机不可用。
 4. **上下文并不被 262,144 卡死**：启动器对 MTP 允许 `max_model_len` 到 **10,000,000**
    （条件是 `request_planning` 打开且 `B+R ≤ 262,144`）。本机已经用 `max_model_len=524,288`
@@ -193,8 +227,10 @@ temperature 0.3、top_p 0.95、top_k 20。
    `session_capacity` 设小。
 6. **API 没有鉴权**。默认 profile 绑 `127.0.0.1`；设成 `host=0.0.0.0` 就是全网可访问，
    应放在防火墙或带鉴权的反向代理后面。
-7. **每卡显存主要被权重吃掉**。27B FP8 权重 + BF16 `lm_head` + MTP 头每 rank 加载 14.54 GiB，
-   CUDA 上下文/NCCL/Triton 再占约 1.2 GiB，22 GB 卡可用的 21.1 GiB 里约 15.8 GiB 在 KV 之前就没了。
+7. **每卡显存主要被权重吃掉**。27B FP8 权重 + BF16 `lm_head` + MTP 头每 rank 加载 16.1 GiB
+   （NVFP4 版本为 9.4 GiB），DFlash 草稿再加 0.64 GiB（4-bit W4A16）或 1.93 GiB（BF16），
+   CUDA 上下文/NCCL/Triton 再占约 1.2 GiB——22 GB 卡可用的 21.1 GiB 里约 17–19 GiB 在 KV 之前就没了。
+   实测池上限：**FP8 目标 4.0 GiB，NVFP4 目标 5 GiB**（FP8 上 4.5 GiB 启动即 OOM）。
    `gpu_memory_utilization` 从剩余量里切池，而长 prompt 的瞬态（logits 缓冲、查询回放、组装暂存）
    不在它的激活画像里——应改为显式钉池：`kv_cache_memory_bytes=4294967296`（4 GiB）+
    `prefill_chunk_tokens=1024` + `query_replay_budget=2048`，每卡空闲余量约 0.4 GiB，200K 冷 prompt

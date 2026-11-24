@@ -263,10 +263,11 @@ Boundaries of the route:
 
 ## Known limits
 
-1. **Concurrency is serialized.** Two windowed requests are admitted but scheduled one per step, so
-   the second waits for the first. A real fix needs the plugin to keep one selection/query-capture
-   frame per request. In the bounded DFlash2 route the limit is stricter — `max_num_seqs=1`, because
-   every admitted request reserves a full window (see [DFlash2 route](#dflash2-route)).
+1. **Concurrency is batched, not free.** Independent sessions decode in one step — the MTP lane runs
+   `max_num_seqs=3` and three windowed sessions advance together — but window refresh and archiving
+   stay serialized, so a session that needs a rebuild makes the others wait for that step. The bounded
+   DFlash2 route is stricter: `max_num_seqs=1`, because every admitted request reserves a full window
+   (see [DFlash2 route](#dflash2-route)).
 2. **Rolling window mode** (`rolling_active_window=true`) plans from token ids. `/v1/completions`
    takes them directly; from 0.6.5 a `/v1/chat/completions` request is rendered with the served
    tokenizer and planned through the same window (before that it was rejected). What it still cannot
@@ -290,8 +291,10 @@ Boundaries of the route:
    every `R` tokens instead of every aligned block: 80K prompt 184 s -> 121 s, 200K 591 s -> 306 s
    -> **196 s** on this host, with the same answers.
 8. **Per-card VRAM is dominated by weights.** The 27B FP8 checkpoint plus its BF16 `lm_head` and
-   MTP head load as 14.54 GiB per rank, and the CUDA context/NCCL/Triton add ~1.2 GiB, so ~15.8 GiB
-   of the 21.1 GiB usable on a 22 GB card are gone before any KV. `gpu_memory_utilization` then sizes
+   MTP head load as 16.1 GiB per rank (the NVFP4 build is 9.4 GiB), a DFlash draft adds 0.64 GiB
+   (4-bit W4A16) or 1.93 GiB (BF16), and the CUDA context/NCCL/Triton add ~1.2 GiB — so ~17–19 GiB
+   of the 21.1 GiB usable on a 22 GB card are gone before any KV. Measured pool ceilings: **4.0 GiB
+   with the FP8 target, 5 GiB with NVFP4** (4.5 GiB OOMs on FP8 at startup). `gpu_memory_utilization` then sizes
    the pool from the remainder while the real long-prompt transient (logits buffer, query replay,
    assembly staging) is not part of its activation profile — pin the pool instead:
    `kv_cache_memory_bytes=4294967296` (4 GiB) with `prefill_chunk_tokens=1024` and
