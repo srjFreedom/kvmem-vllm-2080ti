@@ -1,13 +1,23 @@
 # KVMem on 2× RTX 2080 Ti (SM75)
 
-KVMem keeps a **bounded KV window** on the GPU and the **full history in host RAM**, selecting the
-relevant history back per request. It makes long-context serving possible on hardware that cannot
-hold the context, and it makes repeated or continued requests skip the prefill almost entirely.
+A serving stack for 22 GB Turing cards: the **bounded KV window** lives on the GPU, the **full history
+in host RAM**, and relevant history is selected back into the window per request.
 
-This repository is a **patch set on top of other people's work** — see [Credits](#credits).
-The mechanism comes from [`kvmem/kvmem-vllm`](https://github.com/kvmem/kvmem-vllm); the engine is a
-stock SM75-capable vLLM fork; what we add is the compatibility layer, the deployment profile and the
-measured configuration for two 22 GB Turing cards.
+- **Long context on small VRAM** — a 262K-token conversation runs on a 4 GiB KV pool; past the window,
+  history is served from the host archive.
+- **Sessions stay warm** — per-session checkpoints resume a continued conversation in ~0.3 s instead of
+  re-prefilling it, and several sessions can be kept side by side.
+- **Concurrency without more VRAM** — independent sessions decode in one scheduling step; refresh and
+  archiving stay serialized, so the pool holds one window per step rather than one per request.
+- **Two speculative routes on one engine** — MTP4 and DFlash2 k=7 (4-bit W4A16 draft, 1.28 GB), both on
+  the compiled-graph path.
+- **Repeats are almost free** — a prompt whose cold prefill took 196 s is re-served from the archive in
+  1.36 s; a continuation above the window went from 7.5 s to 0.33 s.
+
+The engine is the SM75-capable vLLM fork listed under [Credits](#credits); the KVMem mechanism comes
+from [`kvmem/kvmem-vllm`](https://github.com/kvmem/kvmem-vllm). What lives here is the integration: the
+SM75 window/session layer, the DFlash2 route and its engine patches, the profiles, and the measured
+configuration for two 22 GB Turing cards.
 
 *中文文档：[README.zh-CN.md](README.zh-CN.md)*
 
@@ -309,20 +319,22 @@ docs/                    upstream kvmem-vllm documentation (unchanged)
 
 ## Credits
 
-This work exists only because others built the foundation. We are a patch on top of them:
+Built on the projects below. The SM75 integration, the serving profiles, the compiled-graph default and
+the DFlash2 route (with its engine patches) are ours; the mechanism and the model execution are theirs:
 
 | project | role | license |
 |---|---|---|
-| [`kvmem/kvmem-vllm`](https://github.com/kvmem/kvmem-vllm) | the KVMem mechanism, scheduler, connector, archive, sessions — this repository is a derivative | Apache-2.0 |
+| [`kvmem/kvmem-vllm`](https://github.com/kvmem/kvmem-vllm) | the KVMem mechanism, scheduler, connector, archive, sessions | Apache-2.0 |
 | [`vLLM`](https://github.com/vllm-project/vllm) | model execution, attention backends, scheduler, MTP | Apache-2.0 |
 | [`vLLM-2080Ti-Definitive`](https://github.com/weicj/vLLM-2080Ti-Definitive) (SM75 vLLM fork) | SM75/Turing enablement: FlashInfer on SM75, FP8 weight-only path, full CUDA graph recipe, MTP draft contract | Apache-2.0 (vLLM derivative) |
 | [FlashInfer](https://github.com/flashinfer-ai/flashinfer) | paged attention kernels | Apache-2.0 |
 | [Triton](https://github.com/triton-lang/triton) | GDN / M-RoPE / assembly kernels | MIT |
 | [Qwen](https://github.com/QwenLM) model family | the served checkpoint | its model license |
 
-Scope of this repository: the SM75/float16 compatibility layer in `src/vllm_kvmem`, the auto-session
-identifier, the page-pool demand fix, the diagnostics, one engine patch of 15 lines, the deployment
-profiles and the verification data.
+Scope of this repository: the KVMem SM75 layer in `src/vllm_kvmem` (float16 compatibility, auto-session
+id, page-pool demand, chat on the rolling window, `enable_prefix_caching` switch, diagnostics), the
+serving profiles and launchers, four engine patches under `patches/` (bounded capacity, W4A16 draft
+support, draft page geometry, DFlash2 pools under `KVMEM_SKIP_KV_CHECK`), and the verification data.
 
 This repository previously hosted a different adapter (KVMEM entry middleware for the same fork). That
 work is preserved on branch `legacy-adapter-v0.5`; `main` is the port described here.

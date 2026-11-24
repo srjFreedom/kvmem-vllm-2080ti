@@ -1,11 +1,17 @@
 # 在双 RTX 2080 Ti（SM75）上跑 KVMem
 
-KVMem 的核心思路：**GPU 上只保留有界的 KV 窗口，全量历史放在主机内存**，每次请求按需把相关历史选回窗口。
-这样，显存放不下的长上下文也能服务；重复请求或续写请求则几乎完全跳过 prefill。
+面向 22 GB 图灵卡的推理服务栈：**GPU 上只保留有界的 KV 窗口，全量历史放在主机内存**，
+每次请求按需把相关历史选回窗口。
 
-本仓库是**在别人成果之上打的补丁**（见文末[致谢](#致谢)）：
-机制来自 [`kvmem/kvmem-vllm`](https://github.com/kvmem/kvmem-vllm)，引擎是可跑 SM75 的 vLLM fork，
-我们补的是兼容层、部署 profile，以及两张 22 GB 图灵卡上的实测配置。
+- **小显存跑长上下文** —— 262K token 的对话跑在 4 GiB 的 KV 池上，超出窗口的历史从主机归档里取
+- **会话常驻** —— 每会话检查点让续写从 7.5 s 降到 0.33 s，还能同时保留多个会话
+- **并发不多占显存** —— 多个独立会话在同一步解码；refresh 与归档串行，池里每步只驻留一个窗口
+- **同一引擎两条投机路线** —— MTP4 与 DFlash2 k=7（4-bit W4A16 草稿，1.28 GB），都走编译图路径
+- **重复请求近乎免费** —— 冷 prefill 196 s 的 prompt，重复请求 1.36 s 命中归档
+
+引擎是下方可跑 SM75 的 vLLM fork，机制来自 [`kvmem/kvmem-vllm`](https://github.com/kvmem/kvmem-vllm)。
+本仓库提供的是集成：SM75 窗口/会话层、DFlash2 路线及其引擎补丁、部署 profile，
+以及两张 22 GB 图灵卡上的实测配置。
 
 *English (default): [README.md](README.md)*
 
@@ -210,7 +216,8 @@ docs/                    上游 kvmem-vllm 文档（未改动）
 
 ## 致谢
 
-这个项目完全建立在别人的成果之上，我们是**在它们之上打的补丁**：
+本仓库建立在下列项目之上。SM75 集成、部署 profile、编译图默认值与 DFlash2 路线（含其引擎补丁）是我们的；
+机制与模型执行来自它们：
 
 | 项目 | 角色 | 许可证 |
 |---|---|---|
@@ -221,8 +228,10 @@ docs/                    上游 kvmem-vllm 文档（未改动）
 | [Triton](https://github.com/triton-lang/triton) | GDN / M-RoPE / 装配内核 | MIT |
 | [Qwen](https://github.com/QwenLM) 模型家族 | 被服务的 checkpoint | 依其模型许可 |
 
-本仓库的范围：`src/vllm_kvmem` 里的 SM75/float16 兼容层、自动 session id、页池需求修正、
-诊断探针、一个 15 行的引擎补丁、部署 profile 与验证数据。
+本仓库的范围：`src/vllm_kvmem` 里的 SM75 层（float16 兼容、自动 session id、页池需求、
+滚动窗口上的 chat、`enable_prefix_caching` 开关、诊断探针）、部署 profile 与启动脚本、
+`patches/` 下的四个引擎补丁（有界容量、W4A16 草稿支持、草稿页几何、`KVMEM_SKIP_KV_CHECK` 下的 DFlash2 池），
+以及验证数据。
 
 本仓库此前是另一个适配器（同一 fork 上的 KVMEM 入口中间件），那部分工作保留在
 `legacy-adapter-v0.5` 分支；`main` 是本文描述的这份移植。

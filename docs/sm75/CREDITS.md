@@ -1,15 +1,16 @@
 # Credits and provenance
 
-This repository is a **patch set on top of other people's work**. Everything that works well here is
-theirs; the SM75 adaptation, the deployment profiles and the verification data are ours.
+This repository builds on the projects below. The KVMem mechanism and the model execution are theirs;
+the SM75 integration, the serving profiles, the compiled-graph default, the DFlash2 route and its
+engine patches, and the verification data are ours.
 
 ## Upstream projects we build on
 
 | project | what we use from it | license | our change |
 |---|---|---|---|
 | [`kvmem/kvmem-vllm`](https://github.com/kvmem/kvmem-vllm) | the whole mechanism: `vllm_kvmem` package, KVMem scheduler, `KVMemConnector`, CPU archive, sessions, request planning, prefix images, docs | Apache-2.0 | `src/vllm_kvmem` compatibility edits (see below) |
-| [`vLLM`](https://github.com/vllm-project/vllm) `v0.2.2.post3` | model execution, paged attention, scheduler, spec decode (MTP), CUDA graphs, API server | Apache-2.0 | one 15-line patch in `vllm/v1/core/kv_cache_utils.py` (`KVMEM_SKIP_KV_CHECK`) |
-| [`vLLM-2080Ti-Definitive`](https://github.com/weicj/vLLM-2080Ti-Definitive) (SM75 vLLM fork) | FlashInfer on SM75, FP8 weight-only (Marlin) path, the SM75 full-CUDA-graph recipe for MTP, MTP draft contract, `VLLM_SM75_SPEC_SYNC_MODE` / `VLLM_ALLOW_MAMBA_SPEC_FULL_CUDAGRAPH` | Apache-2.0 | we use it as the engine; no changes beyond the patch above |
+| [`vLLM`](https://github.com/vllm-project/vllm) `v0.2.2.post3` | model execution, paged attention, scheduler, spec decode (MTP), CUDA graphs, API server | Apache-2.0 | `patches/` — bounded capacity (`KVMEM_SKIP_KV_CHECK`), W4A16 draft support, draft page geometry, DFlash2 pools under the same skip |
+| [`vLLM-2080Ti-Definitive`](https://github.com/weicj/vLLM-2080Ti-Definitive) (SM75 vLLM fork) | FlashInfer on SM75, FP8 weight-only (Marlin) path, the SM75 full-CUDA-graph recipe, MTP draft contract, DFlash2 model (`qwen3_dflash.py`), `VLLM_SM75_SPEC_SYNC_MODE` / `VLLM_ALLOW_MAMBA_SPEC_FULL_CUDAGRAPH` | Apache-2.0 | we use it as the engine and carry the patches above, including the W4A16 draft support from [`#265`](https://github.com/weicj/vLLM-2080Ti-Definitive/pull/265) |
 | [FlashInfer](https://github.com/flashinfer-ai/flashinfer) | paged prefill/decode kernels | Apache-2.0 | none |
 | [Triton](https://github.com/triton-lang/triton) | GDN / M-RoPE / assembly kernels | MIT | none |
 | [PyTorch](https://github.com/pytorch/pytorch) | tensors, CUDA streams | BSD-3-Clause | none |
