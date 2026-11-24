@@ -1,8 +1,7 @@
 # Credits and provenance
 
-This repository builds on the projects below. The KVMem mechanism and the model execution are theirs;
-the SM75 integration, the serving profiles, the compiled-graph default, the DFlash2 route and its
-engine patches, and the verification data are ours.
+Thanks to the projects below: this repository builds on them. Each row records what we use from it, its
+license, and the change this repository carries.
 
 ## Upstream projects we build on
 

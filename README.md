@@ -319,8 +319,7 @@ docs/                    upstream kvmem-vllm documentation (unchanged)
 
 ## Credits
 
-Built on the projects below. The SM75 integration, the serving profiles, the compiled-graph default and
-the DFlash2 route (with its engine patches) are ours; the mechanism and the model execution are theirs:
+Thanks to the projects below — this stack is built on them:
 
 | project | role | license |
 |---|---|---|
