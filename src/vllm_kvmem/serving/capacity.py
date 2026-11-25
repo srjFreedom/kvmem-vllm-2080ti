@@ -57,6 +57,10 @@ class ReservedKVCacheManager:
         self.guided_reserve = 0
         self.groups = tuple(native.coordinator.single_type_managers)
         self.static_blocks = {}
+        # Small-block recurrent state: the native MambaManager owns one state
+        # page per sequence block plus the speculative tail, so the per-request
+        # charge follows the sequence extent, not the resident set.
+        self.mamba_extent = {}
         self.excluded_blocks = set()
         # A speculative draft gives the engine its own pages, and the native
         # DFlash grouping gives each draft layer its own (smaller) page size, so
@@ -120,7 +124,10 @@ class ReservedKVCacheManager:
                 # four blocks the engine plans) instead of one full-context page.
                 self.static_blocks[index] = 4 + spec.num_speculative_blocks
             else:
-                self.static_blocks[index] = spec.max_num_blocks_per_req(vllm_config, native.max_model_len)
+                # Small-block "none" state: charge the sequence extent the
+                # native manager actually owns (one state page per block plus
+                # the speculative tail), not the 8-page resident set.
+                self.mamba_extent[index] = (int(spec.block_size), int(spec.num_speculative_blocks))
         self.reservations = {}
         self._step_remaining = None
         self._step_total = 0
@@ -144,9 +151,22 @@ class ReservedKVCacheManager:
         _admission = min(int(native.max_model_len), _window) if _window > 0 else int(native.max_model_len)
         self.admission_tokens = int(_admission)
         if self._demand(_admission) > native.block_pool.get_num_free_blocks():
-            raise ValueError(
-                "GPU page pool cannot fit one worst-case KVMem request "
-                f"(admission tokens={_admission}, window={_window}, max_model_len={native.max_model_len})")
+            # skip_kv_check lanes size the pool for the KVMem window, not the
+            # worst-case extent: requests beyond the pool are rejected at
+            # admission (terminal), never crash the engine.
+            if (_settings.get('KVMEM_LOGICAL_KV_CAPACITY') != '1'
+                    and __import__('os').environ.get('KVMEM_SKIP_KV_CHECK', '0') in ('1', 'true', 'yes', 'on')):
+                from vllm.logger import init_logger
+                init_logger('vllm.kvmem.capacity').warning(
+                    'GPU page pool cannot fit one worst-case KVMem request '
+                    '(admission tokens=%d, window=%d, max_model_len=%d, demand=%d pages, pool=%d pages); '
+                    'oversized requests are rejected at admission',
+                    _admission, _window, int(native.max_model_len),
+                    self._demand(_admission), native.block_pool.get_num_free_blocks())
+            else:
+                raise ValueError(
+                    "GPU page pool cannot fit one worst-case KVMem request "
+                    f"(admission tokens={_admission}, window={_window}, max_model_len={native.max_model_len})")
         if not self._extra_pool_capacity(1):
             raise ValueError(
                 "A side page pool cannot fit one request's constant reservation "
@@ -177,6 +197,10 @@ class ReservedKVCacheManager:
         def blocks(index, manager):
             if index in self.excluded_blocks:
                 return 0
+            if index in self.mamba_extent:
+                block_tokens, spec_blocks = self.mamba_extent[index]
+                extent = min(tokens, int(self.native.max_model_len))
+                return (extent + block_tokens - 1) // block_tokens + spec_blocks
             if index in self.static_blocks:
                 return self.static_blocks[index]
             unit = int(getattr(manager, 'guided_block_tokens', 0) or 0) or int(manager.block_size)
@@ -199,10 +223,47 @@ class ReservedKVCacheManager:
                    if index not in self.excluded_blocks
                    for block in manager.req_to_blocks.get(request_id, ()))
 
+    def never_fits(self, request):
+        """True when the request's worst-case demand exceeds the whole pool.
+
+        The native scheduler retries a soft allocation failure on every step;
+        a request that cannot fit even an empty pool must be terminated at
+        admission instead of spinning the waiting queue.
+        """
+        tokens = min(int(self.native.max_model_len),
+                     int(getattr(request, 'num_prompt_tokens', 0) or 0)
+                     + int(getattr(request, 'max_tokens', 0) or 0)
+                     + 2 * self.lookahead + self.guided_reserve)
+        return self._demand(tokens) > self.native.block_pool.num_gpu_blocks
+
+    def _diagnose(self, request_id, demand):
+        """One-shot crash dump: per-group ownership against the lifetime quota."""
+        import json
+        rows = []
+        for index, manager in enumerate(self.groups):
+            blocks = manager.req_to_blocks.get(request_id, ())
+            rows.append(dict(group=index, kind=type(manager).__name__,
+                             block_tokens=manager.block_size,
+                             owned_pages=sum(not b.is_null for b in blocks),
+                             total_entries=len(blocks),
+                             static_pages=self.static_blocks.get(index),
+                             excluded=index in self.excluded_blocks))
+        pool = self.native.block_pool
+        reservation = self.reservations.get(request_id)
+        return json.dumps(dict(
+            demand=demand,
+            owned=self._owned(request_id),
+            free_pages=pool.get_num_free_blocks(),
+            total_pages=pool.num_gpu_blocks - 1,
+            reservation_quota=reservation[1] if reservation is not None else None,
+            step_remaining=self._step_remaining,
+            groups=rows), default=str)
+
     def _remaining(self, request_id, demand):
         remaining = demand - self._owned(request_id)
         if remaining < 0:
-            raise RuntimeError("Native request allocation exceeds its admitted lifetime bound")
+            raise RuntimeError("Native request allocation exceeds its admitted "
+                               "lifetime bound: " + self._diagnose(request_id, demand))
         return remaining
 
     def snapshot(self):

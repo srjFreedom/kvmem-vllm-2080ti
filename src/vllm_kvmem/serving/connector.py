@@ -121,6 +121,7 @@ class KVMemConnector(KVConnectorBase_V1, SupportsHMA):
         self.swap_worker = None
         self.request_swap_pending = None
         self.scheduler_completion = None
+        self.capacity_never_fits = None
         options = vllm_config.kv_transfer_config.kv_connector_extra_config.get('kvmem', {})
         self.gpu_memory_admission = options.get('gpu_memory_admission', 'static')
         from .session_tiering import tiering_prefetch, tiering_queue
@@ -455,6 +456,14 @@ class KVMemConnector(KVConnectorBase_V1, SupportsHMA):
                 raise RequestCapacityError('Incremental session requests require an owned session ledger')
             if not owned_session_admission(self.sessions, request):
                 return None, False
+        # Terminate an extent that cannot fit the pool at all before any wait
+        # condition: no peer request can ever free enough pages for it.
+        if getattr(self, 'capacity_never_fits', None) is not None and self.capacity_never_fits(request):
+            from .request_plan import RequestCapacityError
+            raise RequestCapacityError(
+                'request extent exceeds the resident GPU page pool '
+                f'({getattr(request, "num_prompt_tokens", 0)} prompt tokens + '
+                f'{getattr(request, "max_tokens", 0)} max tokens)')
         if self.tool_grace_allows is not None and not self.tool_grace_allows(request):
             return None, False
         matched = getattr(self.history_admission, 'matched_admission', False)

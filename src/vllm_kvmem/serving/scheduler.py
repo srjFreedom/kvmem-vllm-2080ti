@@ -268,6 +268,9 @@ class KVMemScheduler(Scheduler):
             if self.swap_controller is not None:
                 self.swap_controller.bind(self.kv_cache_manager)
                 self.connector.request_swap_pending = self.swap_controller.has_pending_work
+            # Terminal admission: a request whose worst-case extent cannot fit
+            # the pool at all is failed at the connector, not retried forever.
+            self.connector.capacity_never_fits = self.kv_cache_manager.never_fits
         if _settings.get('KVMEM_SYSTEMONE_FORK') == '1':
             from .systemone_fork import ForkPagePool
             self.connector.systemone_pool = ForkPagePool(self, config)
