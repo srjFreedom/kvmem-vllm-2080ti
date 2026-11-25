@@ -1,0 +1,23 @@
+[Unit]
+Description=KVMem vLLM 2080Ti DFlash2 (SM75, 3.5 GiB pool, 2 concurrent, B48K/R8K)
+After=network-online.target nvidia-persistenced.service
+Conflicts=kvmem-vllm.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=kvmem
+Group=kvmem
+Environment=HOME=/var/lib/kvmem
+Environment=KVMEM_MODEL_DIR=/srv/models/coder-fp8-mtp
+Environment=RUN_DIR=/var/tmp/kvmem-run-dflash2
+ExecStartPre=+/bin/rm -rf /var/tmp/kvmem-run-dflash2
+ExecStart=/usr/local/bin/run-kvmem-2080ti-dflash2.sh start
+ExecStop=-/usr/local/bin/run-kvmem-2080ti-dflash2.sh stop
+TimeoutStartSec=900
+TimeoutStopSec=120
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target

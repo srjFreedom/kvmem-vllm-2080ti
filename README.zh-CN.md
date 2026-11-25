@@ -54,7 +54,7 @@
 | 多会话交替 | 各自命中（0.25–0.40 s）|
 | 并发 | 独立会话**在同一步解码**；refresh 与归档串行 |
 | **MTP `compiled_graph` vs `full_graph`** | 代码 **66.8 vs 59.4 tok/s（+12%）**、重复 **103.6 vs 95.2 tok/s（+9%）** |
-| **DFlash2 k=7 + 4-bit W4A16 草稿** | 有界 lane：代码 **106 tok/s**、重复 **197 tok/s**；基座同草稿：**151 / 254** |
+| **DFlash2 k=7 + 4-bit W4A16 草稿** | 代码 **93.6 tok/s**、重复 **170.6 tok/s**（每步与基座持平：45.5 vs 45.7 ms）；基座同草稿：**151 / 254** |
 | **chat 走滚动窗口** | `rolling_active_window` 下接受 `/v1/chat/completions`，走同一套 B/R 窗口 |
 
 完整命令与证据：[docs/sm75/zh-CN/development-log.md](docs/sm75/zh-CN/development-log.md)
@@ -181,7 +181,8 @@ temperature 0.3、top_p 0.95、top_k 20。
 
 ## DFlash2 路线
 
-`draft_method=dflash`、`draft_tokens=7`、有界窗口（`logical_kv_capacity=true`）。
+`draft_method=dflash`、`draft_tokens=7`，不用有界规划：池由引擎按容量分配，窗口由 KVMem
+在运行时开/关，形态与 MTP lane 一致——262K 逻辑上下文、B=48K、3.5 GiB 池、2 并发。
 
 **我们跑的草稿：[`syvai/Qwen3.8-27B-DFlash2-W4A16`](https://huggingface.co/syvai/Qwen3.8-27B-DFlash2-W4A16)**
 ——4-bit pack-quantized（compressed-tensors，group 128），1.28 GB。它依赖引擎侧的 W4A16 草稿补丁
@@ -199,20 +200,19 @@ BF16 草稿 [`incoai/Qwen3.8-27B-DFlash2`](https://huggingface.co/incoai/Qwen3.8
 
 | 边界 | 说明 |
 |---|---|
-| 并发 | **1**。有界规划给每个准入请求预留完整窗口，三个窗口约需 9 GiB |
-| prefix caching | 必须**关闭**（`draft_contract.py`：有界 DFlash2 要求 APC-off 的 GDN 状态） |
+| 并发 | 3.5 GiB 池下 **2**。两个窗口在同一步推进；能装几个由 B 和池决定——实测 `B=48K` 第二个请求 **1.09x** 聚合、`B=40K` 1.17x、`B=32K` 1.16x |
+| prefix caching | 必须**关闭**（`draft_contract.py`：DFlash2 要求 APC-off 的 GDN 状态） |
 | KV 布局 | `BLHNC`（目标与草稿页大小不同） |
 | KV 池 | FP8 目标（28.7 GB 权重）：**4.0 GiB 可用，4.5 GiB 启动 OOM**；NVFP4 目标（18.8 GB）：可达 5 GiB |
-| 每请求预留 | `3 × (1 + k)` 个 mamba 状态页 + `ceil((B+R)/页)` 个 attention 页 + 5 个草稿页 + 1 个空页 = **k=7 时 54 页 ≈ 3.0 GiB**；k 降到 3 时 mamba 项减半（24 → 12 页，约 0.85 GiB） |
-| 每步成本 | 同 prompt 下比基座多约 **8 ms/步**（调度器 0.14 ms、connector 钩子 0.11 ms，其余在 launch 侧） |
-| 吞吐 | 有界 lane：代码 **106 tok/s**、重复 **197 tok/s**；基座同草稿：**151 / 254** |
-| chat | 支持——chat 请求渲染成 token id 后走同一套滚动窗口 |
+| 池下限 | 见 `patches/0005`：recurrent 池每个准入请求要 `2 + k` 块（活状态 + 投机 + 空块），草稿环要 `max_in_flight_tokens + lookahead`，两者都随 `max_num_seqs` 放大。预算夹子小于任一池下限就是启动期的 “page pool cannot fit one request” |
+| 每步成本 | **与基座相同**：同 checkpoint 同草稿 45.5 ms/步 vs 45.7 ms，即重复 prompt 约 171 tok/s、代码 93.6（基座：151 / 254） |
+| chat | 原生——没有滚动窗口，也就不需要渲染 token id |
 
 ## 已知边界
 
 1. **并发是"批处理"，但不是免费**：独立会话在同一步解码——MTP lane 跑 `max_num_seqs=3`，
    三个窗口化会话一起推进；但窗口刷新与归档仍是串行，需要重建的会话会让其他请求等这一步。
-   有界 DFlash2 更严格：`max_num_seqs=1`，因为每个准入请求都要预留完整窗口（见 [DFlash2 路线](#dflash2-路线)）。
+   DFlash2 lane 跑 `max_num_seqs=2`，上限来自 3.5 GiB 池要同时容纳草稿（见 [DFlash2 路线](#dflash2-路线)）。
 2. **rolling 模式**（`rolling_active_window=true`）按 token id 规划：`/v1/completions` 直接接受；
    0.6.5 起 `/v1/chat/completions` 会用服务端 tokenizer 渲染后走同一套窗口（此前会被拒绝）。
    仍然不接受"服务端未分词的原样字符串"。
