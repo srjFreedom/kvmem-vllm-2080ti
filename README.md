@@ -262,6 +262,18 @@ Boundaries of the route:
 | throughput | bounded lane: **106 tok/s** code, **197 tok/s** repeat; pristine engine on the same draft: **151 / 254** |
 | chat | supported — a chat request is rendered to token ids and planned through the same rolling window |
 
+Two lanes are shipped for this route:
+
+| lane | launcher / unit | shape |
+|---|---|---|
+| bounded planner (faster per request, one request) | `deploy/example-local-launcher.sh`, `deploy/kvmem-vllm.service` | `logical_kv_capacity=true`, 262K logical, B=32K, 3.5 GiB |
+| MTP-style (pool, window and concurrency like the MTP lane) | `deploy/example-dflash2-mtpstyle-launcher.sh`, `deploy/kvmem-vllm-dflash2-mtpstyle.service` | `logical_kv_capacity=false`, 262K, B=48K, 3.5 GiB, `max_num_seqs=2`, no static reservation |
+
+Both need `patches/0003`–`0005` in the engine and `VLLM_KV_CACHE_LAYOUT=BLHNC`. The MTP-style lane
+keeps per-step cost equal to the pristine engine (45.5 ms against 45.7 ms on the same checkpoint and
+draft) and admits a second session without a throughput gain at the 3.5 GiB pool; the table above the
+lanes lists the measured trade.
+
 ## Known limits
 
 1. **Concurrency is batched, not free.** Independent sessions decode in one step — the MTP lane runs
