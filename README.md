@@ -213,15 +213,21 @@ KVMem has three independent budgets. Mixing them up is the usual source of "it d
 | **session checkpoints** | `session_capacity` × `session_checkpoint_bytes` | how many conversations stay warm |
 
 ```
-GPU KV needed          ≈ 17,408 B/token × (B + R) + 0.39 GiB   # the 3 GDN groups hold fixed state
-history tokens total   ≈ cpu_read_cache_bytes / 17,408      # per rank, shared by all sessions
+GPU KV needed          ≈ 16,384 B/token × (B + R) + 0.39 GiB   # the 3 GDN groups hold fixed state
+history tokens total   ≈ cpu_read_cache_bytes / 16,384      # per rank, shared by all sessions
 host RAM for that      = 2 × the above               # TP=2 runs two archives on one host
 sessions               × CTX   ≤ history tokens total        # otherwise the next session queues
 ```
 
+`16,384 B/token` is exact for this checkpoint: 16 full-attention layers × (4 KV heads / TP2 = 2) ×
+head_dim 256 × 2 (K+V) × 1 byte (fp8). Measured from the engine both ways — `archive.json` reports
+524,288 bytes per 32-token record, and `cache-geometry.json` reports a 27,000,832-byte attention page
+over 1,648 tokens. So **one 256K-token session costs 4.0 GiB of archive per rank, 8.0 GiB for TP=2**,
+plus ~0.17 GiB of session checkpoint (window-sized, independent of history length).
+
 Defaults (verified): B = 36K, R = 8K (window 45,056), CTX = 256K, `gpu_memory_utilization` = 0.92,
 `prefill_chunk_tokens` = 2,048, `query_replay_budget` = 4,096, `session_capacity` = 1,
-`cpu_read_cache_bytes` = 6 GiB, `mm_gdn_prefill_backend` = `flashqla_legacy`.
+`cpu_read_cache_bytes` = 8 GiB, `mm_gdn_prefill_backend` = `flashqla_legacy`.
 
 > `query_replay_budget` defaults to R and costs ~180 KiB of VRAM per token. Leaving it at 16K is what
 > made a 48K window look impossible; set it explicitly.

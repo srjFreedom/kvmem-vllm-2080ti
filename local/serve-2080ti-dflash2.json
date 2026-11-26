@@ -24,7 +24,7 @@
     "repository_blocks": 16384,
     "sink_blocks": 384,
     "recent_blocks": 64,
-    "cpu_read_cache_bytes": 6442450944,
+    "cpu_read_cache_bytes": 8589934592,
     "archive_backend": "cpu",
     "archive_io_max_bytes": 134217728,
     "async_seal": true,

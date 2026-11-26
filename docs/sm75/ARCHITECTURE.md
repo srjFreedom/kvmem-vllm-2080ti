@@ -57,7 +57,9 @@ The default uses `pm`; it costs one extra terminal snapshot per session (measure
 
 Per-token archive size comes from `adapters/cache_manifest.py::archive_bytes_per_token`: only
 full-attention layers are stored, `(kv_heads/TP) × head_dim × 2` bytes each, **per rank**.
-For this model: `17 × 1,024 = 17,408 B/token/rank`; TP = 2 ⇒ double it for host RAM.
+For this model: `16 × 1,024 = 16,384 B/token/rank` (16 full-attention layers, one per
+`full_attention_interval: 4`); TP = 2 ⇒ double it for host RAM. Verified against the running
+engine: `cache-geometry.json` reports 27,000,832-byte attention pages over 1,648 tokens.
 
 ## Why the engine needed a patch
 

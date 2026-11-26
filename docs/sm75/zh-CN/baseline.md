@@ -26,7 +26,7 @@
 | sink / recent | 32 / 32 块 = **1,024 / 1,024 token** | |
 | `block_tokens` | 32 | 选片网格 |
 | `repository_blocks` | 16,384（× 32 = 524,288 token 名义）| 历史块数上限 |
-| `cpu_read_cache_bytes` | 4 GiB | **RAM 实际约束**（17,408 B/token ⇒ ~241K token）|
+| `cpu_read_cache_bytes` | 4 GiB | **RAM 实际约束**（16,384 B/token ⇒ ~262K token）|
 | 会话 | `session_capacity=8`、`session_checkpoint_bytes=512 MiB`、`policy=pm`、`capture_terminal=true`、`freeze_prompt=false` | pm 才能多轮续写命中 |
 | 执行 | `execution_mode=full_graph`、`draft_tokens=4`、`max_num_seqs=3` | SM75 全图 + 融合多步 draft；`cudagraph_capture_sizes` 不填，按 `(draft_tokens+1) × 1..max_num_seqs` 自动推导（此处即 `[5,10,15]`）|
 | 引擎开关 | `VLLM_SM75_SPEC_SYNC_MODE=nosync`、`VLLM_ALLOW_MAMBA_SPEC_FULL_CUDAGRAPH=1` | 从 fork fast 档移植 |
@@ -61,20 +61,25 @@
 
 ```
 每层每 token（每 rank）= (num_kv_heads / TP) × head_dim × 2      # K+V 各 fp8 1 字节
-本模型：(4/2) × 256 × 2 = 1,024 B；full_attention 16 层 + MTP 1 层 ⇒ 17,408 B/token/rank
+本模型：(4/2) × 256 × 2 = 1,024 B；full_attention 16 层 ⇒ 16,384 B/token/rank
 ```
-与 `cache-geometry.json` 的 `cpu_archive_bytes_per_token = 17,408` 完全一致。
+与 `cache-geometry.json` 的 `cpu_archive_bytes_per_token = 16384` 完全一致
+（该文件同时给出 attention 页 = 1,648 token 对 27,000,832 B，即 16,384 B/token）。
+早先版本按「16 层 + MTP 1 层 = 17 层」记成 17,408，比实际多算 6%，已修正。
 **linear_attention（GDN，48 层）不存按 token 的 KV**（其循环状态是"每请求一份"），
 这是与旧 ninfer 口径的关键差异（旧口径按 64 层算 = 65,536 B/token）。
 
 ### 5.2 CTX → 主机内存（TP=2 有两个 archive）
 
-| CTX | 每 rank | 主机合计（TP2）| 建议 `cpu_read_cache_bytes` | 主机规划 |
+| CTX | 每 rank | 主机合计（TP2）| 建议 `cpu_read_cache_bytes` | 主机总占用 |
 |---|---|---|---|---|
-| 32,768 | 0.53 GiB | 1.06 GiB | 1 GiB | ~4 GiB |
-| 131,072 | 2.12 GiB | 4.25 GiB | 3 GiB | ~8 GiB |
-| **262,144** | **4.25 GiB** | **8.50 GiB** | **5 GiB** | **13–16 GiB** |
-| 524,288 | 8.50 GiB | 17.0 GiB | 9 GiB | ≥24 GiB |
+| 32,768 | 0.50 GiB | 1.00 GiB | 1 GiB | ~15 GiB |
+| 131,072 | 2.00 GiB | 4.00 GiB | 3 GiB | ~17 GiB |
+| **262,144** | **4.00 GiB** | **8.00 GiB** | **8 GiB** | **~23 GiB** |
+| 524,288 | 8.00 GiB | 16.0 GiB | 9 GiB | ≥31 GiB |
+
+「主机总占用」= 归档 + checkpoint + 进程固定开销。固定开销实测 ≈ 14 GiB（两个 worker 各 ~5.4 GiB
+的权重/绑定/分配器驻留 + API server 2.6 GiB + EngineCore 1.6 GiB），与会话数无关。
 
 ### 5.3 多会话（`session_capacity` / 旧 RetainedSessions）**共享**一个 RAM 历史池
 
@@ -83,14 +88,14 @@
 - 名义容量 = `repository_blocks × (max_requests + session_capacity)`，
   再被**字节预算**夹住：`capacity = min(nominal, cpu_read_cache_bytes ÷ record_bytes)`。
 - ⇒ **会话不会自动获得独立的 CTX 预算**；N 个会话各自保留 H token 的历史，
-  就共同消耗 1 个池的 N×H。8 会话各 256K ⇒ 需要 8 × 4.25 GiB/rank（超出会在准入时被拒）。
+  就共同消耗 1 个池的 N×H。8 会话各 256K ⇒ 需要 8 × 4.0 GiB/rank（超出会在准入时被拒）。
 - 会话 checkpoint 是**另一个池**：`session_checkpoint_bytes` 是**所有会话合计**预算
   （`PromptCheckpointPool.payload_bytes` 累计），实测 3 个会话（2.2K+2.2K+7.2K）= 236 MB。
 
 **配置公式**
 ```
 历史 token 上限 = min( CTX,
-                       cpu_read_cache_bytes / 17,408 ,        # 每 rank，且被所有会话共享
+                       cpu_read_cache_bytes / 16,384 ,        # 每 rank，且被所有会话共享
                        repository_blocks × 32 )
 会话 checkpoint 总量 ≤ session_checkpoint_bytes（所有会话合计）
 ```
@@ -113,8 +118,8 @@
 历史归档 = 4 × 每会话实际历史   （共享池，必须 ≥ 最大单会话，否则硬失败）
 checkpoint = 4 × 60–80 MB      （共 512 MiB 够用；超了只是不命中）
 ```
-想「4 个会话都能各放 256K」⇒ `cpu_read_cache_bytes ≥ 9 GiB/rank`、主机 ~17–20 GiB；
-想「4 个会话共享 ~256K 总量」⇒ `cpu_read_cache_bytes = 5 GiB`、主机 ~13–16 GiB。
+想「4 个会话都能各放 256K」⇒ `cpu_read_cache_bytes ≥ 17 GiB/rank`（4×4.0 归档 + 4×0.17 checkpoint）、主机 ~48 GiB；
+想「4 个会话共享 ~256K 总量」⇒ `cpu_read_cache_bytes = 5 GiB`、主机 ~23 GiB。
 
 ## 6. 默认配置（对外，保守）与变体
 
@@ -134,16 +139,16 @@ checkpoint = 4 × 60–80 MB      （共 512 MiB 够用；超了只是不命中�
 
 **一致性规则（改配置时必查）**
 ```
-会话数 × CTX ≤ cpu_read_cache_bytes / 17,408          # 每 rank，否则新会话会一直排队
+会话数 × CTX ≤ cpu_read_cache_bytes / 16,384          # 每 rank，否则新会话会一直排队
 会话数 × 80 MB ≤ session_checkpoint_bytes             # 否则 checkpoint 静默跳过（下轮不命中）
 ```
 
 **变体**
 | 文件 | CTX | 会话 | `cpu_read_cache_bytes` | 每 rank 需要 | 主机 RAM 建议 |
 |---|---|---|---|---|---|
-| `serve-2080ti-default.json` | 32,768 | 4 | 4 GiB | 2.12 GiB | ≥ 12 GiB |
-| `serve-2080ti-128k.json` | 131,072 | 1 | 5 GiB | 2.12 GiB | ≥ 14 GiB |
-| `serve-2080ti-256k.json` | 262,144 | 1 | 6 GiB | 4.25 GiB | ≥ 16 GiB |
+| `serve-2080ti-default.json` | 32,768 | 4 | 4 GiB | 2.00 GiB | ≥ 15 GiB |
+| `serve-2080ti-128k.json` | 131,072 | 1 | 5 GiB | 2.00 GiB | ≥ 17 GiB |
+| `serve-2080ti-256k.json` | 262,144 | 1 | 8 GiB | 4.00 GiB | ≥ 23 GiB |
 
 **注意**：默认假设 2×22 GB（TP=2）。单卡用户需要改 `tensor_parallel_size` 并降 `gpu_memory_utilization`
 （27B FP8 权重约 32 GB，单卡 22 GB 装不下）。
@@ -185,7 +190,7 @@ sink/recent=4,096/2,048            max_num_seqs=1  capture=[5]  draft=4  full_gr
 | 会话续写（7.2K > 窗口）| 7.51 s → **0.33 s** ✅ |
 | 4,888 needle | `ZX-4417-QJ7` ✅ |
 | 长输出 | `max_tokens=12000` ⇒ ~11K token @ 84 tok/s ✅ |
-| 归档预算 | 1 会话 × 256K = **4.25 GiB/rank**，预算 6 GiB（1.41×）|
+| 归档预算 | 1 会话 × 256K = **4.00 GiB/rank**，预算 8 GiB（2×）|
 
 **replay 的语义边界**：`http_sessions.py:124` 的检查是
 `plan.replay_end - plan.replay_begin > query_replay_budget ⇒ 拒绝`，只对**显式带
@@ -298,7 +303,7 @@ B 留给"纯 token 级 API + 长输出"的专门场景，且需要额外约 3.6 
 | 0/1/2 | 48 个 GDN 层（3 组 × 16）| = max_model_len | ❌ 每请求**固定** `1+4` 页 × 3 组 = **15 页 ≈ 0.39 GiB** |
 | 3 | 16 个 full-attention + MTP（17 层）| **1,616 token/页**（26.8 MB/页）| ✅ `ceil(W/1,616)` 页 |
 
-⇒ 窗口 W 的显存需求 ≈ **17,408 B × W + 0.39 GiB**：
+⇒ 窗口 W 的显存需求 ≈ **16,384 B × W + 0.39 GiB**：
 `W=49,152` 只有 **31 页 ≈ 0.81 GiB**（+0.39 GiB 固定）= **1.21 GiB**。
 
 实测印证：`gpu_memory_utilization=0.82` 时池只有 70,690 token（≈1.25 GiB）仍能起，
@@ -309,7 +314,7 @@ B 留给"纯 token 级 API + 长输出"的专门场景，且需要额外约 3.6 
 
 ## 13. 默认改为窗口 131,072（依据第 12 节的真实几何）
 
-既然窗口只需要 `17,408 B × W + 0.39 GiB`，0.90 的 114 页池（2.99 GiB）就能放下 131K 窗口：
+既然窗口只需要 `16,384 B × W + 0.39 GiB`，0.90 的 114 页池（2.99 GiB）就能放下 131K 窗口：
 
 | 项 | 49,152 窗口 | **131,072 窗口（新默认）** |
 |---|---|---|

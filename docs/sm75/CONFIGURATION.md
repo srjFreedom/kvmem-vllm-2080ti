@@ -16,26 +16,44 @@ the vLLM command line and exports the plugin environment. Nothing else needs edi
 
 ```
 KV pages needed          ≈ ceil((B + R) / page_tokens) + 3 × (1 + spec_blocks)
-                            # page_tokens = 1,616, page = 26.8 MB, spec_blocks = 4
-                            # ⇒ 17,408 B per window token + 0.39 GiB fixed GDN state
-history tokens, per rank = min( cpu_read_cache_bytes / 17,408 ,
+                            # page_tokens = 1,648, page = 27,000,832 B, spec_blocks = 7
+                            # ⇒ 16,384 B per window token + 0.39 GiB fixed GDN state
+history tokens, per rank = min( cpu_read_cache_bytes / 16,384 ,
                                 repository_blocks × block_tokens )
-host RAM for history     ≈ 2 × history tokens × 17,408     # TP=2 → two archives
-checkpoint RAM           ≤ session_checkpoint_bytes        # TOTAL across sessions (60–80 MB each)
+host RAM for history     ≈ 2 × history tokens × 16,384     # TP=2 → two archives
+checkpoint RAM           ≤ session_checkpoint_bytes        # TOTAL across sessions (~170 MB each)
 ```
 
-Measured archive cost per token (this model): **17,408 B/rank** = 17 full-attention layers ×
-(4 kv heads / TP 2) × 256 head_dim × 2 (K+V, fp8).
+Measured archive cost per token (this model): **16,384 B/rank** = 16 full-attention layers ×
+(4 kv heads / TP 2) × 256 head_dim × 2 (K+V, fp8). Two independent engine readings agree exactly:
+`archive.json` reports 524,288 bytes per 32-token record and `cache-geometry.json` reports a
+27,000,832-byte attention page over 1,648 tokens.
+
+### Per-session footprint (per rank)
+
+The archive is the only term that scales with history; the session checkpoint is window-sized and
+flat in practice (13.5K and 107.8K histories both measure ~101 MB of payload).
+
+| session history | archive | checkpoint | total/rank |
+|---|---|---|---|
+| 64K | 1.0 GiB | 0.17 GiB | **1.2 GiB** |
+| 128K | 2.0 GiB | 0.17 GiB | **2.2 GiB** |
+| 192K | 3.0 GiB | 0.17 GiB | **3.2 GiB** |
+| 256K | 4.0 GiB | 0.17 GiB | **4.2 GiB** |
+
+`cpu_read_cache_bytes` is a **per-rank** budget, not a host-wide one: each TP worker builds its own
+private `MemoryArchive` (plain anonymous CPU memory, no mmap sharing). TP=2 therefore doubles every
+number above. The shipped profile sets 8 GiB/rank = 524,288 tokens, which is exactly
+`repository_blocks (16,384) × block_tokens (32)`.
 
 ### Worked example — B = 36K, R = 4K (window 40,960), CTX = 256K, one session
 
 | item | value |
 |---|---|
 | window | 40,960 tokens |
-| GPU KV needed | ceil(40,960/1,616) + 15 pages = **41 pages ≈ 1.07 GiB** |
-| pool at `kv_cache_memory_bytes=3.5 GiB` | ~120 pages ≈ 3.5 GiB (3.3× margin — the window is a product choice, not a limit) |
-| history for one 256K session | 262,144 × 17,408 = **4.25 GiB/rank** ⇒ 8.5 GiB host |
-| `cpu_read_cache_bytes` | 6 GiB (1.41× margin) |
+| GPU KV needed | ceil(40,960/1,648) + 3×(1+7) pages = **49 pages ≈ 1.26 GiB** |
+| history for one 256K session | 262,144 × 16,384 = **4.0 GiB/rank** ⇒ 8.0 GiB host |
+| `cpu_read_cache_bytes` | 8 GiB (2× margin) |
 
 ## Key knobs
 
@@ -50,9 +68,9 @@ Measured archive cost per token (this model): **17,408 B/rank** = 17 full-attent
 | `kvmem.block_tokens` | 32 | selection grid; sink/recent/`repository_blocks` are counted in these |
 | `kvmem.sink_blocks` / `recent_blocks` | 64 / 32 | 2,048 / 1,024 tokens kept unconditionally |
 | `kvmem.repository_blocks` | 16,384 | × 32 = 524,288 nominal tokens |
-| `kvmem.cpu_read_cache_bytes` | 6 GiB | **the real history limit**, shared by all sessions |
+| `kvmem.cpu_read_cache_bytes` | 8 GiB | **the real history limit**, per rank and shared by all sessions on that rank; 8 GiB = 524,288 tokens = `repository_blocks × block_tokens` |
 | `query_replay_budget` (top level) | 4,096 | defaults to R; costs ~180 KiB VRAM per token — always set it |
-| `kvmem.session_capacity` | 1 | retained conversations (old adapter: `SESSIONS`) |
+| `kvmem.session_capacity` | 1 | retained conversations **including the live one** (old adapter: `SESSIONS`). It bounds checkpoint *entries*; the archive formula separately reserves `repository_blocks × (max_num_seqs + session_capacity)` |
 | `kvmem.session_checkpoint_bytes` | 1 GiB | **total** for all retained checkpoints |
 | `kvmem.session_checkpoint_policy` | `pm` | P + terminal checkpoints; required for continuation hits |
 | `execution_mode` | `full_graph` | SM75 recipe: `cudagraph_mode=FULL` + `cudagraph_capture_sizes=[K+1]` |
@@ -118,7 +136,7 @@ With R = 16,384 that is one refresh per ~16K generated tokens.
 |---|---|
 | faster code generation | `draft_tokens=4` + `cudagraph_capture_sizes=[5]` + `execution_mode=full_graph` (80–87 tok/s verified) |
 | longer logical context | raise `max_model_len` and `cpu_read_cache_bytes` together; keep `sessions × CTX ≤ history tokens` |
-| more warm sessions | `session_capacity` up **and** `cpu_read_cache_bytes` up by 4.25 GiB/rank per extra 256K session |
+| more warm sessions | `session_capacity` up **and** `cpu_read_cache_bytes` up by 4.2 GiB/rank per extra 256K session |
 | free VRAM for another service | lower `kv_cache_memory_bytes` (the effective pool knob; `gpu_memory_utilization` is ignored while it is set) and/or R |
 | avoid a hard failure when sessions overflow | `KVMEM_SESSION_IDLE_LRU_EVICTION=1` + small `session_capacity` |
 

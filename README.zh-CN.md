@@ -157,15 +157,21 @@ KVMem 有四个独立预算，混淆它们是"放不下"的最常见原因。
 | **会话 checkpoint** | `session_capacity` × `session_checkpoint_bytes` | 能保活多少个会话 |
 
 ```
-GPU KV 需求       ≈ 17,408 B/token × (B + R) + 0.39 GiB（3 个 GDN 组的固定状态；与上下文无关）
-历史 token 总量   ≈ cpu_read_cache_bytes / 17,408     # 每 rank，被所有会话共享
+GPU KV 需求       ≈ 16,384 B/token × (B + R) + 0.39 GiB（3 个 GDN 组的固定状态；与上下文无关）
+历史 token 总量   ≈ cpu_read_cache_bytes / 16,384     # 每 rank，被所有会话共享
 对应主机内存      = 上面数值 × 2                      # TP=2 在同一台机器上有两份 archive
 会话数 × CTX      ≤ 历史 token 总量                   # 否则新会话只能排队
 ```
 
+`16,384 B/token` 对本 checkpoint 是精确值：16 个 full-attention 层 × (4 KV heads / TP2 = 2) ×
+head_dim 256 × 2(K+V) × 1 B(fp8)。引擎两处独立读数一致：`archive.json` 每 32-token 记录
+524,288 B，`cache-geometry.json` 每 1,648 token 一页 27,000,832 B。
+**所以一个 256K 会话 = 4.0 GiB 归档/rank（TP2 合计 8.0 GiB），另加约 0.17 GiB 会话 checkpoint
+（与历史长度无关，由窗口大小决定）。**
+
 默认（已实测）：B=36K、R=8K（窗口 45,056）、CTX=256K、`gpu_memory_utilization=0.92`、
 `prefill_chunk_tokens=2,048`、`query_replay_budget=4,096`、`session_capacity=1`、
-`cpu_read_cache_bytes=6 GiB`、`mm_gdn_prefill_backend=flashqla_legacy`。
+`cpu_read_cache_bytes=8 GiB`、`mm_gdn_prefill_backend=flashqla_legacy`。
 
 > `query_replay_budget` 默认等于 R，约 **180 KiB/token** 的显存；不显式设置它，
 > 48K 窗口看起来就"永远放不下"。这是最容易踩的坑。
