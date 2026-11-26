@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.15
+
+Unified window and single-request defaults.
+
+- **Both lanes ship B=36K, R=4K** (window 40,960) with `max_num_seqs=1` and
+  `session_capacity=1`. One window per step keeps the attention floor at
+  `1 x ceil(window/page) + 1 = 29` pages, which leaves the pool far from the
+  transient limit: a 3.0 GiB DFlash2 pool now allocates `[10, 10, 10, 85, 6]`.
+- **Sessions still rotate**: with `session_capacity=1` and the LRU eviction
+  default, three distinct conversations ran back to back (`miss08` x 3, cold 2.4K
+  prefill 0.78 s median) instead of the second one hanging.
+- Local tuning keeps a 3.1 GiB DFlash2 pool so B can be 42K; the shipped default
+  stays at 3.0 GiB / 36K.
+
 ## 0.6.14
 
 Shipped defaults target a 24 GB host.

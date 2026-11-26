@@ -20,7 +20,7 @@
   "kvmem": {
     "block_tokens": 32,
     "select_budget": 36864,
-    "gen_budget": 8192,
+    "gen_budget": 4096,
     "repository_blocks": 16384,
     "sink_blocks": 256,
     "recent_blocks": 64,
