@@ -206,18 +206,30 @@ class ReservedKVCacheManager:
                 f"({[(type(self.groups[i]).__name__, b) for i, _, b in self.extra_pools]})")
 
     def _extra_pool_capacity(self, extra_requests=1):
-        """Batch-wide rings are reserved once; per-request pools scale with requests."""
+        """Can `extra_requests` more requests hold their side-pool reservation?
+
+        Peers that are already admitted have *physically* taken their pages, and
+        `get_num_free_blocks()` already excludes them. Counting their credit a
+        second time made a 17-page pool with 8 pages per request reject the
+        second request forever (16 x 2 > 8 free). Scale only by the requests
+        being admitted now; batch-wide rings are reserved once.
+        """
         if not self.extra_pools:
             return True
         per_pool = {}
         for index, pool, blocks in self.extra_pools:
-            entry = per_pool.setdefault(id(pool), [pool, 0, False])
+            if index in self.shared_side_pools:
+                # Batch-wide ring: the engine sizes it for
+                # `attention_chunk_size + max_in_flight_tokens` across the whole
+                # step and its own allocator enforces that while the batch runs.
+                # KVMem cannot reserve it per request: one request already holds
+                # part of the ring, so demanding the full ring again for the next
+                # request rejected it forever (66 pages needed, 57 free).
+                continue
+            entry = per_pool.setdefault(id(pool), [pool, 0])
             entry[1] += blocks
-            entry[2] = entry[2] or index in self.shared_side_pools
-        admitted = len(self.reservations) + extra_requests
-        for pool, blocks, shared in per_pool.values():
-            demand = blocks if shared else blocks * admitted
-            if demand > pool.get_num_free_blocks():
+        for pool, blocks in per_pool.values():
+            if blocks * extra_requests > pool.get_num_free_blocks():
                 return False
         return True
 
@@ -540,7 +552,6 @@ class ReservedKVCacheManager:
             self.authority_rejections += 1
             return None
         if existing is None and not self._extra_pool_capacity(1):
-            # One constant reservation per active request in every side pool.
             self.rejections += 1
             return None
         # A terminal speculative step may verify a full block and draft another
