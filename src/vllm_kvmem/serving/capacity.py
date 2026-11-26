@@ -69,6 +69,7 @@ class ReservedKVCacheManager:
         # per-request reservation: a draft ring is set by the draft window, not
         # by the context.
         self.extra_pools = []
+        self.shared_side_pools = set()
         # The resident worst case is the KVMem window (select+gen), not the
         # logical context, so a side pool must reserve the window per request.
         # Read the window from the connector options the manager already holds:
@@ -104,6 +105,14 @@ class ReservedKVCacheManager:
                         raise ValueError('Unqualified draft sliding-window reservation')
                     blocks = spec.max_admission_blocks_per_request(
                         vllm_config.max_in_flight_tokens + self.lookahead, native.max_model_len)
+                    # The draft ring is sized from `max_in_flight_tokens`, which
+                    # the engine defines as a *batch-wide* bound ("every
+                    # concurrent batch may hold up to a full
+                    # max_num_batched_tokens"). One ring serves every request in
+                    # the step, so charging it per admitted request demanded a
+                    # second ring per request and permanently rejected the
+                    # second request.
+                    self.shared_side_pools.add(index)
                 elif type(spec) is MambaSpec:
                     blocks = 1 + spec.num_speculative_blocks
                 elif type(spec) is FullAttentionSpec:
@@ -197,16 +206,20 @@ class ReservedKVCacheManager:
                 f"({[(type(self.groups[i]).__name__, b) for i, _, b in self.extra_pools]})")
 
     def _extra_pool_capacity(self, extra_requests=1):
-        """Every admitted request holds one constant reservation in each side pool."""
+        """Batch-wide rings are reserved once; per-request pools scale with requests."""
         if not self.extra_pools:
             return True
         per_pool = {}
-        for _, pool, blocks in self.extra_pools:
-            entry = per_pool.setdefault(id(pool), [pool, 0])
+        for index, pool, blocks in self.extra_pools:
+            entry = per_pool.setdefault(id(pool), [pool, 0, False])
             entry[1] += blocks
+            entry[2] = entry[2] or index in self.shared_side_pools
         admitted = len(self.reservations) + extra_requests
-        return all(blocks * admitted <= pool.get_num_free_blocks()
-                   for pool, blocks in per_pool.values())
+        for pool, blocks, shared in per_pool.values():
+            demand = blocks if shared else blocks * admitted
+            if demand > pool.get_num_free_blocks():
+                return False
+        return True
 
     def __getattr__(self, name):
         return getattr(self.native, name)
