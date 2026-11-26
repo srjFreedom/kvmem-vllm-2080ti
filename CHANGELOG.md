@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.6.6
+
+DFlash2 lane is production-ready: B=46K / R=8K / 3.0 GiB pool / 2 concurrent.
+
+- **Admission reserve.** Native speculation appends lookahead rows on top of the admitted extent;
+  without the reserve the allocation overshoots the window and raises `RefreshRequired` on a step
+  with no forward to drive the refresh. `admission_reserve = max(lookahead, spec+1)` stops admission
+  that many tokens short of capacity.
+- **Native page charge.** Demand was computed in guided-block units (32 tokens) instead of native
+  page units, inflating demand ~50× and rejecting requests that physically fit. Now charges in
+  `block_pool.block_size`.
+- **Align-state env.** `mamba_cache_mode=align` sets `KVMEM_DFLASH_ALIGN_STATE=1` so the capacity
+  planner accepts the align geometry.
+- **`mamba_block_size` defaults to `max_model_len`.** The profile no longer pins 1,648. Each request
+  holds 1 GDN state page + 7 speculative tail = 8 pages, the same geometry as the MTP lane.
+
+Measured: 100K cold prefill **1,162 tok/s**; 2-concurrent cold 57K+62K both pass with 696 MiB peak
+headroom; decode 180 tok/s repetitive, 110+ tok/s code.
+
+## 0.6.5
+
+MTP defaults to `compiled_graph`; chat rides the rolling window; DFlash2 draft support.
+
+- **MTP `compiled_graph`.** torch.compile + `FULL_AND_PIECEWISE` beats `full_graph`: code 66.8 vs
+  59.4 tok/s (+12%), repeat 103.6 vs 95.2 tok/s (+9%).
+- **Chat through the rolling window.** `/v1/chat/completions` is rendered with the served tokenizer
+  and planned through the same B/R window.
+- **DFlash2 k=7, W4A16 draft.** 4-bit draft (1.19 GB) loads and serves at the engine's per-step cost:
+  45.5 vs 45.7 ms. Needs `patches/0003`–`0005`.
+- **`enable_prefix_caching` switch.** The profile can now ask for APC.
+- **Draft page alignment.** `VLLM_MAMBA_NONE_SMALL_BLOCK=1` gives the draft attention-sized pages.
+
 ## 0.6.3
 
 Prefill runs as chunked prefill with one windowed retrieval per slide.

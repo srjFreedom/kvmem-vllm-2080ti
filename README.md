@@ -25,27 +25,28 @@ configuration for two 22 GB Turing cards.
 
 ---
 
-## What's new in 0.6.5
+## What's new in 0.6.6
 
 | change | why it matters |
 |---|---|
-| **MTP defaults to `compiled_graph`** | torch.compile + `FULL_AND_PIECEWISE` beats `full_graph` on the same profile: code **66.8 vs 59.4 tok/s (+12%)**, repeat **103.6 vs 95.2 tok/s (+9%)** |
-| **Chat rides the rolling window** | `/v1/chat/completions` used to be rejected with *"Rolling active window requires a token-ID completion prompt"*. The middleware now renders the messages with the served tokenizer and plans the chat request through the same B/R window, so chat no longer bypasses the mechanism |
-| **DFlash2 draft support** | DFlash2 k=7 with a **4-bit W4A16 draft** (`syvai/Qwen3.8-27B-DFlash2-W4A16`, 1.28 GB) loads and serves at the pristine engine's per-step cost: code **93.6 tok/s**, repeat **170.6 tok/s** against **151 / 254** on the engine alone. Needs the engine-side DFlash2 patch stack (see below) |
-| **`enable_prefix_caching` switch** | the launcher used to hardcode `--no-enable-prefix-caching`; the profile can now ask for APC. The DFlash2 contract still requires it off |
-| **Draft page geometry knob** | `VLLM_DFLASH_DRAFT_PAGE_ALIGN=1` makes an APC-free target give the draft attention-sized pages: 6 ms/step better on the engine alone. The DFlash2 launcher sets it |
-| **Diagnostics passthrough** | `PER_REQUEST_SPEC_DECODE_METRICS`, `VLLM_LOG_STATS_INTERVAL`, `VLLM_TORCH_PROFILER_DIR` now reach the engine, and `extra_vllm_args` carries argv-level diagnostics such as `--profiler-config` |
+| **DFlash2 lane is production-ready** | B=46K / R=8K / 3.0 GiB pool / 2 concurrent: 100K cold prefill **1,162 tok/s**, two distinct 57K+ prompts decode together with 696 MiB headroom. The lane ships as `deploy/example-dflash2-launcher.sh` + `local/serve-2080ti-dflash2.json` |
+| **Admission reserve** | Native speculation appends lookahead rows on top of the admitted extent; without the reserve the allocation overshoots the window and raises `RefreshRequired` on a step with no forward to drive the refresh — an EngineCore spin. `admission_reserve = max(lookahead, spec+1)` stops admission that many tokens short |
+| **Native page charge** | Demand was computed in guided-block units (32 tokens) instead of native page units (1,648 tokens), inflating the pool demand ~50× and rejecting requests that physically fit. Now charged in `block_pool.block_size` |
+| **Align-state env** | `mamba_cache_mode=align` now sets `KVMEM_DFLASH_ALIGN_STATE=1` so the capacity planner accepts the align geometry (small resident GDN state, draft merged into the target pool) |
+| **`mamba_block_size` defaults to `max_model_len`** | The profile no longer pins 1,648. With the engine default each request holds 1 GDN state page + 7 speculative tail = 8 pages, the same geometry as the MTP lane. Pinning 1,648 made the state dense (42 pages/group at 57K ≈ 3.2 GiB) and OOMed the 3 GiB pool |
 
-Measurement notes for the DFlash2 lane (all on the same box, `B=48K`, `R=8K`, pool 3.5 GiB):
+DFlash2 lane measurements (2 × RTX 2080 Ti, FP8 target, W4A16 draft, `B=47,104`, `R=8,192`, pool 3.0 GiB):
 
-- **Per step the lane costs what the engine costs.** The same checkpoint and draft run at 45.5 ms/step
-  under KVMem against 45.7 ms/step on the pristine engine; the scheduler accounts for 0.14 ms and the
-  connector hooks for 0.11 ms, so the route adds nothing measurable to the decode loop.
-- Pool ceiling with the FP8 target (28.7 GB weights): **4.0 GiB works, 4.5 GiB OOMs at startup**. With the
-  NVFP4 target (18.8 GB weights) 5 GiB is reachable.
-- Concurrency is a pool-versus-window trade at 3.5 GiB: `B=48K` admits a second request at **1.09x**
-  aggregate, `B=40K` gives 1.17x, `B=32K` 1.16x. A 1.59x at three requests and 4 GiB was measured once
-  and did not reproduce.
+- **100K cold prefill: 1,162 tok/s** (86.1 s). R sensitivity: R=4K → 1,136 (−2.2%), R=2K → 1,060 (−8.3%).
+  The window is `B+R`, so a smaller R means more slide refreshes on a long prompt.
+- **2-concurrent cold** (two distinct 57K/62K prompts, archive cleared): both pass, peak headroom
+  **696 MiB**. Sliding shared pages let the physical pool reuse across refreshes; `capacity=B+R` is a
+  logical bound, not a per-request physical reservation.
+- **Pool ceiling: 3.0 GiB.** 3.2 GiB OOMs at prefill completion (~192 MiB transient + ~700 MiB runtime
+  residency growth). The DFlash2 draft (1.19 GiB/rank) costs ~0.8 GiB more than the MTP head (0.40 GiB),
+  which is why the MTP lane reaches 4.0 GiB and DFlash2 stops at 3.0.
+- **Per-step parity with the engine**: 45.5 ms/step under KVMem vs 45.7 ms on the pristine engine.
+  Decode: 180 tok/s on repetitive text, 110+ tok/s on code generation.
 
 Engine-side prerequisites for the DFlash2 route (they live in the engine fork, not here):
 
@@ -93,7 +94,9 @@ layers, weight-only FP8, BF16 `lm_head`), TP = 2, `dtype=float16`, `kv-cache-dty
 | multi-session alternation | each session hits (0.25–0.40 s) |
 | concurrency | independent sessions **decode in one step**; refresh and archive stay serial |
 | **MTP `compiled_graph` vs `full_graph`** | code **66.8 vs 59.4 tok/s (+12%)**, repeat **103.6 vs 95.2 tok/s (+9%)** |
-| **DFlash2 k=7, 4-bit W4A16 draft** | code **93.6 tok/s**, repeat **170.6 tok/s**; pristine engine on the same draft: **151 / 254** (per-step parity: 45.5 vs 45.7 ms) |
+| **DFlash2 k=7, 4-bit W4A16 draft** | decode **180 tok/s** repetitive, **110+ tok/s** code; per-step parity 45.5 vs 45.7 ms |
+| **DFlash2 100K cold prefill** | **1,162 tok/s** (B=46K/R=8K, 3.0 GiB pool) |
+| **DFlash2 2-concurrent cold** | two distinct 57K/62K prompts, peak headroom **696 MiB** |
 | **Chat over the rolling window** | `/v1/chat/completions` accepted under `rolling_active_window`, planned through the same B/R window |
 
 Details and the exact commands: [docs/sm75/VERIFICATION.md](docs/sm75/VERIFICATION.md).
@@ -233,34 +236,30 @@ arithmetic: [docs/sm75/CONFIGURATION.md](docs/sm75/CONFIGURATION.md).
 ## DFlash2 route
 
 `draft_method=dflash`, `draft_tokens=7`, no bounded planner: the engine sizes the pool and KVMem
-opens windows at runtime, so the route keeps the MTP lane's shape — 262K logical context, B=48K,
-3.5 GiB pool, two concurrent requests.
+opens windows at runtime. The shipped lane runs B=46K, R=8K, 3.0 GiB pool, 2 concurrent.
 
-**Draft we run: [`syvai/Qwen3.8-27B-DFlash2-W4A16`](https://huggingface.co/syvai/Qwen3.8-27B-DFlash2-W4A16)**
-— 4-bit pack-quantized (compressed-tensors, group 128), 1.28 GB. It needs the engine's W4A16
-draft patch ([`weicj/vLLM-2080Ti-Definitive#265`](https://github.com/weicj/vLLM-2080Ti-Definitive/pull/265)),
-which reads the draft's K/V rows through the quantization kernel instead of a dense `.weight`.
+**Draft: [`syvai/Qwen3.8-27B-DFlash2-W4A16`](https://huggingface.co/syvai/Qwen3.8-27B-DFlash2-W4A16)**,
+1.19 GB, 4-bit pack-quantized (compressed-tensors, group 128). It stays essentially whole per rank
+(TP2), which is why the DFlash2 pool ceiling is ~3.0 GiB versus 4.0 GiB on the MTP lane: the draft
+costs 0.79 GiB/rank more than the MTP head. Needs the engine's W4A16 draft patch
+([`weicj/vLLM-2080Ti-Definitive#265`](https://github.com/weicj/vLLM-2080Ti-Definitive/pull/265)).
 
-The BF16 draft [`incoai/Qwen3.8-27B-DFlash2`](https://huggingface.co/incoai/Qwen3.8-27B-DFlash2)
-(3.85 GB) also works and is the pairing the engine's own profiles use; it costs 1.3 GB per card
-more, which comes straight out of the KV pool.
-
-**Block-FP8 drafts do not work here.** Every `DFlash2-FP8` artifact we tried (the published one and
-two we quantized ourselves, including a build with only `o_proj` quantized) drops the acceptance
+**Block-FP8 drafts do not work here.** Every `DFlash2-FP8` artifact we tried drops the acceptance
 length to 1.0 — no speculation at all. The weights are sound (dequantizing reproduces the BF16
-tensor within 2%), so the failure is in the FP8 forward path for this five-layer draft, not in the
-checkpoint. Treat FP8 drafts as unsupported on SM75.
+tensor within 2%), so the failure is in the FP8 forward path for this five-layer draft. Treat FP8
+drafts as unsupported on SM75.
 
 Boundaries of the route:
 
 | boundary | detail |
 |---|---|
-| concurrency | **2** at the 3.5 GiB pool. The two windows advance in one step; B and the pool decide how many fit — measured `B=48K` **1.09x** aggregate with a second request, `B=40K` 1.17x, `B=32K` 1.16x |
+| concurrency | **2** at the 3.0 GiB pool. Two distinct 57K+ prompts decode together with 696 MiB peak headroom; sliding shared pages reuse the physical pool across refreshes |
 | prefix caching | must stay **off** (`draft_contract.py`: DFlash2 requires APC-off GDN state) |
 | KV layout | `BLHNC` — the target and the draft have mixed page sizes |
-| KV pool | FP8 target (28.7 GB weights): **4.0 GiB works, 4.5 GiB OOMs at startup**; NVFP4 target (18.8 GB): 5 GiB reachable |
-| pool floors | from `patches/0005`: the recurrent pool needs `2 + k` blocks per admitted request (live state + speculation + the null block), the draft ring needs `max_in_flight_tokens + lookahead`, and both scale with `max_num_seqs`. A budget clamp smaller than a floor is the "page pool cannot fit one request" startup failure |
-| step cost | **the same as the engine**: 45.5 ms/step against 45.7 ms on the same checkpoint and draft, i.e. ≈171 tok/s on the repeat prompt, 93.6 on code (pristine engine: 151 / 254) |
+| KV pool | **3.0 GiB** with the FP8 target. 3.2 GiB OOMs at prefill completion (~192 MiB transient + ~700 MiB runtime residency). The MTP lane reaches 4.0 GiB because its head is 0.40 GiB/rank vs the draft's 1.19 GiB |
+| pool floors | from `patches/0005`: the recurrent pool is floored at `max(req+1, max_num_seqs*req + 1)` so the draft's GDN state and speculative tail always have a page |
+| step cost | **the same as the engine**: 45.5 ms/step against 45.7 ms. Decode: 180 tok/s repetitive, 110+ tok/s code |
+| 100K prefill | **1,162 tok/s** (B=46K/R=8K). R=4K → 1,136 (−2.2%), R=2K → 1,060 (−8.3%): the window is B+R, so a smaller R means more slide refreshes |
 | chat | native — with no rolling window there is no token-id planning to render for |
 
 One lane is shipped for this route: `deploy/example-dflash2-launcher.sh` with
@@ -272,7 +271,7 @@ One lane is shipped for this route: `deploy/example-dflash2-launcher.sh` with
 1. **Concurrency is batched, not free.** Independent sessions decode in one step — the MTP lane runs
    `max_num_seqs=3` and three windowed sessions advance together — but window refresh and archiving
    stay serialized, so a session that needs a rebuild makes the others wait for that step. The DFlash2
-   lane runs `max_num_seqs=2`, limited by what the 3.5 GiB pool holds alongside the draft
+   lane runs `max_num_seqs=2`, limited by what the 3.0 GiB pool holds alongside the draft
    (see [DFlash2 route](#dflash2-route)).
 2. **Rolling window mode** (`rolling_active_window=true`) plans from token ids. `/v1/completions`
    takes them directly; from 0.6.5 a `/v1/chat/completions` request is rendered with the served

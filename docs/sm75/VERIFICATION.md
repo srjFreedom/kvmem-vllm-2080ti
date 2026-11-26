@@ -11,8 +11,9 @@ Every number below was measured on this host, on the hardware and software liste
 | model | 27B FP8 hybrid: 16 full-attention + 48 GDN layers, weight-only FP8, BF16 `lm_head`, native MTP |
 | TP / dtype | 2 / `float16` (SM75 has no bfloat16) |
 | KV dtype | `fp8_e4m3` (KVMem's required spelling; `fp8` is the same alias upstream) |
-| engine | `vLLM-2080Ti-Definitive` @ `01506a5471` = vLLM `0.2.2.post3` + one 15-line patch |
-| plugin | this repository (`vllm_kvmem 0.6.0`) |
+| engine | `vLLM-2080Ti-Definitive` @ `01506a5471` = vLLM `0.2.2.post3` + patches 0001–0005 |
+| plugin | this repository (`vllm_kvmem 0.6.6`) |
+| DFlash2 lane | `local/serve-2080ti-dflash2.json` (B=46K, R=8K, pool 3.0 GiB, 2 concurrent) |
 
 ## Startup
 
@@ -47,6 +48,9 @@ Every number below was measured on this host, on the hardware and software liste
 | prose generation, MTP2 | 46.4 tok/s | 47.3 tok/s |
 | prose generation, MTP4 | 44.6 tok/s | 45.1 tok/s |
 | prefill, 4.1K cold | 1,021–1,063 tok/s | 1,174 tok/s |
+| DFlash2 decode, W4A16 draft | **180 tok/s** repetitive, **110+ tok/s** code | 151 / 254 |
+| DFlash2 100K cold prefill | **1,162 tok/s** (B=46K/R=8K, 3.0 GiB) | — |
+| DFlash2 2-concurrent cold | two distinct 57K/62K prompts, headroom **696 MiB** | — |
 
 Decode is bound by the Marlin FP8 weight GEMM (52 % of GPU time, ≈30 ms/step) plus the MTP draft
 GEMV (18 %); fp8 KV costs nothing measurable (fp16 KV 47.8 vs fp8 48.4 tok/s for the pristine engine),
