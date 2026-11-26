@@ -66,6 +66,11 @@ MISS_LOG = os.environ.get("KVMEM_SESSION_MISS_LOG", "/tmp/kvmem_session_miss.jso
 
 FATAL = re.compile(r"(ValueError: |RuntimeError: |EngineDeadError|engine core initialization failed"
                    r"|CUDA out of memory|Traceback \(most recent call last\))")
+# Torch logs recoverable failures as W-prefixed warnings with a full traceback, e.g.
+# ``W1126 ... triton_bundler.py:242] RuntimeError: ('Cubin file saved by
+# TritonBundler not found at %s', ...)``. Those are a fallback to JIT, not a dead
+# engine, so they must not abort a start that is still progressing.
+BENIGN = re.compile(r"\bW\d{4}\b|triton_bundler\.py|Cubin file saved by TritonBundler")
 
 def http(path, timeout=5.0, data=None):
     req = urllib.request.Request(BASE + path, data=data,
@@ -160,7 +165,8 @@ def cmd_start(args):
 def _tail(path, pattern, quiet=False):
     try:
         with open(path, "r", errors="replace") as fh:
-            lines = [l for l in fh.read().splitlines() if pattern.search(l)]
+            lines = [l for l in fh.read().splitlines()
+                     if pattern.search(l) and not (pattern is FATAL and BENIGN.search(l))]
         if not lines:
             return ""
         if quiet:
