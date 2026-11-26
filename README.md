@@ -1,18 +1,22 @@
 # KVMem on 2× RTX 2080 Ti (SM75)
 
-A serving stack for 22 GB Turing cards: the **bounded KV window** lives on the GPU, the **full history
-in host RAM**, and relevant history is selected back into the window per request.
+**200K-token prefill at 1,000+ tok/s on 22 GB Turing cards, with concurrent sessions.**
 
-- **Long context on small VRAM** — a 262K-token conversation runs on a 4 GiB KV pool; past the window,
-  history is served from the host archive.
-- **Sessions stay warm** — per-session checkpoints resume a continued conversation in ~0.3 s instead of
-  re-prefilling it, and several sessions can be kept side by side.
-- **Concurrency without more VRAM** — independent sessions decode in one scheduling step; refresh and
-  archiving stay serialized, so the pool holds one window per step rather than one per request.
-- **Two speculative routes on one engine** — MTP4 and DFlash2 k=7 (4-bit W4A16 draft, 1.28 GB), both on
-  the compiled-graph path.
-- **Repeats are almost free** — a prompt whose cold prefill took 196 s is re-served from the archive in
-  1.36 s; a continuation above the window went from 7.5 s to 0.33 s.
+FP8 weight-only quantization is what makes this possible: the 27B model's weights drop from 54 GB to
+28.7 GB, leaving enough VRAM for a multi-GiB KV pool *and* a speculative draft on two 22 GB cards.
+KVMem then bounds the resident window (B+R tokens on GPU, full history in host RAM) so the pool
+serves **concurrent requests** instead of one giant context. The result:
+
+- **200K cold prefill: 1,020 tok/s** (196 s) on a 4 GiB KV pool — the pool holds a 53K-token window,
+  not the full 200K.
+- **Concurrent decode without more VRAM** — independent sessions decode in one scheduling step; the
+  pool holds one window per step, not one per request.
+- **Sessions stay warm** — per-session checkpoints resume a continued conversation in ~0.3 s instead
+  of re-prefilling it.
+- **Two speculative routes on one engine** — MTP4 and DFlash2 k=7 (4-bit W4A16 draft, 1.19 GB), both
+  on the compiled-graph path. DFlash2 lane: 100K prefill at **1,162 tok/s**, 2 concurrent.
+- **Repeats are almost free** — a prompt whose cold prefill took 196 s is re-served from the archive
+  in 1.36 s (≈365×).
 
 The engine is the SM75-capable vLLM fork listed under [Credits](#credits); the KVMem mechanism comes
 from [`kvmem/kvmem-vllm`](https://github.com/kvmem/kvmem-vllm). What lives here is the integration: the
@@ -20,8 +24,6 @@ SM75 window/session layer, the DFlash2 route and its engine patches, the profile
 configuration for two 22 GB Turing cards.
 
 *中文文档：[README.zh-CN.md](README.zh-CN.md)*
-
----
 
 ---
 
