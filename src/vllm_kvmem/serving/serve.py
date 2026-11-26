@@ -669,6 +669,14 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
     env['KVMEM_CHAT_PREFILL_BLOCKS'] = str(cfg['chat_prefill_blocks'])
     # The rolling window plans a chat request from its rendered token ids.
     env['KVMEM_TOKENIZER_PATH'] = str(cfg['tokenizer'])
+    # Operator-exported KVMem knobs must reach the engine. `env` above is built
+    # from scratch, so a launcher that exports a switch such as
+    # KVMEM_SESSION_IDLE_LRU_EVICTION leaves the engine on the default: a full
+    # session ledger then reports miss07 forever and new sessions are never
+    # admitted, even though the operator asked for LRU eviction.
+    for _name, _value in os.environ.items():
+        if _name.startswith('KVMEM_'):
+            env.setdefault(_name, _value)
     # Operator-visible diagnostics pass through the curated engine environment.
     for _passthrough in ('PER_REQUEST_SPEC_DECODE_METRICS', 'VLLM_LOG_STATS_INTERVAL',
                          'VLLM_TORCH_PROFILER_DIR'):
