@@ -14,7 +14,7 @@ serves **concurrent requests** instead of one giant context. The result:
 - **Sessions stay warm** — per-session checkpoints resume a continued conversation in ~0.3 s instead
   of re-prefilling it.
 - **Two speculative routes on one engine** — MTP4 and DFlash2 k=7 (4-bit W4A16 draft, 1.19 GB), both
-  on the compiled-graph path. DFlash2 lane: 100K prefill at **1,162 tok/s**, 2 concurrent.
+  on the compiled-graph path. DFlash2 lane: 100K prefill at **1,162 tok/s**.
 - **Repeats are almost free** — a prompt whose cold prefill took 196 s is re-served from the archive
   in 1.36 s (≈365×).
 
@@ -31,7 +31,7 @@ configuration for two 22 GB Turing cards.
 
 | change | why it matters |
 |---|---|
-| **DFlash2 lane is production-ready** | shipped profile B=36K / R=8K / 3.0 GiB pool / 2 concurrent; measured at B=46K, 100K cold prefill **1,162 tok/s**, two distinct 57K+ prompts decode together with 696 MiB headroom. The lane ships as `deploy/example-dflash2-launcher.sh` + `local/serve-2080ti-dflash2.json` |
+| **DFlash2 lane is production-ready** | shipped profile B=36K / R=8K / 3.0 GiB pool; measured at B=46K, 100K cold prefill **1,162 tok/s**. The lane ships as `deploy/example-dflash2-launcher.sh` + `local/serve-2080ti-dflash2.json` |
 | **Admission reserve** | Native speculation appends lookahead rows on top of the admitted extent; without the reserve the allocation overshoots the window and raises `RefreshRequired` on a step with no forward to drive the refresh — an EngineCore spin. `admission_reserve = max(lookahead, spec+1)` stops admission that many tokens short |
 | **Native page charge** | Demand was computed in guided-block units (32 tokens) instead of native page units (1,648 tokens), inflating the pool demand ~50× and rejecting requests that physically fit. Now charged in `block_pool.block_size` |
 | **Align-state env** | `mamba_cache_mode=align` now sets `KVMEM_DFLASH_ALIGN_STATE=1` so the capacity planner accepts the align geometry (small resident GDN state, draft merged into the target pool) |
@@ -244,7 +244,7 @@ arithmetic: [docs/sm75/CONFIGURATION.md](docs/sm75/CONFIGURATION.md).
 ## DFlash2 route
 
 `draft_method=dflash`, `draft_tokens=7`, no bounded planner: the engine sizes the pool and KVMem
-opens windows at runtime. The shipped profile runs B=36K, R=8K, 3.0 GiB pool, 2 concurrent
+opens windows at runtime. The shipped profile runs B=36K, R=8K, 3.0 GiB pool
 (window 45,056 = 28 attention pages, so two concurrent windows need 56 of the pool's 66 pages).
 The numbers below were measured with `--set kvmem.select_budget=47104`, a B=46K override. B=36K is
 strictly better on both counts: a smaller window means less attention work per token, so prefill
@@ -268,7 +268,7 @@ Boundaries of the route:
 
 | boundary | detail |
 |---|---|
-| concurrency | **2** at the 3.0 GiB pool. Two distinct 57K+ prompts decode together with 696 MiB peak headroom; sliding shared pages reuse the physical pool across refreshes |
+| concurrency | **1 on this route.** Each admitted request is charged a full window, so a 3.0 GiB pool serves one request at a time and the next one queues until it finishes; measured `running=1` at B=36K/44K/46K and at `max_num_seqs=2`/`3`. The MTP lane reaches `running=2` on the same host. Two-way DFlash2 concurrency is a goal, not a shipped property |
 | prefix caching | must stay **off** (`draft_contract.py`: DFlash2 requires APC-off GDN state) |
 | KV layout | `BLHNC` — the target and the draft have mixed page sizes |
 | KV pool | **3.0 GiB** with the FP8 target. 3.2 GiB OOMs at prefill completion (~192 MiB transient + ~700 MiB runtime residency). The MTP lane reaches 4.0 GiB because its head is 0.40 GiB/rank vs the draft's 1.19 GiB |
