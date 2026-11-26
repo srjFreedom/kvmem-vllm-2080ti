@@ -43,8 +43,16 @@ flat in practice (13.5K and 107.8K histories both measure ~101 MB of payload).
 
 `cpu_read_cache_bytes` is a **per-rank** budget, not a host-wide one: each TP worker builds its own
 private `MemoryArchive` (plain anonymous CPU memory, no mmap sharing). TP=2 therefore doubles every
-number above. The shipped profile sets 8 GiB/rank = 524,288 tokens, which is exactly
-`repository_blocks (16,384) × block_tokens (32)`.
+number above. The shipped profile sets **6 GiB/rank = 12 GiB for the pair**, because the archive has a
+hard floor: it must fit one complete trajectory,
+
+```
+floor per rank = (ceil(max_model_len / 32) + 2) x 524,288 bytes
+200K context -> 3.13 GiB/rank      262K context -> 4.00 GiB/rank
+```
+
+and the engine itself occupies ~8.3 GiB, so a 24 GB host carries `8.3 + 2 x 6 = 20.3 GiB`. A 262K
+context would need 4 GiB/rank (8 GiB) and push the total to ~16.3 GiB before any slack.
 
 ### Worked example — B = 36K, R = 4K (window 40,960), CTX = 256K, one session
 

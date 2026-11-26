@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.14
+
+Shipped defaults target a 24 GB host.
+
+- **Context 200K, archive 6 GiB/rank (12 GiB for TP=2).** The archive has a hard floor: it must fit
+  one complete trajectory, `(ceil(max_model_len/32) + 2) x 524,288` bytes per rank - 3.13 GiB for
+  200K, 4.00 GiB for 262K. With the engine's ~8.3 GiB that makes a 24 GB host the smallest sane
+  target (`8.3 + 2 x 6 = 20.3 GiB`); the previous 262K context needed 16.3 GiB before any slack.
+- **`session_capacity` must be at least `max_num_seqs`.** With 1 slot and 2 concurrent requests the
+  second was refused 1,656 times (`miss10`) and ran only after the first finished; the DFlash2
+  profile now ships 2 (MTP keeps 1 because it runs one request).
+- **DFlash2 pool 3.05 GiB.** The capacity plan needs 3.03 GiB once every group keeps its spare page;
+  a pinned 3.00 GiB pool either overshoots by 30 MiB or, if the spare pages are taken back, starves
+  the decode lookahead and the engine spins (both measured).
+- Profiles: DFlash2 B=42K / R=4K / pool 3.05 GiB / chunk 1024 / 2 concurrent; MTP B=36K / R=8K /
+  pool 3.5 GiB / chunk 1024.
+
 ## 0.6.13
 
 New shipped defaults, all measured on this box.

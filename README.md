@@ -120,7 +120,10 @@ Details and the exact commands: [docs/sm75/VERIFICATION.md](docs/sm75/VERIFICATI
 
 - 2 × RTX 2080 Ti / Titan Turing (SM75), 22 GB each. The 27B FP8 checkpoint needs TP = 2 (~32 GB of
   weights); a single 22 GB card cannot hold it.
-- 16 GB+ host RAM for 256K logical context (see the capacity table below).
+- **24 GB host RAM** for the shipped 200K logical context. The archive must hold one full
+  trajectory: `(max_model_len/32 + 2) x 524,288` bytes **per rank**, so 200K needs 3.13 GiB/rank and
+  the shipped 6 GiB/rank budget leaves room. The engine itself is ~8.3 GiB, so TP=2 needs
+  `8.3 + 2 x 6 = 20.3 GiB` and 24 GB covers the rest.
 - Linux, a working CUDA 13.x driver, Python 3.12, and the engine's virtualenv build from its
   repository (see that repo's own README for its toolchain and build script). The plugin needs
   nothing but the engine venv; `install.sh` handles the patch and the editable install.
@@ -238,9 +241,9 @@ head_dim 256 × 2 (K+V) × 1 byte (fp8). Measured from the engine both ways — 
 over 1,648 tokens. So **one 256K-token session costs 4.0 GiB of archive per rank, 8.0 GiB for TP=2**,
 plus ~0.17 GiB of session checkpoint (window-sized, independent of history length).
 
-Defaults (verified): B = 36K, R = 8K (window 45,056), CTX = 256K, `gpu_memory_utilization` = 0.92,
-`prefill_chunk_tokens` = 2,048, `query_replay_budget` = 4,096, `session_capacity` = 1,
-`cpu_read_cache_bytes` = 8 GiB, `mm_gdn_prefill_backend` = `flashqla_legacy`.
+Defaults (verified): MTP B = 36K / R = 8K at a 3.5 GiB pool, DFlash2 B = 42K / R = 4K at a
+3.05 GiB pool, CTX = 200K, `prefill_chunk_tokens` = 1,024, `chat_prefill_blocks` = 32,
+`cpu_read_cache_bytes` = 6 GiB/rank, `mm_gdn_prefill_backend` = `flashqla_legacy`.
 
 > `query_replay_budget` defaults to R and costs ~180 KiB of VRAM per token. Leaving it at 16K is what
 > made a 48K window look impossible; set it explicitly.
