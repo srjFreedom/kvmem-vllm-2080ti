@@ -207,7 +207,11 @@ class ReservedKVCacheManager:
             # num_gpu_blocks; guided_block_tokens (32) is the allocation grid, not
             # the pool unit, and mixing it with 1648-token mamba blocks inflated
             # the demand ~50x and rejected requests that physically fit.
-            unit = int(self.native.block_pool.block_size)
+            # Only the DFlash2 page pool exposes block_size; the plain native
+            # BlockPool does not, so keep the manager-grid unit for that route.
+            unit = int(getattr(self.native.block_pool, 'block_size', 0) or 0)
+            if unit <= 0:
+                unit = int(getattr(manager, 'guided_block_tokens', 0) or 0) or int(manager.block_size)
             # Only the working-set groups carry a streaming extent; a GDN/Mamba
             # group is a plain native manager with no such attribute.
             physical = getattr(manager, 'physical_tokens', None)
