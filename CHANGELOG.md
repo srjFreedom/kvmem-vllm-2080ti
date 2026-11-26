@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.6.11
+
+DFlash2 runs two requests concurrently with per-request `B+R` isolation.
+
+- **Draft shares the target's block geometry.** The draft kept a private
+  64-token block ring, so a request needed a 4,224-token ring of its own (66 of
+  67 pages); two requests needed 133 pages and the second was rejected on every
+  decode step once both contexts approached the ring limit — the engine spun on
+  empty steps (`running=2`, KV 100 %, GPU 0 %, 13,747 failed allocations). The
+  draft now uses the target manager block (1,648), so one request costs 4 draft
+  pages. The existing coarsening helper could never do this: it may only multiply
+  the draft block by a factor dividing the target alignment, and 1,648 = 16×103
+  has no multiple of 64.
+- **Attention is floored at one window per concurrent request.** The planner
+  trimmed the full-attention group below `max_num_seqs` windows; it now gets
+  `max_num_seqs × ceil((B+R)/page) + 1`.
+- **One spare recurrent page per request** so a full wave still has room for the
+  next lookahead.
+- Capacity now lands exactly on the 3.0 GiB budget: `[18, 18, 18, 59, 10]`.
+- Verified: two concurrent 2.4k/3.0k/4.0k-token generations all complete; the
+  MTP lane is unaffected and still reaches `running=2`.
+
 ## 0.6.10
 
 DFlash2 ships serial (`max_num_seqs=1`); two concurrent requests are not feasible

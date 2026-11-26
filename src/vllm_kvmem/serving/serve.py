@@ -622,6 +622,11 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
         # spellings consistently, before native workers import/init CUDA.
         env['PYTORCH_ALLOC_CONF'] = env['PYTORCH_CUDA_ALLOC_CONF'] = settings
     env['KVMEM_BOUNDED_MTP' if cfg['draft_method'] == 'mtp' else 'KVMEM_BOUNDED_DFLASH'] = '1'
+    if cfg['draft_method'] == 'dflash':
+        # Give the draft the target's manager block so its KV costs a couple of
+        # pages per request instead of a whole private ring: 66 -> 4 blocks per
+        # request, which is what makes two concurrent requests fit at all.
+        env['KVMEM_DFLASH_SHARE_TARGET_BLOCKS'] = '1'
     # 'align' GDN state layout: the engine keeps a small resident state set and the
     # DFlash draft merges into the target page pool. The capacity planner reads the
     # matching environment flag (capacity.py _align_state); without it the align
