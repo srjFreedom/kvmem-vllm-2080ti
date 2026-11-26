@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.10
+
+DFlash2 ships serial (`max_num_seqs=1`); two concurrent requests are not feasible
+at a 3.0 GiB pool.
+
+- **Why.** The draft ring is sized from `attention_chunk_size + max_in_flight_tokens`
+  (2,160 + 2,064 = 4,224 tokens = 66 blocks). Two requests must hold both draft
+  windows plus the in-flight tokens: 2×2,160 + 2,064 = 6,384 tokens = 100 blocks =
+  4.8 GiB, against the 67 blocks (4,288 tokens) the pool can give. Two requests do
+  start together, then deadlock: once both draft contexts approach the ring limit
+  the ring reports 0 free blocks, every decode allocation fails (13,747 in one
+  run), and the engine spins on empty steps (`running=2`, KV 100 %, GPU 0 %).
+- **Symptom.** Long generations hang permanently; short ones look fine, which is
+  why a 400-token test passed and a 3,000-token one did not.
+- Verified serial: 3,000-token generations complete in 39.5 s.
+- The 0.6.8 side-pool credit fixes are still required; without them even one
+  request per step was rejected.
+
 ## 0.6.8
 
 DFlash2 runs two requests concurrently (it was serial).
