@@ -622,6 +622,12 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
         # spellings consistently, before native workers import/init CUDA.
         env['PYTORCH_ALLOC_CONF'] = env['PYTORCH_CUDA_ALLOC_CONF'] = settings
     env['KVMEM_BOUNDED_MTP' if cfg['draft_method'] == 'mtp' else 'KVMEM_BOUNDED_DFLASH'] = '1'
+    # 'align' GDN state layout: the engine keeps a small resident state set and the
+    # DFlash draft merges into the target page pool. The capacity planner reads the
+    # matching environment flag (capacity.py _align_state); without it the align
+    # geometry is rejected, so set it whenever the profile selects align.
+    if cfg['mamba_cache_mode'] == 'align':
+        env['KVMEM_DFLASH_ALIGN_STATE'] = '1'
     if cfg['experimental_dflash_async_refresh']:
         env['KVMEM_DFLASH_ASYNC_REFRESH'] = '1'
     if cfg['experimental_dflash_compiled_multi']:

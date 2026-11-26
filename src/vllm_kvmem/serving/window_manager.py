@@ -45,6 +45,13 @@ class WorkingSetManager:
         self.native = native
         self.select_budget = select_budget
         self.capacity = select_budget + gen_budget
+        # Native speculation appends its own lookahead rows *on top of* the
+        # public extent it was admitted for (the allocation that follows an
+        # admission adds num_lookahead_tokens). Admission must therefore stop
+        # that many tokens short of the window, or the allocation overshoots by
+        # the tail and raises RefreshRequired on a step that has no forward to
+        # drive the refresh transaction.
+        self.admission_reserve = 0
         self.offsets: dict[str, int] = {}
         self.pending: dict[str, RefreshTicket] = {}
         self.imports: dict[str, tuple[int, int]] = {}
@@ -77,7 +84,11 @@ class WorkingSetManager:
             raise ValueError("Logical position predates committed working set; restore a checkpoint first")
         if admission:
             return min(value, self.capacity)
-        if value > self.capacity:
+        # The native allocation appends its speculative tail on top of the
+        # admitted public extent; those rows are scratch, not window history, so
+        # they must not force a refresh on a step that has no forward to drive
+        # the refresh transaction. Only a real history overflow slides.
+        if value > self.capacity + self.admission_reserve:
             raise RefreshRequired(request_id)
         return value
 
@@ -91,6 +102,11 @@ class WorkingSetManager:
             self._external_extent(request_id, num_local_computed_tokens, external)
         # A fresh connector import has no locally computed prefix. Its zero is
         # an ownership count, not a logical position to subtract the offset from.
+        if apply_admission_cap and self.admission_reserve:
+            offset = self.offsets.get(request_id, 0)
+            capped = offset + self.capacity - self.admission_reserve
+            if num_tokens > capped:
+                num_tokens = max(total_computed_tokens, capped)
         local_computed = (0 if external else
                           self._local(request_id, num_local_computed_tokens,
                                       admission=apply_admission_cap))

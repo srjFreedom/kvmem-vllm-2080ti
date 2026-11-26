@@ -203,7 +203,11 @@ class ReservedKVCacheManager:
                 return (extent + block_tokens - 1) // block_tokens + spec_blocks
             if index in self.static_blocks:
                 return self.static_blocks[index]
-            unit = int(getattr(manager, 'guided_block_tokens', 0) or 0) or int(manager.block_size)
+            # Charge in native page units so the demand sums consistently against
+            # num_gpu_blocks; guided_block_tokens (32) is the allocation grid, not
+            # the pool unit, and mixing it with 1648-token mamba blocks inflated
+            # the demand ~50x and rejected requests that physically fit.
+            unit = int(self.native.block_pool.block_size)
             # Only the working-set groups carry a streaming extent; a GDN/Mamba
             # group is a plain native manager with no such attribute.
             physical = getattr(manager, 'physical_tokens', None)

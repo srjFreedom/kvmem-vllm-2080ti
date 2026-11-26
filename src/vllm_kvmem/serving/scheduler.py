@@ -207,9 +207,14 @@ class KVMemScheduler(Scheduler):
         coordinator = self.kv_cache_manager.coordinator
         managers = list(coordinator.single_type_managers)
         self.window_managers = {}
+        # Native speculation appends lookahead rows beyond the admitted public
+        # extent, so admission must leave that much room inside the window.
+        _reserve = max(int(getattr(self, 'num_lookahead_tokens', 0) or 0),
+                       int(getattr(self, 'num_spec_tokens', 0) or 0) + 1)
         for group_id, manager in enumerate(managers):
             if type(manager) is FullAttentionManager:
                 managers[group_id] = WorkingSetManager(manager, config.select_budget, config.gen_budget)
+                managers[group_id].admission_reserve = _reserve
                 self.window_managers[group_id] = managers[group_id]
         if not self.window_managers:
             raise ValueError("No full-attention cache group found")

@@ -66,5 +66,5 @@
   "kv_cache_memory_bytes": 3758096384,
   "logical_kv_capacity": false,
   "mamba_cache_mode": "none",
-  "mamba_block_size": 1648
+  "mamba_block_size": null
 }
