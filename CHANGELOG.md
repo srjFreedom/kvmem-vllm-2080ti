@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.6.8
+
+DFlash2 runs two requests concurrently (it was serial).
+
+- **Side-pool window source.** The per-request reservation read
+  KVMEM_WINDOW_TOKENS from the environment, but vLLM spawns workers with a
+  curated environment, so the value fell back to max_model_len: one request
+  reserved a whole 262K context (66 pages) instead of the window (34). Now
+  derived from the connector options every process carries.
+- **Batch-wide rings.** The draft ring is sized for
+  attention_chunk_size + max_in_flight_tokens across the whole step, so it is
+  no longer charged per request (that demanded 133 pages of a 67-page pool).
+- **Double-charged peers.** A pool reservation was scaled by admitted + new
+  requests while admitted peers had already taken their pages physically; a
+  17-page pool with 8 pages per request compared 8×2 against 8 free.
+- Measured: running=2 at B=46K/R=8K/3.0 GiB, both requests ~35–37 s for 2000
+  tokens where the serial path took ~62 s. MTP is unaffected (it has no side
+  pools) and keeps its measured running=2.
+
 ## 0.6.6
 
 DFlash2 lane is production-ready: B=46K / R=8K / 3.0 GiB pool / 2 concurrent.

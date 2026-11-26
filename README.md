@@ -27,6 +27,17 @@ configuration for two 22 GB Turing cards.
 
 ---
 
+## What's new in 0.6.8
+
+| change | why it matters |
+|---|---|
+| **DFlash2 runs two requests concurrently** | The lane serialized every request: `running` never exceeded 1 at any window, `max_num_seqs`, or pool setting, while the MTP lane reached `running=2` on the same host. Three defects in the side-pool credit accounting caused it, all in `capacity.py` — see below. Two requests now decode in one step; both finish ~35–37 s for 2000 tokens where the serial path needed ~62 s |
+| **Side-pool window came from the wrong source** | The per-request reservation sized itself from `KVMEM_WINDOW_TOKENS` in the environment, but vLLM spawns workers with a curated environment: the API process has the variable, the process that builds the KV cache manager does not, so the reservation fell back to `max_model_len` and one request reserved a whole 262K context (66 pages) instead of a window (34 pages). Now derived from the connector options every process carries |
+| **Batch-wide rings are no longer per-request credits** | The draft ring is sized for `attention_chunk_size + max_in_flight_tokens` across the whole step. Reserving it per request demanded a second ring per request — 66 of 67 pages each, 133 pages for two — so the second request was rejected on every step (1278 rejections in one run) |
+| **Admitted peers were charged twice** | A pool's reservation was scaled by `len(reservations) + 1`, but admitted peers have already physically taken their pages, so the free count excludes them: a 17-page pool with 8 pages per request compared 8×2 against 8 free and rejected forever |
+
+MTP does not use side pools at all, so it is unaffected by the three fixes and keeps its measured `running=2`.
+
 ## What's new in 0.6.6
 
 | change | why it matters |
@@ -268,7 +279,7 @@ Boundaries of the route:
 
 | boundary | detail |
 |---|---|
-| concurrency | **1 on this route.** Each admitted request is charged a full window, so a 3.0 GiB pool serves one request at a time and the next one queues until it finishes; measured `running=1` at B=36K/44K/46K and at `max_num_seqs=2`/`3`. The MTP lane reaches `running=2` on the same host. Two-way DFlash2 concurrency is a goal, not a shipped property |
+| concurrency | **2** at the 3.0 GiB pool, `max_num_seqs=2`. Two requests decode in the same step (measured `running=2`; both finish ~35–37 s for 2000 tokens where the serial path took ~62 s). The third request queues and starts as soon as a slot frees. Requires the side-pool credit fixes in 0.6.8: before them every configuration measured `running=1` |
 | prefix caching | must stay **off** (`draft_contract.py`: DFlash2 requires APC-off GDN state) |
 | KV layout | `BLHNC` — the target and the draft have mixed page sizes |
 | KV pool | **3.0 GiB** with the FP8 target. 3.2 GiB OOMs at prefill completion (~192 MiB transient + ~700 MiB runtime residency). The MTP lane reaches 4.0 GiB because its head is 0.40 GiB/rank vs the draft's 1.19 GiB |
