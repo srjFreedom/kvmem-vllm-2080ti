@@ -69,12 +69,29 @@ class ReservedKVCacheManager:
         # per-request reservation: a draft ring is set by the draft window, not
         # by the context.
         self.extra_pools = []
+        # The resident worst case is the KVMem window (select+gen), not the
+        # logical context, so a side pool must reserve the window per request.
+        # Read the window from the connector options the manager already holds:
+        # vLLM spawns the workers with a curated environment, so
+        # KVMEM_WINDOW_TOKENS reaches the API process but NOT the process that
+        # builds this manager, where the reservation silently fell back to
+        # max_model_len and one request reserved a whole context.
         _window_tokens = 0
         try:
-            import os as _os_pool
-            _window_tokens = int(_os_pool.environ.get('KVMEM_WINDOW_TOKENS', '0') or 0)
+            _kv_options = ((vllm_config.kv_transfer_config.kv_connector_extra_config or {})
+                           .get('kvmem') or {})
+            _sum = int(_kv_options.get('select_budget') or 0) + int(_kv_options.get('gen_budget') or 0)
+            if int(_kv_options.get('select_budget') or 0) > 0 and int(
+                    _kv_options.get('gen_budget') or 0) > 0:
+                _window_tokens = _sum
         except Exception:
             _window_tokens = 0
+        if _window_tokens <= 0:
+            try:
+                import os as _os_pool
+                _window_tokens = int(_os_pool.environ.get('KVMEM_WINDOW_TOKENS', '0') or 0)
+            except Exception:
+                _window_tokens = 0
         _frame = min(int(native.max_model_len), _window_tokens) if _window_tokens > 0 else int(native.max_model_len)
         for index, manager in enumerate(self.groups):
             if manager.block_pool is not native.block_pool:
@@ -96,6 +113,13 @@ class ReservedKVCacheManager:
                                      f'[group={index} {type(manager).__name__} '
                                      f'spec={type(spec).__name__}]')
                 self.extra_pools.append((index, manager.block_pool, blocks))
+                try:
+                    import logging as _lg
+                    _lg.getLogger('vllm.kvmem.capacity').info(
+                        'KVMem side pool reservation group=%d blocks_per_request=%d free=%d',
+                        index, blocks, manager.block_pool.get_num_free_blocks())
+                except Exception:
+                    pass
                 self.excluded_blocks.add(index)
             if isinstance(manager, WorkingSetManager):
                 continue
