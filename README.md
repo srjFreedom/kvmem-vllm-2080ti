@@ -63,10 +63,12 @@ DFlash2 lane measurements (2 × RTX 2080 Ti, FP8 target, W4A16 draft, `B=47,104`
 
 Engine-side prerequisites for the DFlash2 route (they live in the engine fork, not here):
 
-- `patches/0003-engine-dflash2-w4a16-draft.patch` — [`weicj/vLLM-2080Ti-Definitive#265`](https://github.com/weicj/vLLM-2080Ti-Definitive/pull/265):
-  a quantized draft exposes its K/V rows through the quantization kernel instead of a dense `.weight`,
-- `patches/0004-engine-dflash2-no-apc-gates.patch` — `VLLM_DFLASH_NATIVE_GROUPS_WITHOUT_APC=1`,
-  `VLLM_DFLASH_DRAFT_PAGE_ALIGN=1`, `VLLM_MAMBA_NONE_SMALL_BLOCK=1`,
+- `patches/0003-engine-dflash2-support.patch` — the whole DFlash2 route: [`weicj/vLLM-2080Ti-Definitive#265`](https://github.com/weicj/vLLM-2080Ti-Definitive/pull/265)
+  (a quantized draft exposes its K/V rows through the quantization kernel instead of a dense `.weight`),
+  the APC-off gates (`VLLM_DFLASH_NATIVE_GROUPS_WITHOUT_APC`, `VLLM_MAMBA_NONE_SMALL_BLOCK`) and the
+  DFlash2 pool floors,
+- `patches/0006-engine-dflash2-block-align.patch` — the draft uses the target's manager block, which is
+  what makes two concurrent requests fit,
 - `VLLM_KV_CACHE_LAYOUT=BLHNC` — mixed target/draft page sizes (a runtime flag, not a patch).
 
 ## What runs, and what we changed

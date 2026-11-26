@@ -1,0 +1,92 @@
+diff --git a/vllm/v1/core/kv_cache_utils.py b/vllm/v1/core/kv_cache_utils.py
+index b3be662390..8978c732ed 100644
+--- a/vllm/v1/core/kv_cache_utils.py
++++ b/vllm/v1/core/kv_cache_utils.py
+@@ -1241,10 +1241,38 @@ def _dflash_group_capacities(
+     # per in-flight request, so its floor scales with max_num_seqs.
+     _wave = max(1, int(getattr(getattr(vllm_config, 'scheduler_config', None),
+                                'max_num_seqs', 1) or 1))
++    # The full-attention group must hold one resident window per concurrent
++    # request, exactly like the recurrent wave: the KVMem window is select+gen,
++    # not the logical context, so the planner has to floor it against the window.
++    _floors = {}
++    try:
++        _kv_options = ((vllm_config.kv_transfer_config.kv_connector_extra_config or {})
++                       .get('kvmem') or {})
++        _window_tokens = (int(_kv_options.get('select_budget') or 0)
++                          + int(_kv_options.get('gen_budget') or 0))
++    except Exception:
++        _window_tokens = 0
++    for i, group in enumerate(kv_cache_groups):
++        spec = group.kv_cache_spec
++        if type(spec).__name__ == 'UniformTypeKVCacheSpecs':
++            spec = spec.first_spec
++        if type(spec).__name__ != 'FullAttentionSpec' or _window_tokens <= 0:
++            continue
++        _page_tokens = int(getattr(spec, 'block_size', 0) or 0)
++        if _page_tokens <= 0:
++            continue
++        _window_pages = -(-_window_tokens // _page_tokens)
++        _floors[i] = _wave * _window_pages + 1
++        if capacities[i] < _floors[i]:
++            capacities[i] = _floors[i]
+     for i in range(len(capacities)):
+         _floor = requirements[i] + 1
+         if requirements[i] <= 16:
+-            _floor = max(_floor, _wave * requirements[i] + 1)
++            # One spare page per in-flight request: a full pool with zero free
++            # blocks cannot schedule the next lookahead, so the step yields no
++            # model execution and the engine spins forever (running=2, kv=100%,
++            # GPU 0%). Size for the wave plus headroom.
++            _floor = max(_floor, _wave * requirements[i] + 2)
+         if capacities[i] < _floor:
+             capacities[i] = _floor
+     # Re-trim large pools if the floor pushed us over budget
+@@ -1252,7 +1280,7 @@ def _dflash_group_capacities(
+     while _total > available_memory:
+         _trim = [
+             i for i in range(len(capacities))
+-            if requirements[i] > 16 and capacities[i] > 1
++            if requirements[i] > 16 and capacities[i] > _floors.get(i, 1)
+         ]
+         if not _trim:
+             break
+@@ -2583,7 +2611,37 @@ def _coarsen_dflash_aligned_draft_pages(
+     target_specs = [
+         spec for name, spec in kv_cache_spec.items() if name not in draft_layer_names
+     ]
+-    if not target_specs or not any(
++    if not target_specs:
++        return kv_cache_spec
++    # Opt-in: give the draft the target's manager block outright so both groups
++    # can share ONE block pool. The generic coarsening below can only multiply
++    # the draft block by an integer factor that divides the target alignment;
++    # with 64-token draft blocks and a 1,648-token attention block no such factor
++    # exists (1,648 = 16 x 103), so the draft kept its own pool and a second
++    # independent KV budget. Never do this with the standard divisibility rule.
++    import os as _os_align
++    if _os_align.environ.get('KVMEM_DFLASH_SHARE_TARGET_BLOCKS') == '1':
++        attention_blocks = {
++            spec.block_size for spec in target_specs
++            if isinstance(spec, FullAttentionSpec)
++        }
++        if len(attention_blocks) == 1:
++            shared_block = attention_blocks.pop()
++            aligned = kv_cache_spec.copy()
++            changed = False
++            for layer_name in draft_layer_names:
++                draft_spec = aligned.get(layer_name)
++                if isinstance(draft_spec, SlidingWindowSpec) and draft_spec.block_size != shared_block:
++                    aligned[layer_name] = replace(draft_spec, block_size=shared_block)
++                    changed = True
++                    logger.info(
++                        'KVMem: aligning DFlash draft manager blocks %d -> %d tokens '
++                        'to share the target block pool',
++                        draft_spec.block_size, shared_block)
++            if changed:
++                return aligned
++        return kv_cache_spec
++    if not any(
+         isinstance(spec, MambaSpec) and spec.mamba_cache_mode == "align"
+         for spec in target_specs
+     ):

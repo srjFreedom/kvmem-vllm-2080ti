@@ -24,9 +24,8 @@ command -v nvidia-smi >/dev/null || { echo "nvidia-smi not found (NVIDIA driver)
 
 echo "[1/3] engine patches"
 for patch in 0001-engine-skip-kv-check \
-             0003-engine-dflash2-w4a16-draft \
-             0004-engine-dflash2-no-apc-gates \
-             0005-engine-dflash2-pool-floors; do
+             0003-engine-dflash2-support \
+             0006-engine-dflash2-block-align; do
   file="$REPO/patches/$patch.patch"
   [ -f "$file" ] || continue
   if git -C "$ENGINE" apply --check "$file" 2>/dev/null; then

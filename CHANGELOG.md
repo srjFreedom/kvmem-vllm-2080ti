@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.12
+
+Patch set rebuilt from the real engine history.
+
+- **The shipped patches no longer reproduced the engine we run.** `0001` predated
+  the branch's `KVMEM_SKIP_KV_CHECK` spelling, and `0003`–`0005` were a hand split
+  of one commit that had since drifted, so `install.sh` produced a different
+  `_dflash_group_capacities` than the one validated here.
+- **`0003` now carries the whole DFlash2 route** (W4A16 draft, APC-off gates, pool
+  floors) as one patch. `0004`/`0005` are folded into it and removed.
+- **`0006` adds the concurrency work**: the draft takes the target's manager block
+  (a request costs 4 draft pages instead of 66), the full-attention group is
+  floored at one resident window per concurrent request, and the recurrent wave
+  keeps one spare page.
+- Verified: applying `0001` → `0003` → `0006` on engine `93c9013e37` reproduces
+  the validated tree (`d9f6d9e486`) byte for byte.
+
 ## 0.6.11
 
 DFlash2 runs two requests concurrently with per-request `B+R` isolation.

@@ -375,6 +375,25 @@ index 93ed43aded..95d8e65581 100644
 +
 +    assert codec_mlp._down_projection_l2_bound == pytest.approx(2.5)
 +    assert codec_mlp._accumulation_limit == pytest.approx(32752.0 / 2)
+diff --git a/vllm/config/vllm.py b/vllm/config/vllm.py
+index fbe0213855..99d7b49c82 100644
+--- a/vllm/config/vllm.py
++++ b/vllm/config/vllm.py
+@@ -3167,9 +3167,11 @@ class VllmConfig:
+             and self.cache_config.mamba_block_size != self.model_config.max_model_len
+         )
+         if mamba_block_size_is_set and not self.cache_config.enable_prefix_caching:
+-            raise ValueError(
+-                "--mamba-block-size can only be set with --enable-prefix-caching"
+-            )
++            import os as _os
++            if _os.getenv('VLLM_MAMBA_NONE_SMALL_BLOCK') != '1':
++                raise ValueError(
++                    "--mamba-block-size can only be set with --enable-prefix-caching"
++                )
+         return self
+ 
+     @model_validator(mode="after")
 diff --git a/vllm/model_executor/kernels/linear/mixed_precision/MPLinearKernel.py b/vllm/model_executor/kernels/linear/mixed_precision/MPLinearKernel.py
 index d8ff79057c..4c27511ce3 100644
 --- a/vllm/model_executor/kernels/linear/mixed_precision/MPLinearKernel.py
@@ -837,3 +856,102 @@ index 7fbf449a8a..4a8bc69e89 100644
          self._fused_kv_weight = torch.cat(kv_weights, dim=0)
          if has_bias:
              kv_biases = [a.qkv_proj.bias[a.q_size :] for a in layers_attn]
+diff --git a/vllm/v1/core/kv_cache_utils.py b/vllm/v1/core/kv_cache_utils.py
+index 44f685ce4c..b3be662390 100644
+--- a/vllm/v1/core/kv_cache_utils.py
++++ b/vllm/v1/core/kv_cache_utils.py
+@@ -1197,35 +1197,72 @@ def _dflash_group_capacities(
+     null_bytes = sum(page_bytes)
+     required_bytes = sum(req * page for req, page in zip(requirements, page_bytes))
+     if required_bytes + null_bytes > available_memory:
+-        raise ValueError(
+-            "Insufficient memory for the requested DFlash2 KV cache groups: "
+-            f"need {required_bytes + null_bytes} bytes, have {available_memory}."
+-        )
++        import os as _os_dflash_skip
++        if _os_dflash_skip.environ.get("KVMEM_SKIP_KV_CHECK", "0") not in (
++                "1", "true", "yes", "on"):
++            raise ValueError(
++                "Insufficient memory for the requested DFlash2 KV cache groups: "
++                f"need {required_bytes + null_bytes} bytes, have {available_memory}."
++            )
++        # KVMem: clamp pools to fit the budget (max_model_len is a logical bound).
++        import logging as _mod_dflash_skip
++        _mod_dflash_skip.getLogger(__name__).warning(
++            "KVMem: clamping DFlash2 pools to fit budget (need %s GiB, have %s GiB)",
++            (required_bytes + null_bytes) / (1024 ** 3), available_memory / (1024 ** 3))
+ 
+     usable_memory = available_memory - null_bytes
+     if required_bytes:
+-        capacities = [
+-            max(req, (req * usable_memory) // required_bytes) + 1
+-            if req
+-            else 1
+-            for req in requirements
+-        ]
++        # Start at requirements (each group gets its full share).
++        capacities = list(requirements)
++        # If the total exceeds the budget, trim the largest groups first
++        # (by req * page_bytes) until the total fits. Every group keeps
++        # at least 1 block (null block) and at least its requirement if
++        # the requirement is small (<= 16, i.e. mamba state pools).
++        total = sum(cap * page for cap, page in zip(capacities, page_bytes))
++        while total > available_memory:
++            # Reduce the largest group first. Small-requirement groups
++            # (req <= 16, i.e. mamba state) are floored at their req;
++            # large-requirement groups (attention) can go down to 1.
++            candidates = [
++                i for i, (cap, req) in enumerate(zip(capacities, requirements))
++                if cap > (req if req <= 16 else 1)
++            ]
++            if not candidates:
++                break
++            index = max(candidates, key=lambda i: capacities[i] * page_bytes[i])
++            capacities[index] -= 1
++            total -= page_bytes[index]
+     else:
+         capacities = [1] * len(requirements)
+-    # Integer rounding can leave a few bytes over budget. Remove only blocks
+-    # beyond the request minimum; every pool must retain its null block.
+-    while sum(
+-        cap * page for cap, page in zip(capacities, page_bytes)
+-    ) > available_memory:
+-        candidates = [
+-            i
+-            for i, (cap, req) in enumerate(zip(capacities, requirements))
+-            if cap > req + 1
++    # Floor every pool at req+1: one block is the null block, so req+1 total
++    # leaves req usable blocks for the manager.
++    # A recurrent state pool additionally has to fit one full request wave: the
++    # native manager charges one resident state page plus its speculative tail
++    # per in-flight request, so its floor scales with max_num_seqs.
++    _wave = max(1, int(getattr(getattr(vllm_config, 'scheduler_config', None),
++                               'max_num_seqs', 1) or 1))
++    for i in range(len(capacities)):
++        _floor = requirements[i] + 1
++        if requirements[i] <= 16:
++            _floor = max(_floor, _wave * requirements[i] + 1)
++        if capacities[i] < _floor:
++            capacities[i] = _floor
++    # Re-trim large pools if the floor pushed us over budget
++    _total = sum(cap * page for cap, page in zip(capacities, page_bytes))
++    while _total > available_memory:
++        _trim = [
++            i for i in range(len(capacities))
++            if requirements[i] > 16 and capacities[i] > 1
+         ]
+-        if not candidates:
++        if not _trim:
+             break
+-        index = max(candidates, key=lambda i: page_bytes[i])
+-        capacities[index] -= 1
++        _idx = max(_trim, key=lambda i: capacities[i] * page_bytes[i])
++        capacities[_idx] -= 1
++        _total -= page_bytes[_idx]
++    _total_bytes = sum(cap * page for cap, page in zip(capacities, page_bytes))
++    logger.info(
++        "KVMem: DFlash2 group capacities %s (requirements %s, %.2f GiB allocated of %.2f GiB)",
++        list(capacities), requirements, _total_bytes / (1024 ** 3), available_memory / (1024 ** 3))
+     return tuple(capacities)
+ 
+ 
