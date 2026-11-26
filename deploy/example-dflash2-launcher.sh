@@ -6,8 +6,16 @@
 #   ./example-dflash2-launcher.sh [start|stop|status|logs|params] [--set KEY=VALUE ...]
 #
 # Shape: no bounded planner — the engine sizes the pool and KVMem opens windows at
-# runtime, the same layout the MTP lane uses. 262K logical context, B=48K window,
-# 3.5 GiB pool, two concurrent requests, DFlash2 k=7 with a 4-bit W4A16 draft.
+# runtime, the same layout the MTP lane uses. 262K logical context, B=36K window,
+# 3.0 GiB pool, two concurrent requests, DFlash2 k=7 with a 4-bit W4A16 draft.
+#
+# 3.0 GiB, not 3.5: the FP8 target plus a 1.19 GiB draft leaves ~3.0 GiB of pool.
+# At 3.2 GiB the prefill-completion transient (~192 MiB) no longer fits and the
+# engine dies with CUDA OOM; 3.0 GiB keeps ~700 MiB of headroom.
+# Do NOT set mamba_block_size: with mamba_cache_mode=none the engine defaults the
+# GDN state page to max_model_len, so each request holds 1 state page + 7
+# speculative tail pages. Pinning 1,648 makes the state dense (42 pages/group at
+# 57K) and the 3 GiB pool cannot hold one request.
 set -euo pipefail
 
 REPO=${REPO:-/path/to/kvmem-vllm-2080ti}
@@ -44,11 +52,14 @@ OVERRIDES=(
 
   # pool and scheduling
   --set max_num_seqs=2
-  --set kv_cache_memory_bytes=3758096384        # 3.5 GiB: the FP8 target's measured ceiling
+  --set max_num_batched_tokens=2064            # 2048 + 16: DFlash2 k=7 verification width
+  --set prefill_chunk_tokens=2048
+  --set chat_prefill_blocks=64
+  --set query_replay_budget=2048               # ~180 KiB VRAM per token; 4096 doubles it
+  --set kv_cache_memory_bytes=3221225472        # 3.0 GiB: the FP8 target + W4A16 draft's ceiling
   --set logical_kv_capacity=false               # no per-request static reservation
   --set skip_kv_check=true                      # allow max_model_len above the pool
-  --set mamba_block_size=1648                   # GDN pages as large as an attention page
-  --set mamba_cache_mode=none
+  --set mamba_cache_mode=none                   # GDN state page = max_model_len, 1 page/request
 
   # DFlash2 speculation
   --set draft_method=dflash
@@ -56,19 +67,23 @@ OVERRIDES=(
   --set draft_quantization=null                 # auto-detect: W4A16 via compressed-tensors
   --set draft_tokens=7
   --set experimental_dflash_query_planning=true
+  --set experimental_dflash_compiled_multi=true
+  --set sm75_spec_sync_mode=safe
+  --set allow_mamba_spec_full_cudagraph=true
 
   # window (resident on the GPU)
-  --set kvmem.select_budget=49152               # B: 48K
-  --set kvmem.gen_budget=8192                   # R: 8K
+  --set kvmem.select_budget=36864               # B: 36K
+  --set kvmem.gen_budget=8192                   # R: 8K (window B+R = 45,056 = 28 pages)
   --set kvmem.block_tokens=32
   --set kvmem.sink_blocks=384
   --set kvmem.recent_blocks=64
-  --set kvmem.rolling_active_window=false       # engine-managed window, no per-token planning
+  --set kvmem.rolling_active_window=false        # engine-managed window, no per-token planning
 
   # host history and sessions
-  --set kvmem.cpu_read_cache_bytes=6442450944
+  --set kvmem.cpu_read_cache_bytes=8589934592    # 8 GiB/rank = 524,288 tokens = repo blocks
   --set kvmem.repository_blocks=16384
   --set kvmem.archive_backend=cpu
+  --set kvmem.archive_io_max_bytes=536870912
   --set kvmem.session_capacity=2
 )
 

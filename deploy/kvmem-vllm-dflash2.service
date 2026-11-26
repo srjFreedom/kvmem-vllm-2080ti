@@ -1,5 +1,5 @@
 [Unit]
-Description=KVMem vLLM 2080Ti DFlash2 (SM75, 3.5 GiB pool, 2 concurrent, B48K/R8K)
+Description=KVMem vLLM 2080Ti DFlash2 (SM75, 3.0 GiB pool, 2 concurrent, B36K/R8K)
 After=network-online.target nvidia-persistenced.service
 Conflicts=kvmem-vllm.service
 Wants=network-online.target

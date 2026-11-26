@@ -31,7 +31,7 @@ configuration for two 22 GB Turing cards.
 
 | change | why it matters |
 |---|---|
-| **DFlash2 lane is production-ready** | B=46K / R=8K / 3.0 GiB pool / 2 concurrent: 100K cold prefill **1,162 tok/s**, two distinct 57K+ prompts decode together with 696 MiB headroom. The lane ships as `deploy/example-dflash2-launcher.sh` + `local/serve-2080ti-dflash2.json` |
+| **DFlash2 lane is production-ready** | shipped profile B=36K / R=8K / 3.0 GiB pool / 2 concurrent; measured at B=46K, 100K cold prefill **1,162 tok/s**, two distinct 57K+ prompts decode together with 696 MiB headroom. The lane ships as `deploy/example-dflash2-launcher.sh` + `local/serve-2080ti-dflash2.json` |
 | **Admission reserve** | Native speculation appends lookahead rows on top of the admitted extent; without the reserve the allocation overshoots the window and raises `RefreshRequired` on a step with no forward to drive the refresh — an EngineCore spin. `admission_reserve = max(lookahead, spec+1)` stops admission that many tokens short |
 | **Native page charge** | Demand was computed in guided-block units (32 tokens) instead of native page units (1,648 tokens), inflating the pool demand ~50× and rejecting requests that physically fit. Now charged in `block_pool.block_size` |
 | **Align-state env** | `mamba_cache_mode=align` now sets `KVMEM_DFLASH_ALIGN_STATE=1` so the capacity planner accepts the align geometry (small resident GDN state, draft merged into the target pool) |
@@ -244,7 +244,10 @@ arithmetic: [docs/sm75/CONFIGURATION.md](docs/sm75/CONFIGURATION.md).
 ## DFlash2 route
 
 `draft_method=dflash`, `draft_tokens=7`, no bounded planner: the engine sizes the pool and KVMem
-opens windows at runtime. The shipped lane runs B=46K, R=8K, 3.0 GiB pool, 2 concurrent.
+opens windows at runtime. The shipped profile runs B=36K, R=8K, 3.0 GiB pool, 2 concurrent
+(window 45,056 = 28 attention pages, so two concurrent windows need 56 of the pool's 66 pages).
+The numbers below were measured with `--set kvmem.select_budget=47104`, a B=46K override; B=36K is
+more conservative and leaves more pool headroom at the cost of ~2% prefill.
 
 **Draft: [`syvai/Qwen3.8-27B-DFlash2-W4A16`](https://huggingface.co/syvai/Qwen3.8-27B-DFlash2-W4A16)**,
 1.19 GB, 4-bit pack-quantized (compressed-tensors, group 128). It stays essentially whole per rank
@@ -267,7 +270,7 @@ Boundaries of the route:
 | KV pool | **3.0 GiB** with the FP8 target. 3.2 GiB OOMs at prefill completion (~192 MiB transient + ~700 MiB runtime residency). The MTP lane reaches 4.0 GiB because its head is 0.40 GiB/rank vs the draft's 1.19 GiB |
 | pool floors | from `patches/0005`: the recurrent pool is floored at `max(req+1, max_num_seqs*req + 1)` so the draft's GDN state and speculative tail always have a page |
 | step cost | **the same as the engine**: 45.5 ms/step against 45.7 ms. Decode: 180 tok/s repetitive, 110+ tok/s code |
-| 100K prefill | **1,162 tok/s** (B=46K/R=8K). R=4K → 1,136 (−2.2%), R=2K → 1,060 (−8.3%): the window is B+R, so a smaller R means more slide refreshes |
+| 100K prefill | **1,162 tok/s** at B=46K/R=8K. R=4K → 1,136 (−2.2%), R=2K → 1,060 (−8.3%): the window is B+R, so a smaller R means more slide refreshes |
 | chat | native — with no rolling window there is no token-id planning to render for |
 
 One lane is shipped for this route: `deploy/example-dflash2-launcher.sh` with

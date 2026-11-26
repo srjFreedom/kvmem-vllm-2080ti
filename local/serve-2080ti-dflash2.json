@@ -19,7 +19,7 @@
   "verify_session_restore": false,
   "kvmem": {
     "block_tokens": 32,
-    "select_budget": 49152,
+    "select_budget": 36864,
     "gen_budget": 8192,
     "repository_blocks": 16384,
     "sink_blocks": 384,
@@ -63,7 +63,7 @@
     "strategy": {}
   },
   "mm_image_limit": 64,
-  "kv_cache_memory_bytes": 3758096384,
+  "kv_cache_memory_bytes": 3221225472,
   "logical_kv_capacity": false,
   "mamba_cache_mode": "none",
   "mamba_block_size": null
