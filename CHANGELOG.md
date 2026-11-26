@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.6.13
+
+New shipped defaults, all measured on this box.
+
+- **DFlash2 profile: B=42K, R=4K, pool 3.0 GiB, chunk 1024.** A 3.0 GiB pool gives the
+  attention group 59 pages, which fits two 42K windows plus one page; 3.1 GiB would allow 44K but
+  OOMs a 128K prompt, and 3.2 GiB only survives prompts under ~40K. Measured at 42K/4K: 128K
+  prefill 116.3 s with 656 MiB free, two concurrent long generations, cold 2.4K chat prefill 0.74 s.
+- **MTP profile: pool pinned at 3.5 GiB**, chunk 1024 (unchanged B/R).
+- **`prefill_chunk_tokens=1024` and `chat_prefill_blocks=32`** in both profiles. 1024 is the
+  largest chunk that survives a 128K prefill at a 3 GiB pool; 2048 OOMs there and 256 costs 13-15 %
+  for ~80 MiB.
+- **Docs** (`docs/sm75/CONFIGURATION.md`): measured pool/B/prompt-length boundary table, the
+  `chunk <= gen_budget` rule, and the R=4K trade-off replacing the old "keep R at 8,192 or above".
+- **Two shipped-profile bugs, found by booting the profile itself:**
+  `session_checkpoint_policy=pm` requires `session_capture_terminal=true` (the profile said
+  `false`, so the lane refused to start), and `session_capacity` without LRU eviction meant the
+  *second* conversation hung forever (`miss07` 191,703 times). `serve.py` now defaults
+  `KVMEM_SESSION_IDLE_LRU_EVICTION=1` whenever sessions are enabled, since a client that never
+  releases a conversation would otherwise be refused once every slot is taken.
+- Known rounding: with this profile the draft requirement computes to 5 pages, so the planner
+  reports 3.03 GiB allocated against a 3.00 GiB budget. It boots, serves and keeps the measured
+  margin; the overshoot is 30 MiB of planner rounding, not an extra allocation.
+
 ## 0.6.12
 
 Patch set rebuilt from the real engine history.

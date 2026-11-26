@@ -53,7 +53,7 @@ OVERRIDES=(
   # pool and scheduling
   --set max_num_seqs=2
   --set max_num_batched_tokens=2064            # 2048 + 16: DFlash2 k=7 verification width
-  --set prefill_chunk_tokens=2048
+  --set prefill_chunk_tokens=1024
   --set chat_prefill_blocks=64
   --set query_replay_budget=2048               # ~180 KiB VRAM per token; 4096 doubles it
   --set kv_cache_memory_bytes=3221225472        # 3.0 GiB: the FP8 target + W4A16 draft's ceiling
@@ -72,8 +72,8 @@ OVERRIDES=(
   --set allow_mamba_spec_full_cudagraph=true
 
   # window (resident on the GPU)
-  --set kvmem.select_budget=36864               # B: 36K
-  --set kvmem.gen_budget=8192                   # R: 8K (window B+R = 45,056 = 28 pages)
+  --set kvmem.select_budget=43008               # B: 42K
+  --set kvmem.gen_budget=4096                   # R: 4K (window B+R = 47,104 = 29 pages)
   --set kvmem.block_tokens=32
   --set kvmem.sink_blocks=384
   --set kvmem.recent_blocks=64

@@ -55,6 +55,43 @@ number above. The shipped profile sets 8 GiB/rank = 524,288 tokens, which is exa
 | history for one 256K session | 262,144 × 16,384 = **4.0 GiB/rank** ⇒ 8.0 GiB host |
 | `cpu_read_cache_bytes` | 8 GiB (2× margin) |
 
+## Measured limits on 2 x 22 GB (read this before changing B, R or the pool)
+
+All rows are cold prefills with distinct prompts on the DFlash2 lane (R = 4K unless stated) and a
+pinned `kv_cache_memory_bytes`. The binding transient is a sub-second spike when a long prefill
+completes, which is why a 0.3 s sampler reports 550-700 MiB free while the run still OOMs.
+
+| pool | B | window | 128K prompt | 2 concurrent requests | free at 128K |
+|---|---|---|---|---|---|
+| **3.0 GiB** | **42K** | 47,104 | **116.3 s** | yes | 656 MiB |
+| 3.0 GiB | 36K | 45,056 | 103.6 s | yes | 580 MiB |
+| 3.1 GiB | 44K | 49,152 | 117.3 s | yes | 554 MiB |
+| 3.1 GiB | 36K | 45,056 | OOM | - | - |
+| 3.2 GiB | 45K | 53,248 | OOM | yes (prompts <= ~40K) | - |
+
+`3.1 GiB` passes 2 x 77K prefills but still OOMs one 128K prefill, so the pool ceiling depends on
+prompt length, not only on concurrency. `3.2 GiB` is only safe while prompts stay under roughly 40K.
+
+Two windows must also fit the attention group: `2 x ceil((B+R)/1648) + 1 <= attention_pages`, and the
+planner now floors that group accordingly. At a 3.0 GiB pool that caps B at 42K for a 4K reserve.
+
+### Prefill chunk (`prefill_chunk_tokens`)
+
+A KVMem prefill chunk in **tokens**: multiple of `block_tokens` (32) and **never larger than
+`gen_budget`**. It sizes the logits buffer (vocab x chunk x 2 B). Chat requests do not use it — their
+step is `chat_prefill_blocks x block_tokens`, with the same `<= gen_budget` cap.
+
+Measured at a 3.0/3.1 GiB pool, cold, distinct prompts:
+
+| chunk | 2.4K chat prefill | 128K prefill | free at 128K |
+|---|---|---|---|
+| 256 (8 chat blocks) | 0.88 s | 132.6 s | 634 MiB |
+| **1024 (32 chat blocks)** | **0.76 s** | **117.3 s** | 554 MiB |
+| 2048 (64 chat blocks) | 0.76 s | OOM at 3.1 GiB | - |
+
+1024 is the largest chunk that survives a 128K prefill at a 3 GiB pool; 256 costs 13-15 % for ~80 MiB
+more headroom.
+
 ## Key knobs
 
 | key | default here | notes |
@@ -64,7 +101,7 @@ number above. The shipped profile sets 8 GiB/rank = 524,288 tokens, which is exa
 | `gpu_memory_utilization` | 0.92 | **a no-op while `kv_cache_memory_bytes` is set** — vLLM skips profiling and never reads it. It only takes effect if you remove `kv_cache_memory_bytes`, in which case it sizes the pool as a fraction of free VRAM (0.90 leaves ~2.8 GiB for the long-prefill transient; 0.96 OOMs a max-length prefill). Do not tune it expecting a window change. |
 | `kvmem.select_budget` | 36,864 | selected history per step; must be divisible by `block_tokens`, ≥ sink+recent |
 | `kvmem.sink_blocks` / `kvmem.recent_blocks` | 256 / 64 | 8,192 / 2,048 tokens head and tail kept on every retrieval, prefill and decode alike; the middle band is scored |
-| `kvmem.gen_budget` | 8,192 | generation headroom; also the model's per-request output reserve. Keep it at 8,192 or above: after a refresh the window slides by `R − lookahead − block_tokens`, so a smaller R fills the window every ~2K tokens and turns prefill into a refresh loop |
+| `kvmem.gen_budget` | 8,192 (MTP) / 4,096 (DFlash2) | generation headroom and per-request output reserve. After a refresh the window slides by `R − lookahead − block_tokens`, so a smaller R refreshes more often: on a 128K prefill R=4K costs ~4.5 % against R=8K, and longer outputs (10K+) pay more. DFlash2 runs 4K because the 3.0 GiB pool can only give the attention group 59 pages, which fits two 42K windows + 1 page but not two 36K windows with an 8K reserve |
 | `kvmem.block_tokens` | 32 | selection grid; sink/recent/`repository_blocks` are counted in these |
 | `kvmem.sink_blocks` / `recent_blocks` | 64 / 32 | 2,048 / 1,024 tokens kept unconditionally |
 | `kvmem.repository_blocks` | 16,384 | × 32 = 524,288 nominal tokens |

@@ -257,7 +257,7 @@ arithmetic: [docs/sm75/CONFIGURATION.md](docs/sm75/CONFIGURATION.md).
 ## DFlash2 route
 
 `draft_method=dflash`, `draft_tokens=7`, no bounded planner: the engine sizes the pool and KVMem
-opens windows at runtime. The shipped profile runs B=36K, R=8K, 3.0 GiB pool
+opens windows at runtime. The shipped profile runs B=42K, R=4K, 3.0 GiB pool
 (window 45,056 = 28 attention pages, so two concurrent windows need 56 of the pool's 66 pages).
 The numbers below were measured with `--set kvmem.select_budget=47104`, a B=46K override. B=36K is
 strictly better on both counts: a smaller window means less attention work per token, so prefill
@@ -287,7 +287,7 @@ Boundaries of the route:
 | KV pool | **3.0 GiB** with the FP8 target. 3.2 GiB OOMs at prefill completion (~192 MiB transient + ~700 MiB runtime residency). The MTP lane reaches 4.0 GiB because its head is 0.40 GiB/rank vs the draft's 1.19 GiB |
 | pool floors | from `patches/0005`: the recurrent pool is floored at `max(req+1, max_num_seqs*req + 1)` so the draft's GDN state and speculative tail always have a page |
 | step cost | **the same as the engine**: 45.5 ms/step against 45.7 ms. Decode: 180 tok/s repetitive, 110+ tok/s code |
-| 100K prefill | **1,162 tok/s** at B=46K/R=8K. Only R costs throughput: R=4K → 1,136 (−2.2%), R=2K → 1,060 (−8.3%), because R sets the window slide distance (`R − lookahead − block_tokens`) and a shorter slide means more refreshes. B is the opposite: a smaller B shrinks the attention term, so prefill improves |
+| 100K prefill | **1,162 tok/s** at B=46K/R=8K (3.0 GiB pool caps the shipped window at 42K/4K, which measures 116.3 s for 128K tokens). Only R costs throughput: R=4K → 1,136 (−2.2%), R=2K → 1,060 (−8.3%), because R sets the window slide distance (`R − lookahead − block_tokens`) and a shorter slide means more refreshes. B is the opposite: a smaller B shrinks the attention term, so prefill improves |
 | chat | native — with no rolling window there is no token-id planning to render for |
 
 One lane is shipped for this route: `deploy/example-dflash2-launcher.sh` with

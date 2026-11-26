@@ -14,7 +14,7 @@
   "max_num_seqs": 1,
   "max_num_batched_tokens": 2048,
   "gpu_memory_utilization": 0.92,
-  "prefill_chunk_tokens": 2048,
+  "prefill_chunk_tokens": 1024,
   "mm_gdn_prefill_backend": "flashqla_legacy",
   "verify_session_restore": false,
   "kvmem": {
@@ -54,5 +54,7 @@
   "dtype": "float16",
   "auto_session": true,
   "skip_kv_check": true,
-  "query_replay_budget": 4096
+  "query_replay_budget": 4096,
+  "chat_prefill_blocks": 32,
+  "kv_cache_memory_bytes": 3758096384
 }

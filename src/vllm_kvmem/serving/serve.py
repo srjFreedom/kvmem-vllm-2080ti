@@ -705,6 +705,13 @@ def build_launch(profile, base, run_dir, *, check_paths=True):
         env['VLLM_ALLOW_MAMBA_SPEC_FULL_CUDAGRAPH'] = '1'
     env['KVMEM_SKIP_KV_CHECK'] = '1' if cfg.get('skip_kv_check') else '0'
     env['KVMEM_AUTO_SESSION'] = '1' if cfg.get('auto_session') else '0'
+    # With retained sessions the ledger is finite, and a client that never
+    # releases a conversation (dsh does not) would otherwise be refused forever
+    # once every slot is taken: the old behaviour reported miss07 on every step
+    # and the request hung. Evicting the least recently used idle session is the
+    # only path that lets the next conversation run.
+    if cfg.get('auto_session') or int(((cfg.get('kvmem') or {}).get('session_capacity') or 0)) > 0:
+        env.setdefault('KVMEM_SESSION_IDLE_LRU_EVICTION', '1')
     # Unset = hash the whole conversation opening (distinct tasks must not share a namespace).
     if cfg.get('auto_session_chars') is not None:
         env['KVMEM_AUTO_SESSION_PREFIX_CHARS'] = str(cfg['auto_session_chars'])
