@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.16
+
+`scripts/vram_watch.py`: see current and transient GPU memory.
+
+- `--json` for one machine-readable sample, a live table by default, `--hz` /
+  `--seconds` to sample fast and keep every row. The summary reports `min_free`
+  and `peak_used` over the window, because `nvidia-smi` on demand misses the
+  sub-second spike that decides whether a long prefill OOMs.
+- Columns include the engine's `running` / `waiting` / `kv_perc` from `/metrics`.
+- CONFIGURATION.md documents where the engine's own accounting lives
+  (`launch.json`, the capacity startup line, `capture/scheduler_resources.json`,
+  `capture/cache-geometry.json`).
+
 ## 0.6.15
 
 Unified window and single-request defaults.

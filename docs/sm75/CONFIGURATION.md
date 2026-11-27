@@ -100,6 +100,36 @@ Measured at a 3.0/3.1 GiB pool, cold, distinct prompts:
 1024 is the largest chunk that survives a 128K prefill at a 3 GiB pool; 256 costs 13-15 % for ~80 MiB
 more headroom.
 
+## Watching VRAM: current versus transient
+
+`nvidia-smi` samples on demand, so the sub-second spike that decides whether a long prefill OOMs is
+easy to miss. Use the shipped watcher:
+
+```bash
+python3 scripts/vram_watch.py --json                  # one sample, JSON (scriptable)
+python3 scripts/vram_watch.py                         # 1 Hz live table, Ctrl-C to stop
+python3 scripts/vram_watch.py --hz 10 --seconds 300 > prefill.csv   # keep every sample
+```
+
+It prints per GPU `used`, `free`, `util%` plus the engine's `running` / `waiting` / `kv_perc`, and at
+the end reports `min_free` and `peak_used` over the whole window. Those two are the numbers that
+matter: `peak_used - steady_used` is the transient, and `min_free` under load is what has to stay
+above roughly 600 MiB on this card - below it a 128K prefill dies mid-step even though the sampled
+value looked healthy.
+
+Engine-side accounting, all under `$RUN_DIR`:
+
+| what | where |
+|---|---|
+| effective profile after `--set` | `launch.json` |
+| pool split per KV group | the startup line `KVMem: DFlash2 group capacities [...] (X allocated of Y)` |
+| live blocks / reservations / authority counters | `capture/scheduler_resources.json` |
+| per-group page bytes and block sizes | `capture/cache-geometry.json` |
+| per-request decode cost | `capture/model_step_latency.jsonl` |
+
+`/metrics` carries `vllm:num_requests_running`, `vllm:num_requests_waiting` and
+`vllm:kv_cache_usage_perc`.
+
 ## Key knobs
 
 | key | default here | notes |
