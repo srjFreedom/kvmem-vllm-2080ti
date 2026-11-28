@@ -171,7 +171,7 @@ systemctl is-active kvmem-vllm        # active
 curl -s localhost:18200/v1/models | head -c 120
 ```
 
-Profiles: `local/serve-2080ti-default.json` (B 36K / R 8K, util 0.92, chunk 2,048, FlashQLA GDN kernel), `local/serve-2080ti-lean.json` (49K window, util 0.82), `local/serve-2080ti-200k.json` (200K window, util 0.96).
+Profiles: `local/serve-2080ti-default.json` (B 36K / R 4K, util 0.92, chunk 1,024, FlashQLA GDN kernel), `local/serve-2080ti-dflash2.json` (DFlash2 k=7, compiled graph, 3.0 GiB pool), `local/serve-2080ti-lean.json` (49K window, util 0.82), `local/serve-2080ti-200k.json` (200K window, util 0.96).
 
 ## Configuration in one page
 
@@ -197,9 +197,9 @@ head_dim 256 × 2 (K+V) × 1 byte (fp8). Measured from the engine both ways — 
 over 1,648 tokens. So **one 256K-token session costs 4.0 GiB of archive per rank, 8.0 GiB for TP=2**,
 plus ~0.17 GiB of session checkpoint (window-sized, independent of history length).
 
-Defaults (verified): both lanes ship B = 36K / R = 4K (window 40,960) at a 3.0 GiB pool,
-CTX = 200K, `max_num_seqs` = 1, `session_capacity` = 1, `prefill_chunk_tokens` = 1,024,
-`chat_prefill_blocks` = 32, `cpu_read_cache_bytes` = 6 GiB/rank,
+Defaults (verified): both lanes ship B = 36K / R = 4K (window 40,960); the MTP pool is 3.5 GiB and
+the DFlash2 pool 3.0 GiB, CTX = 200K, `max_num_seqs` = 1, `session_capacity` = 1,
+`prefill_chunk_tokens` = 1,024, `chat_prefill_blocks` = 32, `cpu_read_cache_bytes` = 6 GiB/rank,
 `mm_gdn_prefill_backend` = `flashqla_legacy`.
 
 The window is not all selectable. `sink_blocks` (the head) and the recent band (R) are deducted from

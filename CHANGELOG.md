@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.17-rc.1
+
+Pre-release: the DFlash2 profile is now self-consistent, so the documented
+launcher starts from the committed profile instead of papering over it.
+
+- `local/serve-2080ti-dflash2.json` ships `draft_method=dflash`, `draft_tokens=7`,
+  `execution_mode=compiled_graph`, `experimental_dflash_query_planning` and
+  `experimental_dflash_compiled_multi` enabled, and `sm75_spec_sync_mode=safe`.
+  Previously it carried the MTP values (`draft_method=mtp`, `draft_tokens=4`,
+  `full_graph`), which fail `build_launch` for k=7 on TP=2; the example launcher
+  hid the mismatch behind `--set`.
+- Verified on the 2x2080Ti host from the committed defaults: MTP (B=36K/R=4K,
+  3.5 GiB) and DFlash2 (B=36K/R=4K, 3.0 GiB) both start and answer; a 1,413-token
+  prompt prefills in two chunks (1,024 + 389) and generates to `finish=stop`.
+  Speculative acceptance: MTP 3.9-4.2, DFlash2 4.0-5.0.
+
 ## 0.6.16
 
 `scripts/vram_watch.py`: see current and transient GPU memory.
