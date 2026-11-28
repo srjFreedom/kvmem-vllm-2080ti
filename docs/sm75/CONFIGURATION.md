@@ -260,10 +260,10 @@ large windows for many short requests → 0.96.
 
 ## Verified concurrency reference configurations
 
-These are the machine-local launchers used on the 2 × 2080 Ti host, kept here as
-verified starting points for **multi-request** serving. The committed profiles
-ship the single-request defaults (`max_num_seqs=1`, `session_capacity=1`); reach
-these numbers with `--set` or by copying `deploy/example-*-launcher.sh`.
+These are verified multi-request reference configurations used on the 2 × 2080 Ti
+host. The committed profiles ship the single-request defaults (`max_num_seqs=1`,
+`session_capacity=1`); reach these numbers with `--set` or by copying
+`deploy/example-*-launcher.sh`.
 
 ### MTP — 3 concurrent requests
 
@@ -272,7 +272,7 @@ these numbers with `--set` or by copying `deploy/example-*-launcher.sh`.
 | `execution_mode` | `compiled_graph` |
 | `max_num_seqs` | 3 |
 | `max_num_batched_tokens` | 2,048 |
-| `prefill_chunk_tokens` | 2,048 |
+| `prefill_chunk_tokens` | 1,024 |
 | `chat_prefill_blocks` | 64 |
 | `kv_cache_memory_bytes` | 3.5 GiB |
 | `draft_method` / `draft_tokens` | `mtp` / 4 |
@@ -283,9 +283,9 @@ these numbers with `--set` or by copying `deploy/example-*-launcher.sh`.
 | window B+R | 57,344 |
 | `query_replay_budget` | 2,048 |
 | `kvmem.sink_blocks` / `recent_blocks` | 384 (12K) / 32 (1K) |
-| `kvmem.cpu_read_cache_bytes` | 36 GiB/rank (≈2.36M tokens) |
+| `kvmem.cpu_read_cache_bytes` | 20 GiB/rank (≈1.31M tokens) |
 | `kvmem.repository_blocks` | 16,384 |
-| `kvmem.session_capacity` | 8 |
+| `kvmem.session_capacity` | 6 |
 | `kvmem.session_checkpoint_bytes` | 1 GiB |
 | `max_model_len` | 262,144 |
 | `mm_gdn_prefill_backend` | `flashqla_legacy` (auto-detected) |
