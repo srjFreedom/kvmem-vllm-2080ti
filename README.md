@@ -261,10 +261,11 @@ One lane is shipped for this route: `deploy/example-dflash2-launcher.sh` with
 
 ## Known limits
 
-1. **Concurrency is batched, not free.** Both lanes ship `max_num_seqs=1`. The DFlash2 route can run
-   two (the 3.0 GiB pool holds one long-generating request plus the draft ring, see
-   [DFlash2 route](#dflash2-route)) and the MTP lane two as well, but window refresh and archiving
-   stay serialized, so a session that needs a rebuild makes the others wait for that step.
+1. **Concurrency is batched, not free.** The shipped profiles run `max_num_seqs=1`. The verified
+   machine-local references run MTP at 3 and DFlash2 at 2 (see
+   [verified concurrency configurations](docs/sm75/CONFIGURATION.md#verified-concurrency-reference-configurations)),
+   but window refresh and archiving stay serialized, so a session that needs a rebuild makes the
+   others wait for that step.
 2. **Rolling window mode** (`rolling_active_window=true`) plans from token ids. `/v1/completions`
    takes them directly; from 0.6.5 a `/v1/chat/completions` request is rendered with the served
    tokenizer and planned through the same window (before that it was rejected). What it still cannot

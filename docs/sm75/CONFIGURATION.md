@@ -258,6 +258,76 @@ At 0.96 a 200K window starts and decodes at full speed, but the prefill transien
 prompt no longer fits. 0.90 with a 131K window survives both. Choose by workload: long inputs → 0.90;
 large windows for many short requests → 0.96.
 
+## Verified concurrency reference configurations
+
+These are the machine-local launchers used on the 2 × 2080 Ti host, kept here as
+verified starting points for **multi-request** serving. The committed profiles
+ship the single-request defaults (`max_num_seqs=1`, `session_capacity=1`); reach
+these numbers with `--set` or by copying `deploy/example-*-launcher.sh`.
+
+### MTP — 3 concurrent requests
+
+| knob | value |
+|---|---|
+| `execution_mode` | `compiled_graph` |
+| `max_num_seqs` | 3 |
+| `max_num_batched_tokens` | 2,048 |
+| `prefill_chunk_tokens` | 2,048 |
+| `chat_prefill_blocks` | 64 |
+| `kv_cache_memory_bytes` | 3.5 GiB |
+| `draft_method` / `draft_tokens` | `mtp` / 4 |
+| `sm75_spec_sync_mode` | `nosync` |
+| `allow_mamba_spec_full_cudagraph` | `true` |
+| `kvmem.select_budget` (B) | 49,152 (48K) |
+| `kvmem.gen_budget` (R) | 8,192 (8K) |
+| window B+R | 57,344 |
+| `query_replay_budget` | 2,048 |
+| `kvmem.sink_blocks` / `recent_blocks` | 384 (12K) / 32 (1K) |
+| `kvmem.cpu_read_cache_bytes` | 36 GiB/rank (≈2.36M tokens) |
+| `kvmem.repository_blocks` | 16,384 |
+| `kvmem.session_capacity` | 8 |
+| `kvmem.session_checkpoint_bytes` | 1 GiB |
+| `max_model_len` | 262,144 |
+| `mm_gdn_prefill_backend` | `flashqla_legacy` (auto-detected) |
+
+### DFlash2 — 2 concurrent requests
+
+| knob | value |
+|---|---|
+| `execution_mode` | `compiled_graph` |
+| `max_num_seqs` | 2 |
+| `max_num_batched_tokens` | 2,064 |
+| `prefill_chunk_tokens` | 1,024 |
+| `chat_prefill_blocks` | 32 |
+| `kv_cache_memory_bytes` | 3.05 GiB |
+| `draft_method` / `draft_tokens` | `dflash` / 7 |
+| `sm75_spec_sync_mode` | `safe` |
+| `experimental_dflash_query_planning` / `experimental_dflash_compiled_multi` | `true` / `true` |
+| `mamba_cache_mode` | `align` (resolves to `none`) |
+| `logical_kv_capacity` / `skip_kv_check` | `false` / `true` |
+| `kvmem.select_budget` (B) | 43,008 (42K) |
+| `kvmem.gen_budget` (R) | 4,096 (4K) |
+| window B+R | 47,104 |
+| `query_replay_budget` | 1,024 |
+| `kvmem.sink_blocks` / `recent_blocks` | 704 (22K) / 64 (2K) |
+| `kvmem.cpu_read_cache_bytes` | 20 GiB/rank (≈1.31M tokens) |
+| `kvmem.repository_blocks` | 16,384 |
+| `kvmem.session_capacity` | 6 |
+| `kvmem.session_checkpoint_bytes` | 2 GiB |
+| `max_model_len` | 262,144 |
+| `mm_gdn_prefill_backend` | `flashqla_legacy` (auto-detected) |
+
+### Shared environment
+
+Both lanes set `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` together with
+`enable_cumem_allocator=true` and `disable_custom_all_reduce=true`, plus
+`KVMEM_SESSION_IDLE_LRU_EVICTION=1` so a full pool evicts an idle session instead
+of refusing the new one.
+
+DFlash2 additionally needs `VLLM_KV_CACHE_LAYOUT=BLHNC`,
+`VLLM_MAMBA_NONE_SMALL_BLOCK=1`, `VLLM_DFLASH_NATIVE_GROUPS_WITHOUT_APC=0`,
+`VLLM_DFLASH_DRAFT_PAGE_ALIGN=1`, and `KVMEM_CHECKPOINT_PINNED_PREWARM=0`.
+
 ## Overrides without editing the profile
 
 ```bash
